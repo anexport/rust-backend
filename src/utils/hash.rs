@@ -2,6 +2,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
+use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
 
@@ -22,4 +23,10 @@ pub fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
     Ok(Argon2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
+}
+
+pub fn hash_refresh_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    format!("{:x}", hasher.finalize())
 }

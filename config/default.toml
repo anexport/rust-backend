@@ -9,10 +9,21 @@ min_connections = 1
 
 [auth]
 jwt_secret = "change-me-in-production"
+jwt_kid = "v1"
+previous_jwt_secrets = []
+previous_jwt_kids = []
 jwt_expiration_seconds = 900  # 15 minutes
 refresh_token_expiration_days = 7
 issuer = "rust-backend"
 audience = "rust-backend-users"
+
+[security]
+cors_allowed_origins = ["http://localhost:3000"]
+metrics_allow_private_only = true
+metrics_admin_token = ""
+login_max_failures = 5
+login_lockout_seconds = 300
+login_backoff_base_ms = 200
 
 [oauth]
 google_client_id = ""

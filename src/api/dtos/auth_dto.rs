@@ -30,7 +30,20 @@ pub struct AuthResponse {
     pub user: UserResponse,
 }
 
+#[derive(Debug, Deserialize, Validate)]
+pub struct RefreshRequest {
+    #[validate(length(min = 1))]
+    pub refresh_token: String,
+}
+
 #[derive(Debug, Serialize)]
+pub struct SessionAuthResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub user: UserResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct UserResponse {
     pub id: Uuid,
     pub email: String,

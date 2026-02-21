@@ -37,6 +37,9 @@ impl TestDb {
 pub fn test_auth_config() -> AuthConfig {
     AuthConfig {
         jwt_secret: "integration-secret".to_string(),
+        jwt_kid: "v1".to_string(),
+        previous_jwt_secrets: Vec::new(),
+        previous_jwt_kids: Vec::new(),
         jwt_expiration_seconds: 900,
         refresh_token_expiration_days: 7,
         issuer: "rust-backend-test".to_string(),

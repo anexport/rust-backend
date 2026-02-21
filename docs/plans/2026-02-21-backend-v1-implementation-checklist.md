@@ -45,31 +45,31 @@ Acceptance criteria:
 - [x] Integration tests pass for core CRUD + auth register/login/me.
 
 ## Phase 2: Session and Token Hardening
-- [ ] Add migration for secure session fields:
+- [x] Add migration for secure session fields:
   - `family_id`, `replaced_by`, `revoked_reason`, `created_ip`, `last_seen_at`
-- [ ] Implement short-lived access JWT (15m) with `jti/sub/exp/iat/aud/iss/kid`.
-- [ ] Implement refresh token rotation on every refresh.
-- [ ] Implement token family replay detection:
+- [x] Implement short-lived access JWT (15m) with `jti/sub/exp/iat/aud/iss/kid`.
+- [x] Implement refresh token rotation on every refresh.
+- [x] Implement token family replay detection:
   - reuse detection revokes all active tokens in family
-- [ ] Store only refresh token hashes.
-- [ ] Add key-ring loader for active + previous signing keys.
+- [x] Store only refresh token hashes.
+- [x] Add key-ring loader for active + previous signing keys.
 
 Acceptance criteria:
-- [ ] Tests prove refresh rotation.
-- [ ] Tests prove refresh reuse invalidates family.
-- [ ] Tests prove old key verification works during rotation window.
+- [x] Tests prove refresh rotation.
+- [x] Tests prove refresh reuse invalidates family.
+- [x] Tests prove old key verification works during rotation window.
 
 ## Phase 3: HTTP Security Controls
-- [ ] Add CORS allowlist config (no wildcard with credentials).
-- [ ] Add secure cookie config: `HttpOnly`, `Secure`, `SameSite=Lax`.
-- [ ] Add CSRF protection for cookie-authenticated mutation endpoints.
-- [ ] Add auth rate limiting (IP + account).
-- [ ] Add login backoff/temporary lockout policy.
-- [ ] Add security headers middleware (HSTS, XCTO, XFO, Referrer-Policy, CSP baseline).
-- [ ] Restrict `/metrics` to internal network and/or admin auth.
+- [x] Add CORS allowlist config (no wildcard with credentials).
+- [x] Add secure cookie config: `HttpOnly`, `Secure`, `SameSite=Lax`.
+- [x] Add CSRF protection for cookie-authenticated mutation endpoints.
+- [x] Add auth rate limiting (IP + account).
+- [x] Add login backoff/temporary lockout policy.
+- [x] Add security headers middleware (HSTS, XCTO, XFO, Referrer-Policy, CSP baseline).
+- [x] Restrict `/metrics` to internal network and/or admin auth.
 
 Acceptance criteria:
-- [ ] Security integration tests pass for CORS/CSRF/headers/rate-limit.
+- [x] Security integration tests pass for CORS/CSRF/headers/rate-limit.
 - [ ] Staging confirms `/metrics` is not public.
 
 ## Phase 4: Authorization and Invariants

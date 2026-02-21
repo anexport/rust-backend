@@ -63,9 +63,14 @@ pub struct AuthIdentity {
 pub struct UserSession {
     pub id: Uuid,
     pub user_id: Uuid,
+    pub family_id: Uuid,
     pub refresh_token_hash: String,
     pub expires_at: DateTime<Utc>,
     pub revoked_at: Option<DateTime<Utc>>,
+    pub replaced_by: Option<Uuid>,
+    pub revoked_reason: Option<String>,
+    pub created_ip: Option<String>,
+    pub last_seen_at: Option<DateTime<Utc>>,
     pub device_info: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }

@@ -136,11 +136,35 @@ impl AuthRepository for MockAuthRepo {
     async fn revoke_all_sessions(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
         Ok(())
     }
+
+    async fn revoke_session_with_replacement(
+        &self,
+        _id: Uuid,
+        _replaced_by: Option<Uuid>,
+        _reason: Option<&str>,
+    ) -> rust_backend::error::AppResult<()> {
+        Ok(())
+    }
+
+    async fn revoke_family(
+        &self,
+        _family_id: Uuid,
+        _reason: &str,
+    ) -> rust_backend::error::AppResult<()> {
+        Ok(())
+    }
+
+    async fn touch_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
+        Ok(())
+    }
 }
 
 fn auth_config() -> AuthConfig {
     AuthConfig {
         jwt_secret: "test-secret".to_string(),
+        jwt_kid: "v1".to_string(),
+        previous_jwt_secrets: Vec::new(),
+        previous_jwt_kids: Vec::new(),
         jwt_expiration_seconds: 900,
         refresh_token_expiration_days: 7,
         issuer: "rust-backend-test".to_string(),

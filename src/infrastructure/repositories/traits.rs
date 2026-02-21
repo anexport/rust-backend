@@ -33,7 +33,15 @@ pub trait AuthRepository: Send + Sync {
     async fn create_session(&self, session: &UserSession) -> AppResult<UserSession>;
     async fn find_session_by_token_hash(&self, token_hash: &str) -> AppResult<Option<UserSession>>;
     async fn revoke_session(&self, id: Uuid) -> AppResult<()>;
+    async fn revoke_session_with_replacement(
+        &self,
+        id: Uuid,
+        replaced_by: Option<Uuid>,
+        reason: Option<&str>,
+    ) -> AppResult<()>;
     async fn revoke_all_sessions(&self, user_id: Uuid) -> AppResult<()>;
+    async fn revoke_family(&self, family_id: Uuid, reason: &str) -> AppResult<()>;
+    async fn touch_session(&self, id: Uuid) -> AppResult<()>;
 }
 
 #[async_trait]

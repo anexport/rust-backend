@@ -11,6 +11,7 @@ use rust_backend::infrastructure::repositories::{
     AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
     UserRepositoryImpl,
 };
+use rust_backend::security::{cors_middleware, security_headers, LoginThrottle};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -54,14 +55,19 @@ async fn main() -> std::io::Result<()> {
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(equipment_repo)),
         message_service: Arc::new(MessageService::new(message_repo)),
+        security: config.security.clone(),
+        login_throttle: Arc::new(LoginThrottle::new(&config.security)),
     };
 
     let bind_host = config.app.host.clone();
     let bind_port = config.app.port;
+    let security_config = config.security.clone();
 
     HttpServer::new(move || {
         App::new()
             .wrap(Logger::default())
+            .wrap(cors_middleware(&security_config))
+            .wrap(security_headers())
             .app_data(web::Data::new(state.clone()))
             .configure(routes::configure)
     })

@@ -172,16 +172,26 @@ impl AuthRepository for AuthRepositoryImpl {
     async fn create_session(&self, session: &UserSession) -> AppResult<UserSession> {
         let created = sqlx::query_as::<_, UserSession>(
             r#"
-            INSERT INTO user_sessions (id, user_id, refresh_token_hash, expires_at, revoked_at, device_info, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING id, user_id, refresh_token_hash, expires_at, revoked_at, device_info, created_at
-            "#
+            INSERT INTO user_sessions (
+                id, user_id, family_id, refresh_token_hash, expires_at, revoked_at, replaced_by,
+                revoked_reason, created_ip, last_seen_at, device_info, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING
+                id, user_id, family_id, refresh_token_hash, expires_at, revoked_at, replaced_by,
+                revoked_reason, created_ip, last_seen_at, device_info, created_at
+            "#,
         )
         .bind(session.id)
         .bind(session.user_id)
+        .bind(session.family_id)
         .bind(&session.refresh_token_hash)
         .bind(session.expires_at)
         .bind(session.revoked_at)
+        .bind(session.replaced_by)
+        .bind(&session.revoked_reason)
+        .bind(&session.created_ip)
+        .bind(session.last_seen_at)
         .bind(&session.device_info)
         .bind(session.created_at)
         .fetch_one(&self.pool)
@@ -191,7 +201,13 @@ impl AuthRepository for AuthRepositoryImpl {
 
     async fn find_session_by_token_hash(&self, token_hash: &str) -> AppResult<Option<UserSession>> {
         let session = sqlx::query_as::<_, UserSession>(
-            "SELECT id, user_id, refresh_token_hash, expires_at, revoked_at, device_info, created_at FROM user_sessions WHERE refresh_token_hash = $1 AND revoked_at IS NULL"
+            r#"
+            SELECT
+                id, user_id, family_id, refresh_token_hash, expires_at, revoked_at, replaced_by,
+                revoked_reason, created_ip, last_seen_at, device_info, created_at
+            FROM user_sessions
+            WHERE refresh_token_hash = $1
+            "#,
         )
         .bind(token_hash)
         .fetch_optional(&self.pool)
@@ -207,6 +223,23 @@ impl AuthRepository for AuthRepositoryImpl {
         Ok(())
     }
 
+    async fn revoke_session_with_replacement(
+        &self,
+        id: Uuid,
+        replaced_by: Option<Uuid>,
+        reason: Option<&str>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE user_sessions SET revoked_at = NOW(), replaced_by = $2, revoked_reason = $3 WHERE id = $1",
+        )
+        .bind(id)
+        .bind(replaced_by)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     async fn revoke_all_sessions(&self, user_id: Uuid) -> AppResult<()> {
         sqlx::query(
             "UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL",
@@ -214,6 +247,25 @@ impl AuthRepository for AuthRepositoryImpl {
         .bind(user_id)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn revoke_family(&self, family_id: Uuid, reason: &str) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE user_sessions SET revoked_at = NOW(), revoked_reason = $2 WHERE family_id = $1 AND revoked_at IS NULL",
+        )
+        .bind(family_id)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn touch_session(&self, id: Uuid) -> AppResult<()> {
+        sqlx::query("UPDATE user_sessions SET last_seen_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

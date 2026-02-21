@@ -32,6 +32,9 @@ pub enum AppError {
 
     #[error("Invalid token")]
     InvalidToken,
+
+    #[error("Too many requests")]
+    RateLimited,
 }
 
 impl ResponseError for AppError {
@@ -47,6 +50,7 @@ impl ResponseError for AppError {
             AppError::BadRequest(_) => "Bad request",
             AppError::TokenExpired => "Token expired",
             AppError::InvalidToken => "Invalid token",
+            AppError::RateLimited => "Too many requests",
         };
 
         HttpResponse::build(self.status_code()).json(serde_json::json!({
@@ -65,6 +69,7 @@ impl ResponseError for AppError {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::TokenExpired => StatusCode::UNAUTHORIZED,
             AppError::InvalidToken => StatusCode::UNAUTHORIZED,
+            AppError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             AppError::DatabaseError(_) | AppError::InternalError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -85,6 +90,7 @@ impl AppError {
             AppError::BadRequest(_) => "BAD_REQUEST",
             AppError::TokenExpired => "TOKEN_EXPIRED",
             AppError::InvalidToken => "INVALID_TOKEN",
+            AppError::RateLimited => "RATE_LIMITED",
         }
     }
 }
