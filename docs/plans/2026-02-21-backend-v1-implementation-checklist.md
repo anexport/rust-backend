@@ -73,14 +73,14 @@ Acceptance criteria:
 - [ ] Staging confirms `/metrics` is not public.
 
 ## Phase 4: Authorization and Invariants
-- [ ] Implement ownership checks for equipment/photo mutation endpoints.
-- [ ] Implement participant checks for conversation/message read/write endpoints.
-- [ ] Enforce role-based policies for admin-only operations.
-- [ ] Ensure all authorization matrix rows are covered by tests.
+- [x] Implement ownership checks for equipment/photo mutation endpoints.
+- [x] Implement participant checks for conversation/message read/write endpoints.
+- [x] Enforce role-based policies for admin-only operations.
+- [x] Ensure all authorization matrix rows are covered by tests.
 
 Acceptance criteria:
-- [ ] Authorization test matrix passes.
-- [ ] No endpoint bypass found in negative tests.
+- [x] Authorization test matrix passes.
+- [x] No endpoint bypass found in negative tests.
 
 ## Phase 5: WebSocket and Realtime Safety
 - [ ] Use `wss://` only in production.

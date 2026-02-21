@@ -64,8 +64,9 @@ async fn db_equipment_crud_flow() {
         .await
         .expect("category insert should succeed");
 
+    let user_repo = std::sync::Arc::new(UserRepositoryImpl::new(test_db.pool().clone()));
     let equipment_repo = std::sync::Arc::new(EquipmentRepositoryImpl::new(test_db.pool().clone()));
-    let service = EquipmentService::new(equipment_repo.clone());
+    let service = EquipmentService::new(user_repo, equipment_repo.clone());
 
     let created = service
         .create(

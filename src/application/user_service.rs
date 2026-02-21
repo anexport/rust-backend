@@ -66,9 +66,16 @@ impl UserService {
             .ok_or_else(|| AppError::NotFound("user not found".to_string()))?;
 
         if actor_user_id != target_user_id {
-            return Err(AppError::Forbidden(
-                "cannot modify another user".to_string(),
-            ));
+            let actor = self
+                .user_repo
+                .find_by_id(actor_user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            if actor.role != Role::Admin {
+                return Err(AppError::Forbidden(
+                    "cannot modify another user".to_string(),
+                ));
+            }
         }
 
         if let Some(username) = request.username {

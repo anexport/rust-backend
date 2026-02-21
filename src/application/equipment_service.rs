@@ -8,18 +8,25 @@ use crate::api::dtos::{
     AddPhotoRequest, CreateEquipmentRequest, EquipmentPhotoResponse, EquipmentQueryParams,
     EquipmentResponse, PaginatedResponse, UpdateEquipmentRequest,
 };
-use crate::domain::{Condition, Equipment, EquipmentPhoto};
+use crate::domain::{Condition, Equipment, EquipmentPhoto, Role};
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::repositories::EquipmentRepository;
+use crate::infrastructure::repositories::{EquipmentRepository, UserRepository};
 
 #[derive(Clone)]
 pub struct EquipmentService {
+    user_repo: Arc<dyn UserRepository>,
     equipment_repo: Arc<dyn EquipmentRepository>,
 }
 
 impl EquipmentService {
-    pub fn new(equipment_repo: Arc<dyn EquipmentRepository>) -> Self {
-        Self { equipment_repo }
+    pub fn new(
+        user_repo: Arc<dyn UserRepository>,
+        equipment_repo: Arc<dyn EquipmentRepository>,
+    ) -> Self {
+        Self {
+            user_repo,
+            equipment_repo,
+        }
     }
 
     pub async fn list(
@@ -152,7 +159,14 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         if existing.owner_id != actor_user_id {
-            return Err(AppError::Forbidden("not equipment owner".to_string()));
+            let actor = self
+                .user_repo
+                .find_by_id(actor_user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            if actor.role != Role::Admin {
+                return Err(AppError::Forbidden("not equipment owner".to_string()));
+            }
         }
 
         if let Some(title) = request.title {
@@ -202,7 +216,14 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         if existing.owner_id != actor_user_id {
-            return Err(AppError::Forbidden("not equipment owner".to_string()));
+            let actor = self
+                .user_repo
+                .find_by_id(actor_user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            if actor.role != Role::Admin {
+                return Err(AppError::Forbidden("not equipment owner".to_string()));
+            }
         }
 
         self.equipment_repo.delete(equipment_id).await
@@ -223,7 +244,14 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         if existing.owner_id != actor_user_id {
-            return Err(AppError::Forbidden("not equipment owner".to_string()));
+            let actor = self
+                .user_repo
+                .find_by_id(actor_user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            if actor.role != Role::Admin {
+                return Err(AppError::Forbidden("not equipment owner".to_string()));
+            }
         }
 
         let photos = self.equipment_repo.find_photos(equipment_id).await?;
@@ -258,7 +286,14 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         if existing.owner_id != actor_user_id {
-            return Err(AppError::Forbidden("not equipment owner".to_string()));
+            let actor = self
+                .user_repo
+                .find_by_id(actor_user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            if actor.role != Role::Admin {
+                return Err(AppError::Forbidden("not equipment owner".to_string()));
+            }
         }
 
         self.equipment_repo.delete_photo(photo_id).await

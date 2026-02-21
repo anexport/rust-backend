@@ -392,10 +392,10 @@ fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo
             auth_repo,
             auth_config(),
         )),
-        user_service: Arc::new(UserService::new(user_repo, equipment_repo.clone())),
+        user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
-        equipment_service: Arc::new(EquipmentService::new(equipment_repo)),
-        message_service: Arc::new(MessageService::new(message_repo)),
+        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
+        message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: security_config(),
         login_throttle: Arc::new(LoginThrottle::new(&security_config())),
     }
@@ -798,4 +798,171 @@ async fn login_backoff_and_lockout_returns_too_many_requests() {
     }
 
     assert!(seen_rate_limited);
+}
+
+#[test]
+async fn admin_can_update_other_users_profile() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo);
+
+    let admin_id = Uuid::new_v4();
+    let target_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: admin_id,
+        email: "admin@example.com".to_string(),
+        role: Role::Admin,
+        username: Some("admin".to_string()),
+        full_name: Some("Admin".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    user_repo.push(User {
+        id: target_id,
+        email: "target@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("target".to_string()),
+        full_name: Some("Target".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let update_request = actix_test::TestRequest::put()
+        .uri(&format!("/api/users/{target_id}"))
+        .insert_header(("x-user-id", admin_id.to_string()))
+        .set_json(serde_json::json!({
+            "full_name": "Updated By Admin"
+        }))
+        .to_request();
+    let update_response = actix_test::call_service(&app, update_request).await;
+    assert_eq!(update_response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn admin_can_update_foreign_equipment() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let admin_id = Uuid::new_v4();
+    let owner_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: admin_id,
+        email: "admin2@example.com".to_string(),
+        role: Role::Admin,
+        username: Some("admin2".to_string()),
+        full_name: Some("Admin 2".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    user_repo.push(User {
+        id: owner_id,
+        email: "owner2@example.com".to_string(),
+        role: Role::Owner,
+        username: Some("owner2".to_string()),
+        full_name: Some("Owner 2".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let equipment_id = Uuid::new_v4();
+    equipment_repo
+        .equipment
+        .lock()
+        .expect("equipment mutex poisoned")
+        .push(Equipment {
+            id: equipment_id,
+            owner_id,
+            category_id: Uuid::new_v4(),
+            title: "Owned Item".to_string(),
+            description: Some("Owned".to_string()),
+            daily_rate: Decimal::new(1000, 2),
+            condition: rust_backend::domain::Condition::Good,
+            location: Some("NY".to_string()),
+            coordinates: None,
+            is_available: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let update_request = actix_test::TestRequest::put()
+        .uri(&format!("/api/equipment/{equipment_id}"))
+        .insert_header(("x-user-id", admin_id.to_string()))
+        .set_json(serde_json::json!({
+            "title": "Admin Updated"
+        }))
+        .to_request();
+    let update_response = actix_test::call_service(&app, update_request).await;
+    assert_eq!(update_response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn non_admin_cannot_update_other_users_profile() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo);
+
+    let actor_id = Uuid::new_v4();
+    let target_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: actor_id,
+        email: "actor@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("actor".to_string()),
+        full_name: Some("Actor".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    user_repo.push(User {
+        id: target_id,
+        email: "target2@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("target2".to_string()),
+        full_name: Some("Target2".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let update_request = actix_test::TestRequest::put()
+        .uri(&format!("/api/users/{target_id}"))
+        .insert_header(("x-user-id", actor_id.to_string()))
+        .set_json(serde_json::json!({
+            "full_name": "Should Fail"
+        }))
+        .to_request();
+    let update_response = actix_test::call_service(&app, update_request).await;
+    assert_eq!(update_response.status(), StatusCode::FORBIDDEN);
 }

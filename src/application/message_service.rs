@@ -8,18 +8,25 @@ use crate::api::dtos::{
     ConversationResponse, CreateConversationRequest, MessageResponse, ParticipantResponse,
     SendMessageRequest,
 };
-use crate::domain::Message;
+use crate::domain::{Message, Role};
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::repositories::MessageRepository;
+use crate::infrastructure::repositories::{MessageRepository, UserRepository};
 
 #[derive(Clone)]
 pub struct MessageService {
+    user_repo: Arc<dyn UserRepository>,
     message_repo: Arc<dyn MessageRepository>,
 }
 
 impl MessageService {
-    pub fn new(message_repo: Arc<dyn MessageRepository>) -> Self {
-        Self { message_repo }
+    pub fn new(
+        user_repo: Arc<dyn UserRepository>,
+        message_repo: Arc<dyn MessageRepository>,
+    ) -> Self {
+        Self {
+            user_repo,
+            message_repo,
+        }
     }
 
     pub async fn list_conversations(&self, user_id: Uuid) -> AppResult<Vec<ConversationResponse>> {
@@ -67,8 +74,7 @@ impl MessageService {
         user_id: Uuid,
         id: Uuid,
     ) -> AppResult<ConversationResponse> {
-        let is_participant = self.message_repo.is_participant(id, user_id).await?;
-        if !is_participant {
+        if !self.can_access_conversation(user_id, id).await? {
             return Err(AppError::Forbidden("not a participant".to_string()));
         }
 
@@ -95,8 +101,7 @@ impl MessageService {
         offset: i64,
     ) -> AppResult<Vec<MessageResponse>> {
         if !self
-            .message_repo
-            .is_participant(conversation_id, user_id)
+            .can_access_conversation(user_id, conversation_id)
             .await?
         {
             return Err(AppError::Forbidden("not a participant".to_string()));
@@ -129,8 +134,7 @@ impl MessageService {
         request.validate()?;
 
         if !self
-            .message_repo
-            .is_participant(conversation_id, user_id)
+            .can_access_conversation(user_id, conversation_id)
             .await?
         {
             return Err(AppError::Forbidden("not a participant".to_string()));
@@ -153,5 +157,26 @@ impl MessageService {
             content: created.content,
             created_at: created.created_at,
         })
+    }
+
+    async fn can_access_conversation(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+    ) -> AppResult<bool> {
+        if self
+            .message_repo
+            .is_participant(conversation_id, user_id)
+            .await?
+        {
+            return Ok(true);
+        }
+
+        let user = self
+            .user_repo
+            .find_by_id(user_id)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+        Ok(user.role == Role::Admin)
     }
 }

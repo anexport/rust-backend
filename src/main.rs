@@ -51,10 +51,10 @@ async fn main() -> std::io::Result<()> {
             auth_repo,
             config.auth.clone(),
         )),
-        user_service: Arc::new(UserService::new(user_repo, equipment_repo.clone())),
+        user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
-        equipment_service: Arc::new(EquipmentService::new(equipment_repo)),
-        message_service: Arc::new(MessageService::new(message_repo)),
+        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
+        message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: config.security.clone(),
         login_throttle: Arc::new(LoginThrottle::new(&config.security)),
     };
