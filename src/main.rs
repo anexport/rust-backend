@@ -71,6 +71,7 @@ async fn main() -> std::io::Result<()> {
     let bind_host = config.app.host.clone();
     let bind_port = config.app.port;
     let security_config = config.security.clone();
+    let auth_config = config.auth.clone();
     let metrics = state.metrics.clone();
 
     HttpServer::new(move || {
@@ -79,11 +80,6 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .wrap_fn(move |req, srv| {
                 let request_id = Uuid::new_v4().to_string();
-                let user_id = req
-                    .headers()
-                    .get("x-user-id")
-                    .and_then(|value| value.to_str().ok())
-                    .map(|value| value.to_string());
                 let path = req.path().to_string();
                 let method = req.method().to_string();
                 let metrics = metrics.clone();
@@ -109,7 +105,6 @@ async fn main() -> std::io::Result<()> {
 
                             info!(
                                 request_id = %request_id,
-                                user_id = ?user_id,
                                 method = %method,
                                 path = %path,
                                 status = status,
@@ -129,6 +124,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(cors_middleware(&security_config))
             .wrap(security_headers())
             .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(auth_config.clone()))
             .configure(routes::configure)
     })
     .bind((bind_host, bind_port))?

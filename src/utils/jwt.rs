@@ -16,7 +16,7 @@ pub struct Claims {
     pub jti: Uuid,
     pub kid: String,
     pub iss: String,
-    pub aud: String,
+    pub aud: Vec<String>,
     pub role: String,
 }
 
@@ -31,7 +31,7 @@ pub fn create_access_token(user_id: Uuid, role: &str, config: &AuthConfig) -> Ap
         jti: Uuid::new_v4(),
         kid: config.jwt_kid.clone(),
         iss: config.issuer.clone(),
-        aud: config.audience.clone(),
+        aud: vec![config.audience.clone()],
         role: role.to_string(),
     };
 
@@ -108,7 +108,7 @@ mod tests {
             jti: Uuid::new_v4(),
             kid: "v1".to_string(),
             iss: cfg.issuer.clone(),
-            aud: cfg.audience.clone(),
+            aud: vec![cfg.audience.clone()],
             role: "renter".to_string(),
         };
 

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use actix_web::{web, HttpRequest, HttpResponse};
-use uuid::Uuid;
 
 use crate::application::{
     AuthService, CategoryService, EquipmentService, MessageService, UserService,
@@ -43,16 +42,6 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     .route("/health", web::get().to(health))
     .route("/ready", web::get().to(ready))
     .route("/metrics", web::get().to(metrics));
-}
-
-pub fn user_id_from_header(request: &HttpRequest) -> AppResult<Uuid> {
-    let header = request
-        .headers()
-        .get("x-user-id")
-        .ok_or(AppError::Unauthorized)?;
-
-    let raw = header.to_str().map_err(|_| AppError::Unauthorized)?;
-    Uuid::parse_str(raw).map_err(|_| AppError::Unauthorized)
 }
 
 async fn health() -> &'static str {

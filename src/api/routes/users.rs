@@ -1,9 +1,10 @@
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpResponse};
 use uuid::Uuid;
 
 use crate::api::dtos::UpdateUserRequest;
-use crate::api::routes::{user_id_from_header, AppState};
+use crate::api::routes::AppState;
 use crate::error::AppResult;
+use crate::middleware::auth::AuthenticatedUser;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -27,11 +28,11 @@ async fn get_user_profile(
 
 async fn update_user_profile(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     path: web::Path<Uuid>,
     payload: web::Json<UpdateUserRequest>,
 ) -> AppResult<HttpResponse> {
-    let actor = user_id_from_header(&request)?;
+    let actor = auth.0.sub;
     let target = path.into_inner();
     let result = state
         .user_service
@@ -40,8 +41,10 @@ async fn update_user_profile(
     Ok(HttpResponse::Ok().json(result))
 }
 
-async fn my_equipment(state: web::Data<AppState>, request: HttpRequest) -> AppResult<HttpResponse> {
-    let user_id = user_id_from_header(&request)?;
-    let result = state.user_service.my_equipment(user_id).await?;
+async fn my_equipment(
+    state: web::Data<AppState>,
+    auth: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let result = state.user_service.my_equipment(auth.0.sub).await?;
     Ok(HttpResponse::Ok().json(result))
 }

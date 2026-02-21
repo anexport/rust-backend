@@ -9,8 +9,9 @@ use crate::api::dtos::{
     AuthResponse, LoginRequest, OAuthCallbackRequest, RefreshRequest, RegisterRequest,
     SessionAuthResponse,
 };
-use crate::api::routes::{user_id_from_header, AppState};
+use crate::api::routes::AppState;
 use crate::error::{AppError, AppResult};
+use crate::middleware::auth::AuthenticatedUser;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -69,15 +70,16 @@ async fn login(
         }))
 }
 
-async fn me(state: web::Data<AppState>, request: HttpRequest) -> AppResult<HttpResponse> {
-    let user_id = user_id_from_header(&request)?;
-    let result = state.auth_service.me(user_id).await?;
+async fn me(state: web::Data<AppState>, auth: AuthenticatedUser) -> AppResult<HttpResponse> {
+    let result = state.auth_service.me(auth.0.sub).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
-async fn verify_email(state: web::Data<AppState>, request: HttpRequest) -> AppResult<HttpResponse> {
-    let user_id = user_id_from_header(&request)?;
-    state.auth_service.verify_email(user_id).await?;
+async fn verify_email(
+    state: web::Data<AppState>,
+    auth: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    state.auth_service.verify_email(auth.0.sub).await?;
     Ok(HttpResponse::NoContent().finish())
 }
 

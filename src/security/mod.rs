@@ -31,7 +31,7 @@ pub fn security_headers() -> DefaultHeaders {
         ))
         .add(("X-Content-Type-Options", "nosniff"))
         .add(("X-Frame-Options", "DENY"))
-        .add(("Referrer-Policy", "no-referrer"))
+        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
         .add((
             "Content-Security-Policy",
             "default-src 'self'; frame-ancestors 'none'; object-src 'none'",

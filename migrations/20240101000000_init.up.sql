@@ -76,10 +76,10 @@ CREATE TABLE equipment (
     owner_id UUID NOT NULL REFERENCES profiles(id),
     category_id UUID NOT NULL REFERENCES categories(id),
     title TEXT NOT NULL,
-    description TEXT NOT NULL,
+    description TEXT,
     daily_rate DECIMAL(8,2) NOT NULL,
     condition TEXT NOT NULL CHECK (condition IN ('new', 'excellent', 'good', 'fair')),
-    location TEXT NOT NULL,
+    location TEXT,
     coordinates GEOGRAPHY(POINT, 4326),   -- PostGIS for geospatial queries
     is_available BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

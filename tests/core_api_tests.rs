@@ -454,6 +454,7 @@ async fn metrics_route_is_registered() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -474,6 +475,7 @@ async fn auth_register_login_and_me_flow_succeeds() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -490,13 +492,7 @@ async fn auth_register_login_and_me_flow_succeeds() {
         .to_request();
     let register_response = actix_test::call_service(&app, register_request).await;
     assert_eq!(register_response.status(), StatusCode::CREATED);
-    let register_body: serde_json::Value = actix_test::read_body_json(register_response).await;
-    let user_id = register_body
-        .get("user")
-        .and_then(|user| user.get("id"))
-        .and_then(serde_json::Value::as_str)
-        .expect("user id should exist")
-        .to_string();
+    let _register_body: serde_json::Value = actix_test::read_body_json(register_response).await;
 
     let login_request = actix_test::TestRequest::post()
         .uri("/api/auth/login")
@@ -507,10 +503,16 @@ async fn auth_register_login_and_me_flow_succeeds() {
         .to_request();
     let login_response = actix_test::call_service(&app, login_request).await;
     assert_eq!(login_response.status(), StatusCode::OK);
+    let login_body: serde_json::Value = actix_test::read_body_json(login_response).await;
+    let access_token = login_body
+        .get("access_token")
+        .and_then(serde_json::Value::as_str)
+        .expect("access token should exist")
+        .to_string();
 
     let me_request = actix_test::TestRequest::get()
         .uri("/api/auth/me")
-        .insert_header(("x-user-id", user_id))
+        .insert_header(("Authorization", format!("Bearer {access_token}")))
         .to_request();
     let me_response = actix_test::call_service(&app, me_request).await;
     assert_eq!(me_response.status(), StatusCode::OK);
@@ -538,14 +540,19 @@ async fn equipment_crud_flow_succeeds() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
     .await;
 
+    let owner_token =
+        rust_backend::utils::jwt::create_access_token(owner_id, "owner", &auth_config())
+            .expect("owner token should be created");
+
     let create_request = actix_test::TestRequest::post()
         .uri("/api/equipment")
-        .insert_header(("x-user-id", owner_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .set_json(serde_json::json!({
             "category_id": Uuid::new_v4(),
             "title": "Cinema Camera",
@@ -572,7 +579,7 @@ async fn equipment_crud_flow_succeeds() {
 
     let update_request = actix_test::TestRequest::put()
         .uri(&format!("/api/equipment/{equipment_id}"))
-        .insert_header(("x-user-id", owner_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .set_json(serde_json::json!({
             "title": "Cinema Camera Updated",
             "description": "Updated description for camera package"
@@ -583,7 +590,7 @@ async fn equipment_crud_flow_succeeds() {
 
     let delete_request = actix_test::TestRequest::delete()
         .uri(&format!("/api/equipment/{equipment_id}"))
-        .insert_header(("x-user-id", owner_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .to_request();
     let delete_response = actix_test::call_service(&app, delete_request).await;
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
@@ -844,6 +851,294 @@ async fn login_backoff_and_lockout_returns_too_many_requests() {
 }
 
 #[test]
+async fn refresh_rejects_when_csrf_header_does_not_match_cookie() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let register_request = actix_test::TestRequest::post()
+        .uri("/api/auth/register")
+        .set_json(serde_json::json!({
+            "email": "csrf-mismatch@example.com",
+            "password": "super-secure-password",
+            "username": "csrf-mismatch",
+            "full_name": "Csrf Mismatch"
+        }))
+        .to_request();
+    let register_response = actix_test::call_service(&app, register_request).await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+
+    let login_request = actix_test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(serde_json::json!({
+            "email": "csrf-mismatch@example.com",
+            "password": "super-secure-password"
+        }))
+        .to_request();
+    let login_response = actix_test::call_service(&app, login_request).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookie_values: Vec<String> = login_response
+        .headers()
+        .get_all("set-cookie")
+        .map(|value| value.to_str().expect("set-cookie should be valid utf8"))
+        .map(ToString::to_string)
+        .collect();
+
+    let refresh_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("refresh_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("refresh cookie should be set")
+        .to_string();
+
+    let csrf_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("csrf_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie should be set")
+        .to_string();
+
+    let refresh_request = actix_test::TestRequest::post()
+        .uri("/api/auth/refresh")
+        .insert_header(("Cookie", format!("{refresh_cookie}; {csrf_cookie}")))
+        .insert_header(("x-csrf-token", "definitely-not-matching"))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let refresh_response = actix_test::call_service(&app, refresh_request).await;
+    assert_eq!(refresh_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+async fn refresh_succeeds_with_matching_csrf_cookie_and_header() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let register_request = actix_test::TestRequest::post()
+        .uri("/api/auth/register")
+        .set_json(serde_json::json!({
+            "email": "csrf-valid@example.com",
+            "password": "super-secure-password",
+            "username": "csrf-valid",
+            "full_name": "Csrf Valid"
+        }))
+        .to_request();
+    let register_response = actix_test::call_service(&app, register_request).await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+
+    let login_request = actix_test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(serde_json::json!({
+            "email": "csrf-valid@example.com",
+            "password": "super-secure-password"
+        }))
+        .to_request();
+    let login_response = actix_test::call_service(&app, login_request).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookie_values: Vec<String> = login_response
+        .headers()
+        .get_all("set-cookie")
+        .map(|value| value.to_str().expect("set-cookie should be valid utf8"))
+        .map(ToString::to_string)
+        .collect();
+
+    let refresh_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("refresh_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("refresh cookie should be set")
+        .to_string();
+
+    let csrf_cookie_name_value = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("csrf_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie should be set")
+        .to_string();
+    let csrf_value = csrf_cookie_name_value
+        .split_once('=')
+        .map(|(_, value)| value.to_string())
+        .expect("csrf cookie should contain value");
+
+    let refresh_request = actix_test::TestRequest::post()
+        .uri("/api/auth/refresh")
+        .insert_header((
+            "Cookie",
+            format!("{refresh_cookie}; {csrf_cookie_name_value}"),
+        ))
+        .insert_header(("x-csrf-token", csrf_value))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let refresh_response = actix_test::call_service(&app, refresh_request).await;
+    assert_eq!(refresh_response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn metrics_allows_admin_token_from_non_private_request() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let mut state = app_state(user_repo, equipment_repo);
+    state.security.metrics_allow_private_only = true;
+    state.security.metrics_admin_token = Some("ops-secret".to_string());
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/metrics")
+        .insert_header(("x-admin-token", "ops-secret"))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn renter_cannot_create_equipment() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo);
+
+    let renter_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: renter_id,
+        email: "renter-create@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("renter-create".to_string()),
+        full_name: Some("Renter Create".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+    let token = rust_backend::utils::jwt::create_access_token(renter_id, "renter", &auth_config())
+        .expect("token should be created");
+
+    let create_request = actix_test::TestRequest::post()
+        .uri("/api/equipment")
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .set_json(serde_json::json!({
+            "category_id": Uuid::new_v4(),
+            "title": "Should Not Work",
+            "description": "Renter cannot create equipment listing",
+            "daily_rate": Decimal::new(4900, 2),
+            "condition": "good",
+            "location": "Austin"
+        }))
+        .to_request();
+    let create_response = actix_test::call_service(&app, create_request).await;
+    assert_eq!(create_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[test]
+async fn non_owner_cannot_update_equipment() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let owner_id = Uuid::new_v4();
+    let other_user_id = Uuid::new_v4();
+    let equipment_id = Uuid::new_v4();
+
+    user_repo.push(User {
+        id: owner_id,
+        email: "owner-update@example.com".to_string(),
+        role: Role::Owner,
+        username: Some("owner-update".to_string()),
+        full_name: Some("Owner Update".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    user_repo.push(User {
+        id: other_user_id,
+        email: "other-update@example.com".to_string(),
+        role: Role::Owner,
+        username: Some("other-update".to_string()),
+        full_name: Some("Other Update".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    equipment_repo
+        .equipment
+        .lock()
+        .expect("equipment mutex poisoned")
+        .push(Equipment {
+            id: equipment_id,
+            owner_id,
+            category_id: Uuid::new_v4(),
+            title: "Owner Only Item".to_string(),
+            description: Some("Cannot be updated by another owner".to_string()),
+            daily_rate: Decimal::new(5000, 2),
+            condition: rust_backend::domain::Condition::Good,
+            location: Some("Denver".to_string()),
+            coordinates: None,
+            is_available: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+    let token =
+        rust_backend::utils::jwt::create_access_token(other_user_id, "owner", &auth_config())
+            .expect("token should be created");
+
+    let update_request = actix_test::TestRequest::put()
+        .uri(&format!("/api/equipment/{equipment_id}"))
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .set_json(serde_json::json!({
+            "title": "Illegally Updated"
+        }))
+        .to_request();
+    let update_response = actix_test::call_service(&app, update_request).await;
+    assert_eq!(update_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[test]
 async fn admin_can_update_other_users_profile() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -876,14 +1171,18 @@ async fn admin_can_update_other_users_profile() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
     .await;
 
+    let token = rust_backend::utils::jwt::create_access_token(admin_id, "admin", &auth_config())
+        .expect("admin token should be created");
+
     let update_request = actix_test::TestRequest::put()
         .uri(&format!("/api/users/{target_id}"))
-        .insert_header(("x-user-id", admin_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "full_name": "Updated By Admin"
         }))
@@ -945,14 +1244,18 @@ async fn admin_can_update_foreign_equipment() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
     .await;
 
+    let token = rust_backend::utils::jwt::create_access_token(admin_id, "admin", &auth_config())
+        .expect("admin token should be created");
+
     let update_request = actix_test::TestRequest::put()
         .uri(&format!("/api/equipment/{equipment_id}"))
-        .insert_header(("x-user-id", admin_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "title": "Admin Updated"
         }))
@@ -994,14 +1297,18 @@ async fn non_admin_cannot_update_other_users_profile() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
     .await;
 
+    let token = rust_backend::utils::jwt::create_access_token(actor_id, "renter", &auth_config())
+        .expect("actor token should be created");
+
     let update_request = actix_test::TestRequest::put()
         .uri(&format!("/api/users/{target_id}"))
-        .insert_header(("x-user-id", actor_id.to_string()))
+        .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "full_name": "Should Fail"
         }))

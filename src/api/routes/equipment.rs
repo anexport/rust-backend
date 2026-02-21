@@ -1,11 +1,12 @@
-use actix_web::{web, HttpRequest, HttpResponse};
+use actix_web::{web, HttpResponse};
 use uuid::Uuid;
 
 use crate::api::dtos::{
     AddPhotoRequest, CreateEquipmentRequest, EquipmentQueryParams, UpdateEquipmentRequest,
 };
-use crate::api::routes::{user_id_from_header, AppState};
-use crate::error::AppResult;
+use crate::api::routes::AppState;
+use crate::error::{AppError, AppResult};
+use crate::middleware::auth::AuthenticatedUser;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -43,10 +44,15 @@ async fn get_equipment(
 
 async fn create_equipment(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     payload: web::Json<CreateEquipmentRequest>,
 ) -> AppResult<HttpResponse> {
-    let owner_id = user_id_from_header(&request)?;
+    if auth.0.role != "owner" && auth.0.role != "admin" {
+        return Err(AppError::Forbidden(
+            "only owners can create listings".to_string(),
+        ));
+    }
+    let owner_id = auth.0.sub;
     let result = state
         .equipment_service
         .create(owner_id, payload.into_inner())
@@ -56,11 +62,11 @@ async fn create_equipment(
 
 async fn update_equipment(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     path: web::Path<Uuid>,
     payload: web::Json<UpdateEquipmentRequest>,
 ) -> AppResult<HttpResponse> {
-    let actor_user_id = user_id_from_header(&request)?;
+    let actor_user_id = auth.0.sub;
     let result = state
         .equipment_service
         .update(actor_user_id, path.into_inner(), payload.into_inner())
@@ -70,10 +76,10 @@ async fn update_equipment(
 
 async fn delete_equipment(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     path: web::Path<Uuid>,
 ) -> AppResult<HttpResponse> {
-    let actor_user_id = user_id_from_header(&request)?;
+    let actor_user_id = auth.0.sub;
     state
         .equipment_service
         .delete(actor_user_id, path.into_inner())
@@ -83,11 +89,11 @@ async fn delete_equipment(
 
 async fn add_photo(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     path: web::Path<Uuid>,
     payload: web::Json<AddPhotoRequest>,
 ) -> AppResult<HttpResponse> {
-    let actor_user_id = user_id_from_header(&request)?;
+    let actor_user_id = auth.0.sub;
     let result = state
         .equipment_service
         .add_photo(actor_user_id, path.into_inner(), payload.into_inner())
@@ -97,10 +103,10 @@ async fn add_photo(
 
 async fn delete_photo(
     state: web::Data<AppState>,
-    request: HttpRequest,
+    auth: AuthenticatedUser,
     path: web::Path<(Uuid, Uuid)>,
 ) -> AppResult<HttpResponse> {
-    let actor_user_id = user_id_from_header(&request)?;
+    let actor_user_id = auth.0.sub;
     let (equipment_id, photo_id) = path.into_inner();
     state
         .equipment_service
