@@ -42,6 +42,7 @@ pub trait AuthRepository: Send + Sync {
     async fn revoke_all_sessions(&self, user_id: Uuid) -> AppResult<()>;
     async fn revoke_family(&self, family_id: Uuid, reason: &str) -> AppResult<()>;
     async fn touch_session(&self, id: Uuid) -> AppResult<()>;
+    async fn has_active_session(&self, user_id: Uuid) -> AppResult<bool>;
 }
 
 #[async_trait]

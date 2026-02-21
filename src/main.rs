@@ -57,6 +57,7 @@ async fn main() -> std::io::Result<()> {
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: config.security.clone(),
         login_throttle: Arc::new(LoginThrottle::new(&config.security)),
+        app_environment: config.app.environment.clone(),
     };
 
     let bind_host = config.app.host.clone();

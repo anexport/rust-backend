@@ -25,6 +25,7 @@ pub struct AppState {
     pub message_service: Arc<MessageService>,
     pub security: SecurityConfig,
     pub login_throttle: Arc<LoginThrottle>,
+    pub app_environment: String,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

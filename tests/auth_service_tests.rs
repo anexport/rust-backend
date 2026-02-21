@@ -157,6 +157,10 @@ impl AuthRepository for MockAuthRepo {
     async fn touch_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
         Ok(())
     }
+
+    async fn has_active_session(&self, _user_id: Uuid) -> rust_backend::error::AppResult<bool> {
+        Ok(true)
+    }
 }
 
 fn auth_config() -> AuthConfig {

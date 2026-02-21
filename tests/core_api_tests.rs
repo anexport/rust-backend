@@ -95,6 +95,7 @@ impl UserRepository for MockUserRepo {
 #[derive(Default)]
 struct MockAuthRepo {
     identities: Mutex<Vec<AuthIdentity>>,
+    sessions: Mutex<Vec<UserSession>>,
 }
 
 #[async_trait]
@@ -150,21 +151,42 @@ impl AuthRepository for MockAuthRepo {
         &self,
         session: &UserSession,
     ) -> rust_backend::error::AppResult<UserSession> {
+        self.sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .push(session.clone());
         Ok(session.clone())
     }
 
     async fn find_session_by_token_hash(
         &self,
-        _token_hash: &str,
+        token_hash: &str,
     ) -> rust_backend::error::AppResult<Option<UserSession>> {
-        Ok(None)
+        Ok(self
+            .sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .iter()
+            .find(|session| session.refresh_token_hash == token_hash)
+            .cloned())
     }
 
     async fn revoke_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
+        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
+        if let Some(session) = sessions.iter_mut().find(|session| session.id == _id) {
+            session.revoked_at = Some(Utc::now());
+        }
         Ok(())
     }
 
     async fn revoke_all_sessions(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
+        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
+        for session in sessions
+            .iter_mut()
+            .filter(|session| session.user_id == _user_id)
+        {
+            session.revoked_at = Some(Utc::now());
+        }
         Ok(())
     }
 
@@ -186,7 +208,24 @@ impl AuthRepository for MockAuthRepo {
     }
 
     async fn touch_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
+        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
+        if let Some(session) = sessions.iter_mut().find(|session| session.id == _id) {
+            session.last_seen_at = Some(Utc::now());
+        }
         Ok(())
+    }
+
+    async fn has_active_session(&self, user_id: Uuid) -> rust_backend::error::AppResult<bool> {
+        Ok(self
+            .sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .iter()
+            .any(|session| {
+                session.user_id == user_id
+                    && session.revoked_at.is_none()
+                    && session.expires_at > Utc::now()
+            }))
     }
 }
 
@@ -398,6 +437,7 @@ fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: security_config(),
         login_throttle: Arc::new(LoginThrottle::new(&security_config())),
+        app_environment: "test".to_string(),
     }
 }
 
@@ -965,4 +1005,99 @@ async fn non_admin_cannot_update_other_users_profile() {
         .to_request();
     let update_response = actix_test::call_service(&app, update_request).await;
     assert_eq!(update_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[test]
+async fn ws_upgrade_requires_authorization() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/ws")
+        .insert_header(("Connection", "Upgrade"))
+        .insert_header(("Upgrade", "websocket"))
+        .insert_header(("Sec-WebSocket-Version", "13"))
+        .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+async fn ws_upgrade_rejects_when_user_has_no_active_session() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo);
+
+    let user_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: user_id,
+        email: "ws-user@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("ws-user".to_string()),
+        full_name: Some("Ws User".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let token = rust_backend::utils::jwt::create_access_token(user_id, "renter", &auth_config())
+        .expect("token should be created");
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/ws")
+        .insert_header(("Connection", "Upgrade"))
+        .insert_header(("Upgrade", "websocket"))
+        .insert_header(("Sec-WebSocket-Version", "13"))
+        .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+async fn ws_upgrade_requires_wss_in_production() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let mut state = app_state(user_repo, equipment_repo);
+    state.app_environment = "production".to_string();
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/ws")
+        .insert_header(("Connection", "Upgrade"))
+        .insert_header(("Upgrade", "websocket"))
+        .insert_header(("Sec-WebSocket-Version", "13"))
+        .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

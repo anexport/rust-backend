@@ -83,15 +83,15 @@ Acceptance criteria:
 - [x] No endpoint bypass found in negative tests.
 
 ## Phase 5: WebSocket and Realtime Safety
-- [ ] Use `wss://` only in production.
-- [ ] Authenticate WS on upgrade using `Authorization` header (fallback subprotocol only if needed).
-- [ ] Validate session revocation on connect.
-- [ ] Implement ping/pong timeout handling and connection cleanup.
-- [ ] Store message in DB before broadcast.
+- [x] Use `wss://` only in production.
+- [x] Authenticate WS on upgrade using `Authorization` header (fallback subprotocol only if needed).
+- [x] Validate session revocation on connect.
+- [x] Implement ping/pong timeout handling and connection cleanup.
+- [x] Store message in DB before broadcast.
 
 Acceptance criteria:
-- [ ] WS auth/revocation tests pass.
-- [ ] Reconnect + missed message recovery path verified.
+- [x] WS auth/revocation tests pass.
+- [x] Reconnect + missed message recovery path verified.
 
 ## Phase 6: Observability and Ops
 - [ ] Add structured logs with request ID and user ID context.

@@ -201,6 +201,19 @@ impl AuthRepository for MockAuthRepo {
         }
         Ok(())
     }
+
+    async fn has_active_session(&self, user_id: Uuid) -> rust_backend::error::AppResult<bool> {
+        Ok(self
+            .sessions
+            .lock()
+            .expect("sessions mutex poisoned")
+            .iter()
+            .any(|session| {
+                session.user_id == user_id
+                    && session.revoked_at.is_none()
+                    && session.expires_at > Utc::now()
+            }))
+    }
 }
 
 fn auth_config() -> AuthConfig {

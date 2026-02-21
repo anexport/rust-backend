@@ -10,7 +10,7 @@ use crate::domain::{AuthIdentity, AuthProvider, Role, User, UserSession};
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{AuthRepository, UserRepository};
 use crate::utils::hash::{hash_password, hash_refresh_token, verify_password};
-use crate::utils::jwt::create_access_token;
+use crate::utils::jwt::{create_access_token, validate_token, Claims};
 
 #[derive(Clone)]
 pub struct AuthService {
@@ -170,11 +170,9 @@ impl AuthService {
             .ok_or(AppError::Unauthorized)?;
 
         if session.revoked_at.is_some() {
-            if session.replaced_by.is_some() {
-                self.auth_repo
-                    .revoke_family(session.family_id, "refresh token replay detected")
-                    .await?;
-            }
+            self.auth_repo
+                .revoke_family(session.family_id, "refresh token replay detected")
+                .await?;
             return Err(AppError::Unauthorized);
         }
 
@@ -211,10 +209,32 @@ impl AuthService {
         Ok(issued)
     }
 
-    pub fn logout_not_implemented(&self) -> AppResult<()> {
-        Err(AppError::BadRequest(
-            "logout with session revocation will be implemented in phase 2".to_string(),
-        ))
+    pub async fn logout(&self, refresh_token: &str) -> AppResult<()> {
+        let refresh_hash = hash_refresh_token(refresh_token);
+        let session = self
+            .auth_repo
+            .find_session_by_token_hash(&refresh_hash)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        if session.revoked_at.is_some() {
+            return Err(AppError::Unauthorized);
+        }
+
+        self.auth_repo
+            .revoke_session_with_replacement(session.id, None, Some("logout"))
+            .await
+    }
+
+    pub fn validate_access_token(&self, token: &str) -> AppResult<Claims> {
+        validate_token(token, &self.config)
+    }
+
+    pub async fn ensure_active_session_for_user(&self, user_id: Uuid) -> AppResult<()> {
+        if self.auth_repo.has_active_session(user_id).await? {
+            return Ok(());
+        }
+        Err(AppError::Unauthorized)
     }
 
     pub fn refresh_expiry(&self) -> Duration {
@@ -270,5 +290,523 @@ fn role_as_str(role: Role) -> String {
         Role::Renter => "renter".to_string(),
         Role::Owner => "owner".to_string(),
         Role::Admin => "admin".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    use crate::config::AuthConfig;
+    use crate::infrastructure::repositories::{AuthRepository, UserRepository};
+    use crate::utils::hash::hash_password;
+
+    #[derive(Default)]
+    struct MockUserRepository {
+        users_by_id: Mutex<HashMap<Uuid, User>>,
+        email_to_user_id: Mutex<HashMap<String, Uuid>>,
+        username_to_user_id: Mutex<HashMap<String, Uuid>>,
+    }
+
+    impl MockUserRepository {
+        fn insert_user(&self, user: User) {
+            let mut users = self
+                .users_by_id
+                .lock()
+                .expect("users mutex should not be poisoned");
+            let mut emails = self
+                .email_to_user_id
+                .lock()
+                .expect("email mutex should not be poisoned");
+            let mut usernames = self
+                .username_to_user_id
+                .lock()
+                .expect("username mutex should not be poisoned");
+
+            emails.insert(user.email.clone(), user.id);
+            if let Some(username) = &user.username {
+                usernames.insert(username.clone(), user.id);
+            }
+            users.insert(user.id, user);
+        }
+    }
+
+    #[async_trait]
+    impl UserRepository for MockUserRepository {
+        async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
+            let users = self
+                .users_by_id
+                .lock()
+                .expect("users mutex should not be poisoned");
+            Ok(users.get(&id).cloned())
+        }
+
+        async fn find_by_email(&self, email: &str) -> AppResult<Option<User>> {
+            let user_id = self
+                .email_to_user_id
+                .lock()
+                .expect("email mutex should not be poisoned")
+                .get(email)
+                .copied();
+            let users = self
+                .users_by_id
+                .lock()
+                .expect("users mutex should not be poisoned");
+            Ok(user_id.and_then(|id| users.get(&id).cloned()))
+        }
+
+        async fn find_by_username(&self, username: &str) -> AppResult<Option<User>> {
+            let user_id = self
+                .username_to_user_id
+                .lock()
+                .expect("username mutex should not be poisoned")
+                .get(username)
+                .copied();
+            let users = self
+                .users_by_id
+                .lock()
+                .expect("users mutex should not be poisoned");
+            Ok(user_id.and_then(|id| users.get(&id).cloned()))
+        }
+
+        async fn create(&self, user: &User) -> AppResult<User> {
+            self.insert_user(user.clone());
+            Ok(user.clone())
+        }
+
+        async fn update(&self, user: &User) -> AppResult<User> {
+            self.insert_user(user.clone());
+            Ok(user.clone())
+        }
+
+        async fn delete(&self, id: Uuid) -> AppResult<()> {
+            let maybe_user = self
+                .users_by_id
+                .lock()
+                .expect("users mutex should not be poisoned")
+                .remove(&id);
+            if let Some(user) = maybe_user {
+                self.email_to_user_id
+                    .lock()
+                    .expect("email mutex should not be poisoned")
+                    .remove(&user.email);
+                if let Some(username) = user.username {
+                    self.username_to_user_id
+                        .lock()
+                        .expect("username mutex should not be poisoned")
+                        .remove(&username);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct MockAuthRepository {
+        identities: Mutex<HashMap<(Uuid, String), AuthIdentity>>,
+        identities_by_provider_id: Mutex<HashMap<(String, String), AuthIdentity>>,
+        sessions: Mutex<HashMap<Uuid, UserSession>>,
+        sessions_by_token_hash: Mutex<HashMap<String, Uuid>>,
+    }
+
+    impl MockAuthRepository {
+        fn insert_identity(&self, identity: AuthIdentity) {
+            let key = (
+                identity.user_id,
+                provider_as_str(identity.provider).to_string(),
+            );
+            self.identities
+                .lock()
+                .expect("identities mutex should not be poisoned")
+                .insert(key, identity.clone());
+
+            if let Some(provider_id) = &identity.provider_id {
+                self.identities_by_provider_id
+                    .lock()
+                    .expect("provider identities mutex should not be poisoned")
+                    .insert(
+                        (
+                            provider_as_str(identity.provider).to_string(),
+                            provider_id.clone(),
+                        ),
+                        identity,
+                    );
+            }
+        }
+
+        fn insert_session(&self, session: UserSession) {
+            self.sessions_by_token_hash
+                .lock()
+                .expect("session hash mutex should not be poisoned")
+                .insert(session.refresh_token_hash.clone(), session.id);
+            self.sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned")
+                .insert(session.id, session);
+        }
+
+        fn session_by_token_hash(&self, token_hash: &str) -> Option<UserSession> {
+            let session_id = self
+                .sessions_by_token_hash
+                .lock()
+                .expect("session hash mutex should not be poisoned")
+                .get(token_hash)
+                .copied();
+            let sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            session_id.and_then(|id| sessions.get(&id).cloned())
+        }
+
+        fn session_by_id(&self, id: Uuid) -> Option<UserSession> {
+            self.sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned")
+                .get(&id)
+                .cloned()
+        }
+    }
+
+    #[async_trait]
+    impl AuthRepository for MockAuthRepository {
+        async fn create_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
+            self.insert_identity(identity.clone());
+            Ok(identity.clone())
+        }
+
+        async fn find_identity_by_user_id(
+            &self,
+            user_id: Uuid,
+            provider: &str,
+        ) -> AppResult<Option<AuthIdentity>> {
+            Ok(self
+                .identities
+                .lock()
+                .expect("identities mutex should not be poisoned")
+                .get(&(user_id, provider.to_string()))
+                .cloned())
+        }
+
+        async fn find_identity_by_provider_id(
+            &self,
+            provider: &str,
+            provider_id: &str,
+        ) -> AppResult<Option<AuthIdentity>> {
+            Ok(self
+                .identities_by_provider_id
+                .lock()
+                .expect("provider identities mutex should not be poisoned")
+                .get(&(provider.to_string(), provider_id.to_string()))
+                .cloned())
+        }
+
+        async fn verify_email(&self, user_id: Uuid) -> AppResult<()> {
+            let mut identities = self
+                .identities
+                .lock()
+                .expect("identities mutex should not be poisoned");
+            for ((identity_user_id, _), identity) in identities.iter_mut() {
+                if *identity_user_id == user_id {
+                    identity.verified = true;
+                }
+            }
+            Ok(())
+        }
+
+        async fn create_session(&self, session: &UserSession) -> AppResult<UserSession> {
+            self.insert_session(session.clone());
+            Ok(session.clone())
+        }
+
+        async fn find_session_by_token_hash(
+            &self,
+            token_hash: &str,
+        ) -> AppResult<Option<UserSession>> {
+            Ok(self.session_by_token_hash(token_hash))
+        }
+
+        async fn revoke_session(&self, id: Uuid) -> AppResult<()> {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            if let Some(session) = sessions.get_mut(&id) {
+                session.revoked_at = Some(Utc::now());
+            }
+            Ok(())
+        }
+
+        async fn revoke_session_with_replacement(
+            &self,
+            id: Uuid,
+            replaced_by: Option<Uuid>,
+            reason: Option<&str>,
+        ) -> AppResult<()> {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            if let Some(session) = sessions.get_mut(&id) {
+                session.revoked_at = Some(Utc::now());
+                session.replaced_by = replaced_by;
+                session.revoked_reason = reason.map(|value| value.to_string());
+            }
+            Ok(())
+        }
+
+        async fn revoke_all_sessions(&self, user_id: Uuid) -> AppResult<()> {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            for session in sessions.values_mut() {
+                if session.user_id == user_id && session.revoked_at.is_none() {
+                    session.revoked_at = Some(Utc::now());
+                }
+            }
+            Ok(())
+        }
+
+        async fn revoke_family(&self, family_id: Uuid, reason: &str) -> AppResult<()> {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            for session in sessions.values_mut() {
+                if session.family_id == family_id && session.revoked_at.is_none() {
+                    session.revoked_at = Some(Utc::now());
+                    session.revoked_reason = Some(reason.to_string());
+                }
+            }
+            Ok(())
+        }
+
+        async fn touch_session(&self, id: Uuid) -> AppResult<()> {
+            let mut sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            if let Some(session) = sessions.get_mut(&id) {
+                session.last_seen_at = Some(Utc::now());
+            }
+            Ok(())
+        }
+
+        async fn has_active_session(&self, user_id: Uuid) -> AppResult<bool> {
+            let sessions = self
+                .sessions
+                .lock()
+                .expect("sessions mutex should not be poisoned");
+            Ok(sessions.values().any(|session| {
+                session.user_id == user_id
+                    && session.revoked_at.is_none()
+                    && session.expires_at > Utc::now()
+            }))
+        }
+    }
+
+    fn auth_config() -> AuthConfig {
+        AuthConfig {
+            jwt_secret: "test-secret".to_string(),
+            jwt_kid: "test-kid".to_string(),
+            previous_jwt_secrets: Vec::new(),
+            previous_jwt_kids: Vec::new(),
+            jwt_expiration_seconds: 900,
+            refresh_token_expiration_days: 7,
+            issuer: "rust-backend-tests".to_string(),
+            audience: "rust-backend-client".to_string(),
+        }
+    }
+
+    fn provider_as_str(provider: AuthProvider) -> &'static str {
+        match provider {
+            AuthProvider::Email => "email",
+            AuthProvider::Google => "google",
+            AuthProvider::GitHub => "github",
+        }
+    }
+
+    fn test_user(email: &str) -> User {
+        let now = Utc::now();
+        User {
+            id: Uuid::new_v4(),
+            email: email.to_string(),
+            role: Role::Renter,
+            username: Some("tester".to_string()),
+            full_name: Some("Test User".to_string()),
+            avatar_url: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    fn test_session(user_id: Uuid, family_id: Uuid, raw_token: &str) -> UserSession {
+        UserSession {
+            id: Uuid::new_v4(),
+            user_id,
+            family_id,
+            refresh_token_hash: hash_refresh_token(raw_token),
+            expires_at: Utc::now() + Duration::days(1),
+            revoked_at: None,
+            replaced_by: None,
+            revoked_reason: None,
+            created_ip: None,
+            last_seen_at: None,
+            device_info: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn register_returns_conflict_on_duplicate_email() {
+        let user_repo = Arc::new(MockUserRepository::default());
+        let auth_repo = Arc::new(MockAuthRepository::default());
+        let service = AuthService::new(user_repo.clone(), auth_repo, auth_config());
+
+        user_repo.insert_user(test_user("duplicate@example.com"));
+
+        let request = RegisterRequest {
+            email: "duplicate@example.com".to_string(),
+            password: "a-very-strong-password".to_string(),
+            username: Some("someone".to_string()),
+            full_name: Some("Someone".to_string()),
+        };
+
+        let result = service.register(request).await;
+        assert!(matches!(result, Err(AppError::Conflict(_))));
+    }
+
+    #[tokio::test]
+    async fn login_returns_unauthorized_on_wrong_password() {
+        let user_repo = Arc::new(MockUserRepository::default());
+        let auth_repo = Arc::new(MockAuthRepository::default());
+        let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config());
+
+        let user = test_user("login@example.com");
+        user_repo.insert_user(user.clone());
+        auth_repo.insert_identity(AuthIdentity {
+            id: Uuid::new_v4(),
+            user_id: user.id,
+            provider: AuthProvider::Email,
+            provider_id: None,
+            password_hash: Some(
+                hash_password("correct-password").expect("password hash should be created"),
+            ),
+            verified: true,
+            created_at: Utc::now(),
+        });
+
+        let result = service
+            .login(LoginRequest {
+                email: "login@example.com".to_string(),
+                password: "wrong-password".to_string(),
+            })
+            .await;
+
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn refresh_session_tokens_rotates_and_revokes_old_session() {
+        let user_repo = Arc::new(MockUserRepository::default());
+        let auth_repo = Arc::new(MockAuthRepository::default());
+        let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config());
+
+        let user = test_user("rotate@example.com");
+        let family_id = Uuid::new_v4();
+        let previous_raw_token = "refresh-token-old";
+        let previous_session = test_session(user.id, family_id, previous_raw_token);
+        let previous_session_id = previous_session.id;
+
+        user_repo.insert_user(user);
+        auth_repo.insert_session(previous_session);
+
+        let result = service
+            .refresh_session_tokens(previous_raw_token, Some("127.0.0.1".to_string()))
+            .await
+            .expect("refresh should rotate");
+
+        let revoked_old = auth_repo
+            .session_by_id(previous_session_id)
+            .expect("old session should still exist");
+        assert!(revoked_old.revoked_at.is_some());
+        assert_eq!(revoked_old.revoked_reason.as_deref(), Some("rotated"));
+        assert!(revoked_old.replaced_by.is_some());
+
+        let new_session = auth_repo
+            .session_by_token_hash(&hash_refresh_token(&result.refresh_token))
+            .expect("new session should exist");
+        assert_eq!(new_session.family_id, family_id);
+        assert!(new_session.revoked_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn refresh_session_tokens_revokes_family_on_replay() {
+        let user_repo = Arc::new(MockUserRepository::default());
+        let auth_repo = Arc::new(MockAuthRepository::default());
+        let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config());
+
+        let user = test_user("replay@example.com");
+        let family_id = Uuid::new_v4();
+        user_repo.insert_user(user.clone());
+
+        let replayed_raw_token = "refresh-token-replayed";
+        let active_raw_token = "refresh-token-active";
+
+        let mut replayed = test_session(user.id, family_id, replayed_raw_token);
+        replayed.revoked_at = Some(Utc::now() - Duration::minutes(1));
+        replayed.revoked_reason = Some("logout".to_string());
+
+        let active = test_session(user.id, family_id, active_raw_token);
+        let active_session_id = active.id;
+
+        auth_repo.insert_session(replayed);
+        auth_repo.insert_session(active);
+
+        let result = service
+            .refresh_session_tokens(replayed_raw_token, None)
+            .await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+
+        let active_after = auth_repo
+            .session_by_id(active_session_id)
+            .expect("active family session should exist");
+        assert!(active_after.revoked_at.is_some());
+        assert_eq!(
+            active_after.revoked_reason.as_deref(),
+            Some("refresh token replay detected")
+        );
+    }
+
+    #[tokio::test]
+    async fn logout_revokes_session_when_refresh_token_is_valid() {
+        let user_repo = Arc::new(MockUserRepository::default());
+        let auth_repo = Arc::new(MockAuthRepository::default());
+        let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config());
+
+        let user = test_user("logout@example.com");
+        user_repo.insert_user(user.clone());
+
+        let family_id = Uuid::new_v4();
+        let raw_token = "refresh-token-logout";
+        let session = test_session(user.id, family_id, raw_token);
+        let session_id = session.id;
+        auth_repo.insert_session(session);
+
+        service
+            .logout(raw_token)
+            .await
+            .expect("logout should revoke active session");
+
+        let revoked = auth_repo
+            .session_by_id(session_id)
+            .expect("session should remain present");
+        assert!(revoked.revoked_at.is_some());
+        assert_eq!(revoked.revoked_reason.as_deref(), Some("logout"));
+        assert!(revoked.replaced_by.is_none());
     }
 }

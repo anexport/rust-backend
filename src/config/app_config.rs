@@ -18,6 +18,8 @@ pub struct AppConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    #[serde(default = "default_environment")]
+    pub environment: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -120,4 +122,8 @@ fn default_login_lockout_seconds() -> u64 {
 
 fn default_login_backoff_base_ms() -> u64 {
     200
+}
+
+fn default_environment() -> String {
+    "development".to_string()
 }

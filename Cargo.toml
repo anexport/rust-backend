@@ -55,6 +55,7 @@ thiserror = "1"
 anyhow = "1"
 rust_decimal = { version = "1", features = ["serde"] }
 sha2 = "0.10"
+futures-util = "0.3"
 
 [dev-dependencies]
 actix-rt = "2"

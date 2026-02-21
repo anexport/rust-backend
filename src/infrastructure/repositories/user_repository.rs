@@ -268,4 +268,14 @@ impl AuthRepository for AuthRepositoryImpl {
             .await?;
         Ok(())
     }
+
+    async fn has_active_session(&self, user_id: Uuid) -> AppResult<bool> {
+        let exists: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW() LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(exists.is_some())
+    }
 }
