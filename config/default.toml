@@ -1,0 +1,25 @@
+[app]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+url = "postgres://postgres:postgres@localhost:5432/rust_backend"
+max_connections = 10
+min_connections = 1
+
+[auth]
+jwt_secret = "change-me-in-production"
+jwt_expiration_seconds = 900  # 15 minutes
+refresh_token_expiration_days = 7
+issuer = "rust-backend"
+audience = "rust-backend-users"
+
+[oauth]
+google_client_id = ""
+google_client_secret = ""
+github_client_id = ""
+github_client_secret = ""
+
+[logging]
+level = "info"
+json_format = false

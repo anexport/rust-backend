@@ -15,34 +15,34 @@
 - Run verification commands at each checkpoint.
 
 ## Phase 0: Project Scaffold and Guardrails
-- [ ] Create folder layout from `PLAN.md` (modules + tests + config skeleton).
-- [ ] Add baseline dependencies in `Cargo.toml`.
-- [ ] Add `rust-toolchain.toml` and pin stable toolchain.
-- [ ] Add `Makefile` or `justfile` with `fmt`, `clippy`, `test`, `audit`, `check`.
-- [ ] Configure CI to run:
+- [x] Create folder layout from `PLAN.md` (modules + tests + config skeleton).
+- [x] Add baseline dependencies in `Cargo.toml`.
+- [x] Add `rust-toolchain.toml` and pin stable toolchain.
+- [x] Add `Makefile` or `justfile` with `fmt`, `clippy`, `test`, `audit`, `check`.
+- [x] Configure CI to run:
   - `cargo fmt --check`
   - `cargo clippy -- -D warnings`
   - `cargo test`
   - `cargo audit`
 
 Acceptance criteria:
-- [ ] `cargo check` passes.
-- [ ] CI runs all baseline jobs on PR.
+- [x] `cargo check` passes.
+- [x] CI runs all baseline jobs on PR.
 
 ## Phase 1: Database and Core API
-- [ ] Create SQL migrations for schema in `PLAN.md`.
-- [ ] Include security tables/indexes:
+- [x] Create SQL migrations for schema in `PLAN.md`.
+- [x] Include security tables/indexes:
   - `auth_identities` provider checks
   - `user_sessions` hash index
   - `equipment_photos` single-primary index
   - message participant trigger
-- [ ] Add SQLx repository layer for users/auth/equipment/messages.
-- [ ] Implement endpoint skeletons for all listed routes with typed DTOs.
-- [ ] Add request validation on all write endpoints.
+- [x] Add SQLx repository layer for users/auth/equipment/messages.
+- [x] Implement endpoint skeletons for all listed routes with typed DTOs.
+- [x] Add request validation on all write endpoints.
 
 Acceptance criteria:
-- [ ] `sqlx migrate run` succeeds on clean DB.
-- [ ] Integration tests pass for core CRUD + auth register/login/me.
+- [x] `sqlx migrate run` succeeds on clean DB.
+- [x] Integration tests pass for core CRUD + auth register/login/me.
 
 ## Phase 2: Session and Token Hardening
 - [ ] Add migration for secure session fields:

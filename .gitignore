@@ -1,0 +1,10 @@
+/target
+/.env
+/config/local.toml
+*.db
+*.db-journal
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo

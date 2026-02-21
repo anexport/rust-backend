@@ -1,0 +1,6 @@
+[database]
+url = "postgres://postgres:postgres@localhost:5432/rust_backend_dev"
+
+[logging]
+level = "debug"
+json_format = false
