@@ -1,135 +1,197 @@
-# Rust Backend v1 Implementation Checklist
+# Rust Backend v1 — Implementation Checklist
 
-> **For Codex/Claude:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this checklist task-by-task.
+> This checklist tracks what exists in the codebase. A phase is only done when the code is written, tests pass, and `cargo clippy -- -D warnings` is clean.
+>
+> Operational items (dashboards, runbooks, staging drills, go-live) are NOT tracked here — they belong in the deployment runbook, not a code checklist.
 
-**Goal:** Ship a production-ready v1 Rust backend with secure auth/session handling, observability, and a safe Supabase cutover path.
+---
 
-**Architecture:** Build in phases. Keep API thin, business logic in services, domain invariants explicit, and security controls centralized in `src/security/`.
+## Phase 0: Scaffold and Guardrails ✅
 
-**Tech Stack:** Actix-web, SQLx/Postgres, PostGIS, JWT + rotated refresh sessions, tracing, utoipa.
+- [x] Folder layout, module structure
+- [x] Cargo.toml with all dependencies
+- [x] rust-toolchain.toml pinned to stable
+- [x] Makefile with fmt, clippy, test, audit, check-all targets
+- [x] CI: fmt, clippy, test, audit jobs on push/PR
+- [x] CI: integration job running `cargo test --test '*'` with PostGIS service
+- [x] CI: `sqlx migrate run` before tests
 
-## How to Use This Checklist
-- Complete phases in order.
-- Do not mark a phase done unless all acceptance criteria pass.
-- Every task should result in code + tests.
-- Run verification commands at each checkpoint.
+**Exit criteria:** `cargo check` passes, CI green on PR.
 
-## Phase 0: Project Scaffold and Guardrails
-- [x] Create folder layout from `PLAN.md` (modules + tests + config skeleton).
-- [x] Add baseline dependencies in `Cargo.toml`.
-- [x] Add `rust-toolchain.toml` and pin stable toolchain.
-- [x] Add `Makefile` or `justfile` with `fmt`, `clippy`, `test`, `audit`, `check`.
-- [x] Configure CI to run:
-  - `cargo fmt --check`
-  - `cargo clippy -- -D warnings`
-  - `cargo test`
-  - `cargo audit`
+---
 
-Acceptance criteria:
-- [x] `cargo check` passes.
-- [x] CI runs all baseline jobs on PR.
+## Phase 1: Database and Core API ✅
 
-## Phase 1: Database and Core API
-- [x] Create SQL migrations for schema in `PLAN.md`.
-- [x] Include security tables/indexes:
-  - `auth_identities` provider checks
-  - `user_sessions` hash index
-  - `equipment_photos` single-primary index
-  - message participant trigger
-- [x] Add SQLx repository layer for users/auth/equipment/messages.
-- [x] Implement endpoint skeletons for all listed routes with typed DTOs.
-- [x] Add request validation on all write endpoints.
+- [x] Migrations: init schema (profiles, auth_identities, user_sessions, equipment, categories, conversations, messages, photos)
+- [x] Migrations: PostGIS extension, indexes, triggers (participant enforcement, updated_at)
+- [x] Migrations: up + down files
+- [x] Repository layer: UserRepo, AuthRepo, EquipmentRepo, MessageRepo, CategoryRepo
+- [x] All routes wired: auth, users, equipment, categories, conversations, messages, health, ready, metrics, ws
+- [x] DTOs with validation on all write endpoints
+- [x] `tests/common/mod.rs`: real TestDb (connects to DB, runs migrations, truncates between tests)
+- [x] `tests/phase1_db_integration_tests.rs`: register/login/me flow, equipment CRUD flow
 
-Acceptance criteria:
-- [x] `sqlx migrate run` succeeds on clean DB.
-- [x] Integration tests pass for core CRUD + auth register/login/me.
+**Remaining:**
+- [ ] `tests/integration/` directory is empty — integration tests live in loose `tests/*.rs` files, not under `tests/integration/` as planned. Move or leave as-is, but note the structure doesn't match the plan.
+- [ ] Equipment geospatial filter endpoints (filter by lat/lng + radius, filter by category, price range) — `list()` in EquipmentService uses `find_all` with no filter support yet.
 
-## Phase 2: Session and Token Hardening
-- [x] Add migration for secure session fields:
-  - `family_id`, `replaced_by`, `revoked_reason`, `created_ip`, `last_seen_at`
-- [x] Implement short-lived access JWT (15m) with `jti/sub/exp/iat/aud/iss/kid`.
-- [x] Implement refresh token rotation on every refresh.
-- [x] Implement token family replay detection:
-  - reuse detection revokes all active tokens in family
-- [x] Store only refresh token hashes.
-- [x] Add key-ring loader for active + previous signing keys.
+**Exit criteria:** `sqlx migrate run` clean on empty DB. `cargo test` passes including DB integration tests when `DATABASE_URL` is set.
 
-Acceptance criteria:
-- [x] Tests prove refresh rotation.
-- [x] Tests prove refresh reuse invalidates family.
-- [x] Tests prove old key verification works during rotation window.
+---
 
-## Phase 3: HTTP Security Controls
-- [x] Add CORS allowlist config (no wildcard with credentials).
-- [x] Add secure cookie config: `HttpOnly`, `Secure`, `SameSite=Lax`.
-- [x] Add CSRF protection for cookie-authenticated mutation endpoints.
-- [x] Add auth rate limiting (IP + account).
-- [x] Add login backoff/temporary lockout policy.
-- [x] Add security headers middleware (HSTS, XCTO, XFO, Referrer-Policy, CSP baseline).
-- [x] Restrict `/metrics` to internal network and/or admin auth.
+## Phase 2: Session and Token Hardening ✅
 
-Acceptance criteria:
-- [x] Security integration tests pass for CORS/CSRF/headers/rate-limit.
-- [x] Staging confirms `/metrics` is not public.
+- [x] Migration: `family_id`, `replaced_by`, `revoked_reason`, `created_ip`, `last_seen_at` added to user_sessions
+- [x] JWT claims: `sub`, `exp`, `iat`, `jti`, `aud`, `iss`, `kid`, `role`
+- [x] Access token: 15 min expiry, HS256
+- [x] Refresh token: opaque random, stored as SHA256 hash only
+- [x] Rotation: new token issued on every refresh, old revoked with `replaced_by`
+- [x] Replay detection: any revoked token reuse triggers `revoke_family`
+- [x] Key ring: active + previous signing keys, `validate_token` walks the ring by `kid`
+- [x] `auth_service.rs` unit tests: duplicate email, wrong password, rotation, replay, logout
+- [x] `tests/phase2_refresh_tests.rs`: rotation and family revocation end-to-end
 
-## Phase 4: Authorization and Invariants
-- [x] Implement ownership checks for equipment/photo mutation endpoints.
-- [x] Implement participant checks for conversation/message read/write endpoints.
-- [x] Enforce role-based policies for admin-only operations.
-- [x] Ensure all authorization matrix rows are covered by tests.
+**Exit criteria:** All three unit test categories pass. `cargo test phase2` green.
 
-Acceptance criteria:
-- [x] Authorization test matrix passes.
-- [x] No endpoint bypass found in negative tests.
+---
 
-## Phase 5: WebSocket and Realtime Safety
-- [x] Use `wss://` only in production.
-- [x] Authenticate WS on upgrade using `Authorization` header (fallback subprotocol only if needed).
-- [x] Validate session revocation on connect.
-- [x] Implement ping/pong timeout handling and connection cleanup.
-- [x] Store message in DB before broadcast.
+## Phase 3: HTTP Security Controls ✅
 
-Acceptance criteria:
-- [x] WS auth/revocation tests pass.
-- [x] Reconnect + missed message recovery path verified.
+- [x] CORS: allowlist-only, `supports_credentials()`, no wildcard
+- [x] Cookies: `HttpOnly`, `Secure`, `SameSite=Lax` on refresh token. `HttpOnly=false` on csrf token (readable by JS)
+- [x] CSRF: double-submit cookie validation on refresh and logout when cookie present
+- [x] Login throttle: exponential backoff + lockout per account+IP key, `record_success` clears state
+- [x] Security headers: HSTS, X-Content-Type-Options, X-Frame-Options, `Referrer-Policy: strict-origin-when-cross-origin`, CSP
+- [x] `/metrics`: admin token check + private IP fallback
 
-## Phase 6: Observability and Ops
-- [x] Add structured logs with request ID and user ID context.
-- [x] Add audit log events:
-  - login/logout/refresh failures
-  - role changes
-  - admin actions
-- [x] Implement `/health` (process-only) and `/ready` (dependencies ready).
-- [x] Add metrics for latency, error rate, DB pool, WS connections, auth failures.
-- [x] Add error tracking integration for unexpected 5xx.
+**Remaining:**
+- [ ] `actix-governor` IP-level rate limiting — listed in Cargo.toml but not wired to any route. LoginThrottle handles per-account throttling but there is no blanket per-IP limiter on auth endpoints.
+- [ ] CSRF double-submit is only enforced when a cookie is present. A JSON-only client (no cookies) bypasses CSRF entirely — this is by design but should be documented.
 
-Acceptance criteria:
-- [x] Dashboards show service health and auth anomalies.
-- [x] Alert rules trigger in staging simulations.
+**Exit criteria:** `cargo test` passes. Manual verification: security headers present on all responses, CORS rejects unlisted origins, login lockout triggers after 5 failures.
 
-## Phase 7: Migration and Cutover
-- [x] Build export/transform/import scripts from Supabase.
-- [x] Run dry-run migration in staging with data validation report.
-- [x] Validate row counts, referential integrity, and critical business fields.
-- [x] Prepare rollback playbook (DB + app version rollback).
-- [x] Execute production cutover window with runbook.
+---
 
-Acceptance criteria:
-- [x] Data validation report signed off.
-- [x] Rollback drill passes before production cutover.
+## Phase 4: Authorization and Invariants ✅
 
-## Phase 8: Final Release Gate
-- [x] Security review has zero critical/high findings.
-- [x] Performance targets met in staging load test.
-- [x] On-call runbook documented (auth outage, DB outage, WS degradation).
-- [x] Secrets rotation and JWT key rotation tested.
-- [x] Backups + restore drill completed and documented.
+- [x] JWT auth middleware: `AuthenticatedUser` extractor via `FromRequest`, validates token, returns typed `Claims`
+- [x] `AuthConfig` registered as `web::Data` in `main.rs`
+- [x] All protected routes use `AuthenticatedUser` — `user_id_from_header` removed from active use
+- [x] `create_equipment`: owner/admin role guard before service call
+- [x] Equipment mutations: owner check with admin override in service
+- [x] Conversation/message access: participant check with admin override in service
+- [x] Profile updates: self-only with admin override
+- [x] `middleware/auth.rs` unit tests: valid token, missing header, malformed header, expired, wrong secret
 
-Acceptance criteria:
-- [x] Release checklist approved by engineering owner.
-- [x] Go-live decision recorded with date/time and rollback owner.
+**Remaining:**
+- [ ] `user_id_from_header` function still defined in `routes/mod.rs` but never called — dead code, clippy will flag it. Delete it.
+- [ ] `GET /users/me/equipment` — route registered under `/users/me/equipment` but Actix matches `/{id}` before `/me/equipment` due to route ordering. Needs the `/me/equipment` route registered before `/{id}` or moved to a different scope.
+
+**Exit criteria:** `cargo clippy -- -D warnings` clean. `cargo test` passes. No route accepts a spoofed `x-user-id` header.
+
+---
+
+## Phase 5: WebSocket and Realtime ✅
+
+- [x] WS upgrade rejects missing/invalid/expired token
+- [x] Session revocation check on connect (`ensure_active_session_for_user`)
+- [x] `wss://` enforced in production environment (checks scheme + `x-forwarded-proto`)
+- [x] Token extracted from `Authorization: Bearer` header with `Sec-WebSocket-Protocol: bearer, <token>` fallback
+- [x] Heartbeat: 30s ping interval, 90s inactivity timeout, connection closed on timeout
+- [x] Message persisted to DB before broadcast
+- [x] `ping` → `pong` round-trip
+- [x] Malformed JSON returns `BAD_MESSAGE` error, connection stays open
+- [x] Binary messages return `UNSUPPORTED_BINARY` error
+- [x] `ws_disconnected` metric decremented on loop exit
+- [x] In-file unit tests for token extraction, envelope parsing, subprotocol fallback
+- [x] `tests/ws_realtime_tests.rs`: full socket tests with real server via `tokio-tungstenite`
+
+**Remaining:**
+- [ ] `typing` and `read` message types defined in protocol spec but not handled in `handle_text_message` — currently falls through to `UNSUPPORTED_TYPE`.
+- [ ] No fanout to other participants — message is saved and echoed back to sender only. Multi-client broadcast requires a shared connection registry (e.g. `DashMap<Uuid, Vec<Session>>`).
+- [ ] Reconnect / missed message recovery is REST-based by design but not documented in any client-facing way.
+
+**Exit criteria:** `cargo test ws` passes including real socket tests.
+
+---
+
+## Phase 6: Observability ✅ (code only)
+
+- [x] Request ID (`x-request-id`) injected on every response via `wrap_fn`
+- [x] Per-request structured log: request_id, method, path, status, latency_ms
+- [x] Auth events logged: login success/failure (`info!`/`warn!`), refresh, logout
+- [x] `AppMetrics`: request count, error count, auth failure count, WS connections, latency (atomics)
+- [x] Prometheus text format at `/metrics`
+- [x] DB pool size + idle exposed in metrics
+- [x] `/health` returns 200, `/ready` pings DB
+- [x] `capture_unexpected_5xx` logs 5xx events with event_id
+
+**Remaining (operational — not code tasks):**
+- [ ] Prometheus scrape config pointing at `/metrics`
+- [ ] Grafana dashboards for request rate, error rate, latency, auth failures, WS connections
+- [ ] Alert rules (e.g. error rate > 1%, auth failures spike)
+- [ ] Log aggregation pipeline (e.g. Loki, Datadog) ingesting JSON logs
+
+**Exit criteria (code):** `cargo test` passes. `/health` returns 200. `/ready` returns 200 when DB is up and 500 when it's not. `/metrics` returns valid Prometheus text when accessed with admin token or from private IP.
+
+---
+
+## Phase 7: Supabase Migration ⚠️ (stubs only)
+
+- [x] `scripts/supabase_export_transform_import.sh` — shell scaffold with dry-run/apply modes
+- [x] `scripts/validate_migration.sh` — row count + FK integrity queries
+
+**Not done — requires real Supabase data and staging environment:**
+- [ ] Actual Supabase export commands (supabase CLI or pg_dump)
+- [ ] Transform logic mapping Supabase auth.users → profiles + auth_identities
+- [ ] Import commands (psql COPY or INSERT scripts)
+- [ ] Dry-run validation report against real Supabase export
+- [ ] Rollback playbook documented and drilled
+
+**Exit criteria:** Migration dry-run completes against a staging DB seeded with production-shaped data. Row counts match. FK integrity checks return 0 violations.
+
+---
+
+## Phase 8: OAuth Implementation ❌ (not started)
+
+Both OAuth endpoints currently return `400 Bad Request` with a message saying they will be implemented later.
+
+- [ ] Google OAuth: exchange code for tokens, fetch user info, upsert identity
+- [ ] GitHub OAuth: exchange code for tokens, fetch user info, upsert identity
+- [ ] OAuth state parameter validation (CSRF for OAuth flow)
+- [ ] Account linking when email already exists via email/password
+
+**Exit criteria:** OAuth login flow works end-to-end with real Google and GitHub apps in staging.
+
+---
+
+## Phase 9: Equipment Search Filters ❌ (not started)
+
+`GET /api/equipment` currently only supports `page` and `limit`. The plan specifies filtering by category, price range, and geospatial proximity.
+
+- [ ] Add `category_id`, `min_price`, `max_price`, `lat`, `lng`, `radius_km` to `EquipmentQueryParams`
+- [ ] Extend `EquipmentRepository.find_all` (or add `search`) to build dynamic WHERE clause
+- [ ] PostGIS `ST_DWithin` query for proximity filtering
+- [ ] Distance ordering when geospatial filter is active
+
+**Exit criteria:** `GET /api/equipment?lat=40.71&lng=-74.00&radius_km=10` returns equipment within radius sorted by distance.
+
+---
+
+## Immediate Next Tasks (in priority order)
+
+1. Delete `user_id_from_header` from `routes/mod.rs` (dead code, clippy fix)
+2. Fix `/users/me/equipment` route ordering in `users.rs`
+3. Add `actix-governor` IP rate limiting to auth routes
+4. Implement `typing` and `read` WS message types
+5. Equipment search filters (Phase 9)
+6. OAuth implementation (Phase 8)
+7. WS broadcast to all participants (shared connection registry)
+
+---
 
 ## Verification Commands
+
 ```bash
 cargo fmt --check
 cargo clippy -- -D warnings

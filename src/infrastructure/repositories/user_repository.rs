@@ -135,7 +135,7 @@ impl AuthRepository for AuthRepositoryImpl {
         provider: &str,
     ) -> AppResult<Option<AuthIdentity>> {
         let identity = sqlx::query_as::<_, AuthIdentity>(
-            "SELECT id, user_id, provider, provider_id, password_hash, verified, created_at FROM auth_identities WHERE user_id = $1 AND provider = $2"
+            "SELECT id, user_id, provider, provider_id, password_hash, verified, created_at FROM auth_identities WHERE user_id = $1 AND provider = $2::auth_provider"
         )
         .bind(user_id)
         .bind(provider)
@@ -150,7 +150,7 @@ impl AuthRepository for AuthRepositoryImpl {
         provider_id: &str,
     ) -> AppResult<Option<AuthIdentity>> {
         let identity = sqlx::query_as::<_, AuthIdentity>(
-            "SELECT id, user_id, provider, provider_id, password_hash, verified, created_at FROM auth_identities WHERE provider = $1 AND provider_id = $2"
+            "SELECT id, user_id, provider, provider_id, password_hash, verified, created_at FROM auth_identities WHERE provider = $1::auth_provider AND provider_id = $2"
         )
         .bind(provider)
         .bind(provider_id)

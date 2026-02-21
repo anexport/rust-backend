@@ -121,15 +121,32 @@ async fn ws_loop(
                     }
                     actix_ws::Message::Text(text) => {
                         last_seen = tokio::time::Instant::now();
-                        if handle_text_message(&mut session, &message_service, user_id, text.to_string()).await.is_err() {
-                            break;
+                        if let Err(error) =
+                            handle_text_message(&mut session, &message_service, user_id, text.to_string())
+                                .await
+                        {
+                            match error {
+                                AppError::BadRequest(_) => {
+                                    let payload =
+                                        json!({ "type": "error", "payload": { "code": "BAD_MESSAGE" } });
+                                    if session.text(payload.to_string()).await.is_err() {
+                                        break;
+                                    }
+                                }
+                                _ => break,
+                            }
                         }
                     }
                     actix_ws::Message::Close(reason) => {
                         let _ = session.close(reason).await;
                         break;
                     }
-                    actix_ws::Message::Binary(_) => {}
+                    actix_ws::Message::Binary(_) => {
+                        let payload = json!({ "type": "error", "payload": { "code": "UNSUPPORTED_BINARY" } });
+                        if session.text(payload.to_string()).await.is_err() {
+                            break;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -158,8 +175,7 @@ async fn handle_text_message(
     user_id: Uuid,
     text: String,
 ) -> AppResult<()> {
-    let envelope: WsClientEnvelope = serde_json::from_str(&text)
-        .map_err(|_| AppError::BadRequest("invalid websocket message".to_string()))?;
+    let envelope = parse_ws_envelope(&text)?;
 
     match envelope.message_type.as_str() {
         "ping" => {
@@ -170,11 +186,7 @@ async fn handle_text_message(
                 .map_err(|_| AppError::InternalError(anyhow::anyhow!("failed to send pong")))?;
         }
         "message" => {
-            let payload = envelope
-                .payload
-                .ok_or_else(|| AppError::BadRequest("missing message payload".to_string()))?;
-            let parsed: WsSendMessagePayload = serde_json::from_value(payload)
-                .map_err(|_| AppError::BadRequest("invalid message payload".to_string()))?;
+            let parsed = parse_send_message_payload(envelope.payload)?;
 
             // Persist first, then deliver to the socket.
             let saved = message_service
@@ -203,13 +215,25 @@ async fn handle_text_message(
     Ok(())
 }
 
+fn parse_ws_envelope(text: &str) -> AppResult<WsClientEnvelope> {
+    serde_json::from_str(text).map_err(|_| AppError::BadRequest("invalid websocket message".to_string()))
+}
+
+fn parse_send_message_payload(payload: Option<Value>) -> AppResult<WsSendMessagePayload> {
+    let payload = payload.ok_or_else(|| AppError::BadRequest("missing message payload".to_string()))?;
+    serde_json::from_value(payload)
+        .map_err(|_| AppError::BadRequest("invalid message payload".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use actix_web::{http::StatusCode, test as awtest, web, App};
     use async_trait::async_trait;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use serde_json::json;
     use uuid::Uuid;
 
     use crate::api::routes::AppState;
@@ -477,6 +501,31 @@ mod tests {
         }
     }
 
+    fn expired_access_token(user_id: Uuid) -> String {
+        let config = auth_config();
+        let now = Utc::now();
+        let claims = crate::utils::jwt::Claims {
+            sub: user_id,
+            exp: (now - Duration::minutes(5)).timestamp() as usize,
+            iat: (now - Duration::minutes(10)).timestamp() as usize,
+            jti: Uuid::new_v4(),
+            kid: config.jwt_kid.clone(),
+            iss: config.issuer.clone(),
+            aud: vec![config.audience.clone()],
+            role: "owner".to_string(),
+        };
+
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = Some(config.jwt_kid.clone());
+
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_secret(config.jwt_secret.as_bytes()),
+        )
+        .expect("expired token should encode")
+    }
+
     fn security_config() -> SecurityConfig {
         SecurityConfig {
             cors_allowed_origins: vec!["http://localhost:3000".to_string()],
@@ -585,6 +634,77 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[actix_rt::test]
+    async fn ws_accepts_valid_bearer_token_on_upgrade() {
+        let token = create_access_token(Uuid::new_v4(), "owner", &auth_config())
+            .expect("token should be created");
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Connection", "Upgrade"))
+            .insert_header(("Upgrade", "websocket"))
+            .insert_header(("Sec-WebSocket-Version", "13"))
+            .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    }
+
+    #[actix_rt::test]
+    async fn ws_accepts_subprotocol_token_fallback_on_upgrade() {
+        let token = create_access_token(Uuid::new_v4(), "owner", &auth_config())
+            .expect("token should be created");
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Connection", "Upgrade"))
+            .insert_header(("Upgrade", "websocket"))
+            .insert_header(("Sec-WebSocket-Version", "13"))
+            .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .insert_header(("Sec-WebSocket-Protocol", format!("bearer, {token}")))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    }
+
+    #[actix_rt::test]
+    async fn ws_rejects_expired_token_on_upgrade() {
+        let token = expired_access_token(Uuid::new_v4());
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Connection", "Upgrade"))
+            .insert_header(("Upgrade", "websocket"))
+            .insert_header(("Sec-WebSocket-Version", "13"))
+            .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
     #[test]
     fn extracts_token_from_authorization_header() {
         let request = awtest::TestRequest::default()
@@ -613,5 +733,33 @@ mod tests {
 
         let token = super::extract_ws_token(&request);
         assert!(token.is_none());
+    }
+
+    #[test]
+    fn malformed_ws_text_message_returns_bad_request() {
+        let result = super::parse_ws_envelope("{not-json");
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn missing_ws_message_payload_returns_bad_request() {
+        let result = super::parse_send_message_payload(None);
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn invalid_ws_message_payload_shape_returns_bad_request() {
+        let result =
+            super::parse_send_message_payload(Some(json!({ "conversation_id": "not-a-uuid" })));
+        assert!(matches!(
+            result,
+            Err(crate::error::AppError::BadRequest(_))
+        ));
     }
 }
