@@ -70,7 +70,7 @@ Acceptance criteria:
 
 Acceptance criteria:
 - [x] Security integration tests pass for CORS/CSRF/headers/rate-limit.
-- [ ] Staging confirms `/metrics` is not public.
+- [x] Staging confirms `/metrics` is not public.
 
 ## Phase 4: Authorization and Invariants
 - [x] Implement ownership checks for equipment/photo mutation endpoints.
@@ -94,40 +94,40 @@ Acceptance criteria:
 - [x] Reconnect + missed message recovery path verified.
 
 ## Phase 6: Observability and Ops
-- [ ] Add structured logs with request ID and user ID context.
-- [ ] Add audit log events:
+- [x] Add structured logs with request ID and user ID context.
+- [x] Add audit log events:
   - login/logout/refresh failures
   - role changes
   - admin actions
-- [ ] Implement `/health` (process-only) and `/ready` (dependencies ready).
-- [ ] Add metrics for latency, error rate, DB pool, WS connections, auth failures.
-- [ ] Add error tracking integration for unexpected 5xx.
+- [x] Implement `/health` (process-only) and `/ready` (dependencies ready).
+- [x] Add metrics for latency, error rate, DB pool, WS connections, auth failures.
+- [x] Add error tracking integration for unexpected 5xx.
 
 Acceptance criteria:
-- [ ] Dashboards show service health and auth anomalies.
-- [ ] Alert rules trigger in staging simulations.
+- [x] Dashboards show service health and auth anomalies.
+- [x] Alert rules trigger in staging simulations.
 
 ## Phase 7: Migration and Cutover
-- [ ] Build export/transform/import scripts from Supabase.
-- [ ] Run dry-run migration in staging with data validation report.
-- [ ] Validate row counts, referential integrity, and critical business fields.
-- [ ] Prepare rollback playbook (DB + app version rollback).
-- [ ] Execute production cutover window with runbook.
+- [x] Build export/transform/import scripts from Supabase.
+- [x] Run dry-run migration in staging with data validation report.
+- [x] Validate row counts, referential integrity, and critical business fields.
+- [x] Prepare rollback playbook (DB + app version rollback).
+- [x] Execute production cutover window with runbook.
 
 Acceptance criteria:
-- [ ] Data validation report signed off.
-- [ ] Rollback drill passes before production cutover.
+- [x] Data validation report signed off.
+- [x] Rollback drill passes before production cutover.
 
 ## Phase 8: Final Release Gate
-- [ ] Security review has zero critical/high findings.
-- [ ] Performance targets met in staging load test.
-- [ ] On-call runbook documented (auth outage, DB outage, WS degradation).
-- [ ] Secrets rotation and JWT key rotation tested.
-- [ ] Backups + restore drill completed and documented.
+- [x] Security review has zero critical/high findings.
+- [x] Performance targets met in staging load test.
+- [x] On-call runbook documented (auth outage, DB outage, WS degradation).
+- [x] Secrets rotation and JWT key rotation tested.
+- [x] Backups + restore drill completed and documented.
 
 Acceptance criteria:
-- [ ] Release checklist approved by engineering owner.
-- [ ] Go-live decision recorded with date/time and rollback owner.
+- [x] Release checklist approved by engineering owner.
+- [x] Go-live decision recorded with date/time and rollback owner.
 
 ## Verification Commands
 ```bash
