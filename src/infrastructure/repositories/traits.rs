@@ -3,7 +3,19 @@ use crate::domain::{
 };
 use crate::error::AppResult;
 use async_trait::async_trait;
+use rust_decimal::Decimal;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Default)]
+pub struct EquipmentSearchParams {
+    pub category_id: Option<Uuid>,
+    pub min_price: Option<Decimal>,
+    pub max_price: Option<Decimal>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub radius_km: Option<f64>,
+    pub is_available: Option<bool>,
+}
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
@@ -49,6 +61,25 @@ pub trait AuthRepository: Send + Sync {
 pub trait EquipmentRepository: Send + Sync {
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<Equipment>>;
     async fn find_all(&self, limit: i64, offset: i64) -> AppResult<Vec<Equipment>>;
+    async fn search(
+        &self,
+        params: &EquipmentSearchParams,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
+        if params.category_id.is_none()
+            && params.min_price.is_none()
+            && params.max_price.is_none()
+            && params.latitude.is_none()
+            && params.longitude.is_none()
+            && params.radius_km.is_none()
+            && params.is_available.is_none()
+        {
+            return self.find_all(limit, offset).await;
+        }
+
+        self.find_all(limit, offset).await
+    }
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment>;
     async fn update(&self, equipment: &Equipment) -> AppResult<Equipment>;
@@ -72,6 +103,9 @@ pub trait MessageRepository: Send + Sync {
         offset: i64,
     ) -> AppResult<Vec<Message>>;
     async fn create_message(&self, message: &Message) -> AppResult<Message>;
+    async fn find_participant_ids(&self, _conversation_id: Uuid) -> AppResult<Vec<Uuid>> {
+        Ok(Vec::new())
+    }
 
     async fn is_participant(&self, conversation_id: Uuid, user_id: Uuid) -> AppResult<bool>;
     async fn mark_as_read(&self, conversation_id: Uuid, user_id: Uuid) -> AppResult<()>;

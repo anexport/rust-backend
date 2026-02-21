@@ -16,4 +16,5 @@ Date: February 21, 2026
 ## WebSocket Degradation
 1. Check connection count and heartbeat timeouts.
 2. Verify auth on upgrade errors.
-3. Force reconnect guidance: recover missed messages via REST endpoint.
+3. Follow reconnect contract: `/Users/mykolborghese/rust-backend/docs/api/websocket-reconnect-contract.md`.
+4. Force reconnect guidance: recover missed messages via REST endpoint.

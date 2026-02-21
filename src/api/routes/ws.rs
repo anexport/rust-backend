@@ -1,9 +1,13 @@
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use actix_web::{web, HttpRequest, HttpResponse};
+use chrono::Utc;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::api::dtos::SendMessageRequest;
@@ -12,6 +16,43 @@ use crate::error::{AppError, AppResult};
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("/ws", web::get().to(ws_upgrade));
+}
+
+#[derive(Clone, Default)]
+pub struct WsConnectionHub {
+    sessions: Arc<RwLock<HashMap<Uuid, Vec<mpsc::UnboundedSender<String>>>>>,
+}
+
+impl WsConnectionHub {
+    pub fn register(&self, user_id: Uuid) -> mpsc::UnboundedReceiver<String> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.entry(user_id).or_default().push(tx);
+        }
+        rx
+    }
+
+    pub fn prune_user(&self, user_id: Uuid) {
+        if let Ok(mut sessions) = self.sessions.write() {
+            if let Some(user_sessions) = sessions.get_mut(&user_id) {
+                user_sessions.retain(|sender| !sender.is_closed());
+                if user_sessions.is_empty() {
+                    sessions.remove(&user_id);
+                }
+            }
+        }
+    }
+
+    pub fn broadcast_to_users(&self, user_ids: &[Uuid], payload: &str) {
+        if let Ok(mut sessions) = self.sessions.write() {
+            for user_id in user_ids {
+                if let Some(user_sessions) = sessions.get_mut(user_id) {
+                    user_sessions.retain(|sender| sender.send(payload.to_string()).is_ok());
+                }
+            }
+            sessions.retain(|_, user_sessions| !user_sessions.is_empty());
+        }
+    }
 }
 
 async fn ws_upgrade(
@@ -36,10 +77,21 @@ async fn ws_upgrade(
         .map_err(|_| AppError::BadRequest("invalid websocket upgrade".to_string()))?;
 
     let message_service = state.message_service.clone();
+    let hub = state.ws_hub.clone();
+    let outbound_rx = hub.register(claims.sub);
     let metrics = state.metrics.clone();
     metrics.ws_connected();
     actix_web::rt::spawn(async move {
-        let _ = ws_loop(session, stream, message_service, claims.sub).await;
+        let _ = ws_loop(
+            session,
+            stream,
+            outbound_rx,
+            message_service,
+            hub.clone(),
+            claims.sub,
+        )
+        .await;
+        hub.prune_user(claims.sub);
         metrics.ws_disconnected();
     });
 
@@ -85,7 +137,9 @@ fn is_secure_ws_request(request: &HttpRequest) -> bool {
 async fn ws_loop(
     mut session: actix_ws::Session,
     mut stream: actix_ws::MessageStream,
+    mut outbound_rx: mpsc::UnboundedReceiver<String>,
     message_service: std::sync::Arc<crate::application::MessageService>,
+    hub: WsConnectionHub,
     user_id: Uuid,
 ) -> AppResult<()> {
     let heartbeat_interval = Duration::from_secs(30);
@@ -122,7 +176,13 @@ async fn ws_loop(
                     actix_ws::Message::Text(text) => {
                         last_seen = tokio::time::Instant::now();
                         if let Err(error) =
-                            handle_text_message(&mut session, &message_service, user_id, text.to_string())
+                            handle_text_message(
+                                &mut session,
+                                &message_service,
+                                &hub,
+                                user_id,
+                                text.to_string(),
+                            )
                                 .await
                         {
                             match error {
@@ -150,6 +210,14 @@ async fn ws_loop(
                     _ => {}
                 }
             }
+            maybe_outbound = outbound_rx.recv() => {
+                let Some(payload) = maybe_outbound else {
+                    break;
+                };
+                if session.text(payload).await.is_err() {
+                    break;
+                }
+            }
         }
     }
 
@@ -169,9 +237,21 @@ struct WsSendMessagePayload {
     content: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct WsTypingPayload {
+    conversation_id: Uuid,
+    is_typing: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct WsReadPayload {
+    conversation_id: Uuid,
+}
+
 async fn handle_text_message(
     session: &mut actix_ws::Session,
     message_service: &std::sync::Arc<crate::application::MessageService>,
+    hub: &WsConnectionHub,
     user_id: Uuid,
     text: String,
 ) -> AppResult<()> {
@@ -200,9 +280,43 @@ async fn handle_text_message(
                 .await?;
 
             let server_event = json!({ "type": "message", "payload": saved });
-            session.text(server_event.to_string()).await.map_err(|_| {
-                AppError::InternalError(anyhow::anyhow!("failed to send message event"))
-            })?;
+            let participants = message_service
+                .participant_ids(user_id, parsed.conversation_id)
+                .await?;
+            hub.broadcast_to_users(&participants, &server_event.to_string());
+        }
+        "typing" => {
+            let parsed = parse_typing_payload(envelope.payload)?;
+            let participants = message_service
+                .participant_ids(user_id, parsed.conversation_id)
+                .await?;
+            let event = json!({
+                "type": "typing",
+                "payload": {
+                    "conversation_id": parsed.conversation_id,
+                    "user_id": user_id,
+                    "is_typing": parsed.is_typing.unwrap_or(true),
+                }
+            });
+            hub.broadcast_to_users(&participants, &event.to_string());
+        }
+        "read" => {
+            let parsed = parse_read_payload(envelope.payload)?;
+            message_service
+                .mark_as_read(user_id, parsed.conversation_id)
+                .await?;
+            let participants = message_service
+                .participant_ids(user_id, parsed.conversation_id)
+                .await?;
+            let event = json!({
+                "type": "read",
+                "payload": {
+                    "conversation_id": parsed.conversation_id,
+                    "user_id": user_id,
+                    "read_at": Utc::now(),
+                }
+            });
+            hub.broadcast_to_users(&participants, &event.to_string());
         }
         _ => {
             let payload = json!({ "type": "error", "payload": { "code": "UNSUPPORTED_TYPE" } });
@@ -216,13 +330,29 @@ async fn handle_text_message(
 }
 
 fn parse_ws_envelope(text: &str) -> AppResult<WsClientEnvelope> {
-    serde_json::from_str(text).map_err(|_| AppError::BadRequest("invalid websocket message".to_string()))
+    serde_json::from_str(text)
+        .map_err(|_| AppError::BadRequest("invalid websocket message".to_string()))
 }
 
 fn parse_send_message_payload(payload: Option<Value>) -> AppResult<WsSendMessagePayload> {
-    let payload = payload.ok_or_else(|| AppError::BadRequest("missing message payload".to_string()))?;
+    let payload =
+        payload.ok_or_else(|| AppError::BadRequest("missing message payload".to_string()))?;
     serde_json::from_value(payload)
         .map_err(|_| AppError::BadRequest("invalid message payload".to_string()))
+}
+
+fn parse_typing_payload(payload: Option<Value>) -> AppResult<WsTypingPayload> {
+    let payload =
+        payload.ok_or_else(|| AppError::BadRequest("missing typing payload".to_string()))?;
+    serde_json::from_value(payload)
+        .map_err(|_| AppError::BadRequest("invalid typing payload".to_string()))
+}
+
+fn parse_read_payload(payload: Option<Value>) -> AppResult<WsReadPayload> {
+    let payload =
+        payload.ok_or_else(|| AppError::BadRequest("missing read payload".to_string()))?;
+    serde_json::from_value(payload)
+        .map_err(|_| AppError::BadRequest("invalid read payload".to_string()))
 }
 
 #[cfg(test)]
@@ -560,6 +690,7 @@ mod tests {
             app_environment: app_environment.to_string(),
             metrics: Arc::new(AppMetrics::default()),
             db_pool: None,
+            ws_hub: super::WsConnectionHub::default(),
         }
     }
 
@@ -738,28 +869,38 @@ mod tests {
     #[test]
     fn malformed_ws_text_message_returns_bad_request() {
         let result = super::parse_ws_envelope("{not-json");
-        assert!(matches!(
-            result,
-            Err(crate::error::AppError::BadRequest(_))
-        ));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
     }
 
     #[test]
     fn missing_ws_message_payload_returns_bad_request() {
         let result = super::parse_send_message_payload(None);
-        assert!(matches!(
-            result,
-            Err(crate::error::AppError::BadRequest(_))
-        ));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
     }
 
     #[test]
     fn invalid_ws_message_payload_shape_returns_bad_request() {
         let result =
             super::parse_send_message_payload(Some(json!({ "conversation_id": "not-a-uuid" })));
-        assert!(matches!(
-            result,
-            Err(crate::error::AppError::BadRequest(_))
-        ));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn parse_typing_payload_accepts_valid_shape() {
+        let conversation_id = Uuid::new_v4();
+        let result = super::parse_typing_payload(Some(json!({
+            "conversation_id": conversation_id,
+            "is_typing": true
+        })));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn parse_read_payload_accepts_valid_shape() {
+        let conversation_id = Uuid::new_v4();
+        let result = super::parse_read_payload(Some(json!({
+            "conversation_id": conversation_id
+        })));
+        assert!(result.is_ok());
     }
 }

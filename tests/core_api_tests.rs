@@ -14,7 +14,8 @@ use rust_backend::domain::{
     User, UserSession,
 };
 use rust_backend::infrastructure::repositories::{
-    AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
+    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
+    MessageRepository, UserRepository,
 };
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::LoginThrottle;
@@ -259,6 +260,55 @@ impl EquipmentRepository for MockEquipmentRepo {
             .clone())
     }
 
+    async fn search(
+        &self,
+        params: &EquipmentSearchParams,
+        _limit: i64,
+        _offset: i64,
+    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
+        let mut rows: Vec<Equipment> = self
+            .equipment
+            .lock()
+            .expect("equipment mutex poisoned")
+            .clone()
+            .into_iter()
+            .filter(|item| {
+                params
+                    .category_id
+                    .is_none_or(|category_id| item.category_id == category_id)
+            })
+            .filter(|item| params.min_price.is_none_or(|min| item.daily_rate >= min))
+            .filter(|item| params.max_price.is_none_or(|max| item.daily_rate <= max))
+            .filter(|item| {
+                params
+                    .is_available
+                    .is_none_or(|available| item.is_available == available)
+            })
+            .collect();
+
+        if let Some(((lat, lng), radius_km)) =
+            params.latitude.zip(params.longitude).zip(params.radius_km)
+        {
+            rows.retain(|item| {
+                item.coordinates_tuple()
+                    .is_some_and(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng) <= radius_km)
+            });
+            rows.sort_by(|left, right| {
+                let left_distance = left
+                    .coordinates_tuple()
+                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
+                    .unwrap_or(f64::MAX);
+                let right_distance = right
+                    .coordinates_tuple()
+                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
+                    .unwrap_or(f64::MAX);
+                left_distance.total_cmp(&right_distance)
+            });
+        }
+
+        Ok(rows)
+    }
+
     async fn find_by_owner(
         &self,
         owner_id: Uuid,
@@ -397,6 +447,18 @@ impl CategoryRepository for MockCategoryRepo {
     }
 }
 
+fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
+    let earth_radius_km = 6_371.0_f64;
+    let dlat = (lat2 - lat1).to_radians();
+    let dlng = (lng2 - lng1).to_radians();
+    let lat1 = lat1.to_radians();
+    let lat2 = lat2.to_radians();
+
+    let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlng / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    earth_radius_km * c
+}
+
 fn auth_config() -> AuthConfig {
     AuthConfig {
         jwt_secret: "integration-test-secret".to_string(),
@@ -441,6 +503,7 @@ fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: None,
+        ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
     }
 }
 
@@ -519,6 +582,39 @@ async fn auth_register_login_and_me_flow_succeeds() {
 }
 
 #[test]
+async fn auth_register_validation_error_has_specific_field_feedback() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::post()
+        .uri("/api/auth/register")
+        .set_json(serde_json::json!({
+            "email": "validation@example.com",
+            "password": "short",
+            "username": "valid-user"
+        }))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(body["code"], "VALIDATION_ERROR");
+    assert_eq!(body["message"], "Password must be at least 12 characters");
+    assert_eq!(body["details"][0]["field"], "password");
+}
+
+#[test]
 async fn equipment_crud_flow_succeeds() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -594,6 +690,227 @@ async fn equipment_crud_flow_succeeds() {
         .to_request();
     let delete_response = actix_test::call_service(&app, delete_request).await;
     assert_eq!(delete_response.status(), StatusCode::NO_CONTENT);
+}
+
+#[test]
+async fn users_me_equipment_route_wins_over_dynamic_id_route() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let user_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: user_id,
+        email: "owner-route@example.com".to_string(),
+        role: Role::Owner,
+        username: Some("owner-route".to_string()),
+        full_name: Some("Owner Route".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    equipment_repo
+        .equipment
+        .lock()
+        .expect("equipment mutex poisoned")
+        .push(Equipment {
+            id: Uuid::new_v4(),
+            owner_id: user_id,
+            category_id: Uuid::new_v4(),
+            title: "Owner item".to_string(),
+            description: Some("Owned by /me user".to_string()),
+            daily_rate: Decimal::new(1500, 2),
+            condition: rust_backend::domain::Condition::Good,
+            location: Some("New York".to_string()),
+            coordinates: None,
+            is_available: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let token = rust_backend::utils::jwt::create_access_token(user_id, "owner", &auth_config())
+        .expect("owner token should be created");
+    let request = actix_test::TestRequest::get()
+        .uri("/api/users/me/equipment")
+        .insert_header(("Authorization", format!("Bearer {token}")))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn auth_scope_has_ip_rate_limit() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let mut saw_rate_limit = false;
+    for _ in 0..40 {
+        let request = actix_test::TestRequest::post()
+            .uri("/api/auth/oauth/google")
+            .set_json(serde_json::json!({
+                "code": "fake-code",
+                "state": "test-state"
+            }))
+            .to_request();
+        let response = actix_test::call_service(&app, request).await;
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            saw_rate_limit = true;
+            break;
+        }
+    }
+
+    assert!(saw_rate_limit, "expected governor to return 429 eventually");
+}
+
+#[test]
+async fn oauth_callback_requires_state() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::post()
+        .uri("/api/auth/oauth/google")
+        .set_json(serde_json::json!({
+            "code": "fake-code"
+        }))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+async fn equipment_list_filters_by_price_category_and_radius() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo.clone());
+
+    let category_id = Uuid::new_v4();
+    let other_category_id = Uuid::new_v4();
+    let owner_id = Uuid::new_v4();
+
+    let now = Utc::now();
+    equipment_repo
+        .equipment
+        .lock()
+        .expect("equipment mutex poisoned")
+        .extend([
+            Equipment {
+                id: Uuid::new_v4(),
+                owner_id,
+                category_id,
+                title: "Nearby good price".to_string(),
+                description: Some("match".to_string()),
+                daily_rate: Decimal::new(3000, 2),
+                condition: rust_backend::domain::Condition::Good,
+                location: Some("NYC".to_string()),
+                coordinates: Some("40.7128, -74.0060".to_string()),
+                is_available: true,
+                created_at: now,
+                updated_at: now,
+            },
+            Equipment {
+                id: Uuid::new_v4(),
+                owner_id,
+                category_id,
+                title: "Too expensive".to_string(),
+                description: Some("price fail".to_string()),
+                daily_rate: Decimal::new(12000, 2),
+                condition: rust_backend::domain::Condition::Good,
+                location: Some("NYC".to_string()),
+                coordinates: Some("40.7130, -74.0070".to_string()),
+                is_available: true,
+                created_at: now,
+                updated_at: now,
+            },
+            Equipment {
+                id: Uuid::new_v4(),
+                owner_id,
+                category_id: other_category_id,
+                title: "Wrong category".to_string(),
+                description: Some("category fail".to_string()),
+                daily_rate: Decimal::new(3000, 2),
+                condition: rust_backend::domain::Condition::Good,
+                location: Some("NYC".to_string()),
+                coordinates: Some("40.7127, -74.0058".to_string()),
+                is_available: true,
+                created_at: now,
+                updated_at: now,
+            },
+            Equipment {
+                id: Uuid::new_v4(),
+                owner_id,
+                category_id,
+                title: "Too far".to_string(),
+                description: Some("distance fail".to_string()),
+                daily_rate: Decimal::new(2500, 2),
+                condition: rust_backend::domain::Condition::Good,
+                location: Some("Boston".to_string()),
+                coordinates: Some("42.3601, -71.0589".to_string()),
+                is_available: true,
+                created_at: now,
+                updated_at: now,
+            },
+        ]);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri(&format!(
+            "/api/equipment?category_id={category_id}&min_price=20&max_price=40&lat=40.7128&lng=-74.0060&radius_km=5"
+        ))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    let items = body
+        .get("items")
+        .and_then(serde_json::Value::as_array)
+        .expect("items should be an array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].get("title").and_then(serde_json::Value::as_str),
+        Some("Nearby good price")
+    );
 }
 
 #[test]

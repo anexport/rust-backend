@@ -8,6 +8,7 @@ use crate::api::dtos::{AuthResponse, LoginRequest, RegisterRequest, UserResponse
 use crate::config::AuthConfig;
 use crate::domain::{AuthIdentity, AuthProvider, Role, User, UserSession};
 use crate::error::{AppError, AppResult};
+use crate::infrastructure::oauth::{DisabledOAuthClient, OAuthClient, OAuthProviderKind};
 use crate::infrastructure::repositories::{AuthRepository, UserRepository};
 use crate::utils::hash::{hash_password, hash_refresh_token, verify_password};
 use crate::utils::jwt::{create_access_token, validate_token, Claims};
@@ -17,6 +18,7 @@ pub struct AuthService {
     user_repo: Arc<dyn UserRepository>,
     auth_repo: Arc<dyn AuthRepository>,
     config: AuthConfig,
+    oauth_client: Arc<dyn OAuthClient>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +38,13 @@ impl AuthService {
             user_repo,
             auth_repo,
             config,
+            oauth_client: Arc::new(DisabledOAuthClient),
         }
+    }
+
+    pub fn with_oauth_client(mut self, oauth_client: Arc<dyn OAuthClient>) -> Self {
+        self.oauth_client = oauth_client;
+        self
     }
 
     pub async fn register(&self, request: RegisterRequest) -> AppResult<AuthResponse> {
@@ -74,7 +82,10 @@ impl AuthService {
             verified: false,
             created_at: now,
         };
-        self.auth_repo.create_identity(&identity).await?;
+        if let Err(error) = self.auth_repo.create_identity(&identity).await {
+            let _ = self.user_repo.delete(user.id).await;
+            return Err(error);
+        }
 
         let access_token = create_access_token(user.id, &role_as_str(user.role), &self.config)?;
         Ok(AuthResponse {
@@ -230,6 +241,72 @@ impl AuthService {
         validate_token(token, &self.config)
     }
 
+    pub async fn oauth_login(
+        &self,
+        provider: OAuthProviderKind,
+        code: &str,
+        ip: Option<String>,
+    ) -> AppResult<SessionTokens> {
+        let profile = self.oauth_client.exchange_code(provider, code).await?;
+
+        let provider_key = provider_as_str(provider);
+
+        if let Some(identity) = self
+            .auth_repo
+            .find_identity_by_provider_id(provider_key, &profile.provider_id)
+            .await?
+        {
+            let user = self
+                .user_repo
+                .find_by_id(identity.user_id)
+                .await?
+                .ok_or(AppError::Unauthorized)?;
+            return self
+                .create_session_tokens_for_user(user, Uuid::new_v4(), ip)
+                .await;
+        }
+
+        let user = if let Some(existing) = self.user_repo.find_by_email(&profile.email).await? {
+            existing
+        } else {
+            let now = Utc::now();
+            self.user_repo
+                .create(&User {
+                    id: Uuid::new_v4(),
+                    email: profile.email.clone(),
+                    role: Role::Renter,
+                    username: None,
+                    full_name: profile.full_name.clone(),
+                    avatar_url: profile.avatar_url.clone(),
+                    created_at: now,
+                    updated_at: now,
+                })
+                .await?
+        };
+
+        if self
+            .auth_repo
+            .find_identity_by_user_id(user.id, provider_key)
+            .await?
+            .is_none()
+        {
+            self.auth_repo
+                .create_identity(&AuthIdentity {
+                    id: Uuid::new_v4(),
+                    user_id: user.id,
+                    provider: provider_as_domain(provider),
+                    provider_id: Some(profile.provider_id),
+                    password_hash: None,
+                    verified: profile.email_verified,
+                    created_at: Utc::now(),
+                })
+                .await?;
+        }
+
+        self.create_session_tokens_for_user(user, Uuid::new_v4(), ip)
+            .await
+    }
+
     pub async fn ensure_active_session_for_user(&self, user_id: Uuid) -> AppResult<()> {
         if self.auth_repo.has_active_session(user_id).await? {
             return Ok(());
@@ -290,6 +367,20 @@ fn role_as_str(role: Role) -> String {
         Role::Renter => "renter".to_string(),
         Role::Owner => "owner".to_string(),
         Role::Admin => "admin".to_string(),
+    }
+}
+
+fn provider_as_str(provider: OAuthProviderKind) -> &'static str {
+    match provider {
+        OAuthProviderKind::Google => "google",
+        OAuthProviderKind::GitHub => "github",
+    }
+}
+
+fn provider_as_domain(provider: OAuthProviderKind) -> AuthProvider {
+    match provider {
+        OAuthProviderKind::Google => AuthProvider::Google,
+        OAuthProviderKind::GitHub => AuthProvider::GitHub,
     }
 }
 

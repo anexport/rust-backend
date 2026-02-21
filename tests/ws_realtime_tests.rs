@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use actix_web::{web, App, HttpServer};
@@ -152,7 +152,10 @@ impl CategoryRepository for NoopCategoryRepo {
         Ok(None)
     }
 
-    async fn find_children(&self, _parent_id: Uuid) -> rust_backend::error::AppResult<Vec<Category>> {
+    async fn find_children(
+        &self,
+        _parent_id: Uuid,
+    ) -> rust_backend::error::AppResult<Vec<Category>> {
         Ok(Vec::new())
     }
 }
@@ -258,7 +261,88 @@ impl MessageRepository for NoopMessageRepo {
         _conversation_id: Uuid,
         _user_id: Uuid,
     ) -> rust_backend::error::AppResult<bool> {
-        Ok(false)
+        Ok(true)
+    }
+
+    async fn mark_as_read(
+        &self,
+        _conversation_id: Uuid,
+        _user_id: Uuid,
+    ) -> rust_backend::error::AppResult<()> {
+        Ok(())
+    }
+}
+
+struct SharedMessageRepo {
+    participants: Vec<Uuid>,
+    messages: Mutex<Vec<Message>>,
+}
+
+#[async_trait]
+impl MessageRepository for SharedMessageRepo {
+    async fn find_conversation(
+        &self,
+        _id: Uuid,
+    ) -> rust_backend::error::AppResult<Option<Conversation>> {
+        Ok(Some(Conversation {
+            id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }))
+    }
+
+    async fn find_user_conversations(
+        &self,
+        _user_id: Uuid,
+    ) -> rust_backend::error::AppResult<Vec<Conversation>> {
+        Ok(Vec::new())
+    }
+
+    async fn create_conversation(
+        &self,
+        _participant_ids: Vec<Uuid>,
+    ) -> rust_backend::error::AppResult<Conversation> {
+        Ok(Conversation {
+            id: Uuid::new_v4(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+    }
+
+    async fn find_messages(
+        &self,
+        _conversation_id: Uuid,
+        _limit: i64,
+        _offset: i64,
+    ) -> rust_backend::error::AppResult<Vec<Message>> {
+        Ok(self
+            .messages
+            .lock()
+            .expect("messages mutex poisoned")
+            .clone())
+    }
+
+    async fn create_message(&self, message: &Message) -> rust_backend::error::AppResult<Message> {
+        self.messages
+            .lock()
+            .expect("messages mutex poisoned")
+            .push(message.clone());
+        Ok(message.clone())
+    }
+
+    async fn find_participant_ids(
+        &self,
+        _conversation_id: Uuid,
+    ) -> rust_backend::error::AppResult<Vec<Uuid>> {
+        Ok(self.participants.clone())
+    }
+
+    async fn is_participant(
+        &self,
+        _conversation_id: Uuid,
+        user_id: Uuid,
+    ) -> rust_backend::error::AppResult<bool> {
+        Ok(self.participants.contains(&user_id))
     }
 
     async fn mark_as_read(
@@ -300,10 +384,30 @@ fn build_state(has_active_session: bool) -> AppState {
     let category_repo: Arc<dyn CategoryRepository> = Arc::new(NoopCategoryRepo);
     let equipment_repo: Arc<dyn EquipmentRepository> = Arc::new(NoopEquipmentRepo);
     let message_repo: Arc<dyn MessageRepository> = Arc::new(NoopMessageRepo);
+    build_state_with_message_repo(
+        user_repo,
+        auth_repo,
+        category_repo,
+        equipment_repo,
+        message_repo,
+    )
+}
+
+fn build_state_with_message_repo(
+    user_repo: Arc<dyn UserRepository>,
+    auth_repo: Arc<dyn AuthRepository>,
+    category_repo: Arc<dyn CategoryRepository>,
+    equipment_repo: Arc<dyn EquipmentRepository>,
+    message_repo: Arc<dyn MessageRepository>,
+) -> AppState {
     let security = security_config();
 
     AppState {
-        auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo, auth_config())),
+        auth_service: Arc::new(AuthService::new(
+            user_repo.clone(),
+            auth_repo,
+            auth_config(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -313,6 +417,7 @@ fn build_state(has_active_session: bool) -> AppState {
         app_environment: "development".to_string(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: None,
+        ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
     }
 }
 
@@ -320,6 +425,40 @@ async fn spawn_ws_server(has_active_session: bool) -> (String, actix_web::dev::S
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
     let addr = listener.local_addr().expect("listener addr");
     let state = build_state(has_active_session);
+
+    let server = HttpServer::new(move || {
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .configure(ws::configure)
+    })
+    .listen(listener)
+    .expect("listen test server")
+    .run();
+
+    let handle = server.handle();
+    actix_web::rt::spawn(server);
+
+    (format!("ws://{addr}/ws"), handle)
+}
+
+async fn spawn_ws_server_with_repo(
+    has_active_session: bool,
+    message_repo: Arc<dyn MessageRepository>,
+) -> (String, actix_web::dev::ServerHandle) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind test listener");
+    let addr = listener.local_addr().expect("listener addr");
+
+    let user_repo: Arc<dyn UserRepository> = Arc::new(NoopUserRepo);
+    let auth_repo: Arc<dyn AuthRepository> = Arc::new(StubAuthRepo { has_active_session });
+    let category_repo: Arc<dyn CategoryRepository> = Arc::new(NoopCategoryRepo);
+    let equipment_repo: Arc<dyn EquipmentRepository> = Arc::new(NoopEquipmentRepo);
+    let state = build_state_with_message_repo(
+        user_repo,
+        auth_repo,
+        category_repo,
+        equipment_repo,
+        message_repo,
+    );
 
     let server = HttpServer::new(move || {
         App::new()
@@ -429,5 +568,150 @@ async fn malformed_ws_message_returns_error_and_connection_stays_open() {
     assert!(second_text.contains("\"type\":\"pong\""));
 
     let _ = socket.close(None).await;
+    handle.stop(true).await;
+}
+
+#[actix_rt::test]
+async fn websocket_message_is_broadcast_to_all_participants() {
+    let conversation_id = Uuid::new_v4();
+    let user_a = Uuid::new_v4();
+    let user_b = Uuid::new_v4();
+    let message_repo: Arc<dyn MessageRepository> = Arc::new(SharedMessageRepo {
+        participants: vec![user_a, user_b],
+        messages: Mutex::new(Vec::new()),
+    });
+    let (url, handle) = spawn_ws_server_with_repo(true, message_repo).await;
+
+    let mut request_a = url
+        .clone()
+        .into_client_request()
+        .expect("request should be built from url");
+    request_a.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!(
+            "Bearer {}",
+            create_access_token(user_a, "owner", &auth_config()).expect("token")
+        ))
+        .expect("header"),
+    );
+    let (mut socket_a, _) = connect_async(request_a).await.expect("socket a");
+
+    let mut request_b = url
+        .into_client_request()
+        .expect("request should be built from url");
+    request_b.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!(
+            "Bearer {}",
+            create_access_token(user_b, "owner", &auth_config()).expect("token")
+        ))
+        .expect("header"),
+    );
+    let (mut socket_b, _) = connect_async(request_b).await.expect("socket b");
+
+    socket_a
+        .send(WsClientMessage::Text(
+            serde_json::json!({
+                "type": "message",
+                "payload": {
+                    "conversation_id": conversation_id,
+                    "content": "hello all participants"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("send message");
+
+    let recv_a = recv_next_text(&mut socket_a).await;
+    let recv_b = recv_next_text(&mut socket_b).await;
+    assert!(recv_a.contains("\"type\":\"message\""));
+    assert!(recv_b.contains("\"type\":\"message\""));
+    assert!(recv_a.contains("hello all participants"));
+    assert!(recv_b.contains("hello all participants"));
+
+    let _ = socket_a.close(None).await;
+    let _ = socket_b.close(None).await;
+    handle.stop(true).await;
+}
+
+#[actix_rt::test]
+async fn websocket_typing_and_read_events_are_supported() {
+    let conversation_id = Uuid::new_v4();
+    let user_a = Uuid::new_v4();
+    let user_b = Uuid::new_v4();
+    let message_repo: Arc<dyn MessageRepository> = Arc::new(SharedMessageRepo {
+        participants: vec![user_a, user_b],
+        messages: Mutex::new(Vec::new()),
+    });
+    let (url, handle) = spawn_ws_server_with_repo(true, message_repo).await;
+
+    let mut request_a = url
+        .clone()
+        .into_client_request()
+        .expect("request should be built from url");
+    request_a.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!(
+            "Bearer {}",
+            create_access_token(user_a, "owner", &auth_config()).expect("token")
+        ))
+        .expect("header"),
+    );
+    let (mut socket_a, _) = connect_async(request_a).await.expect("socket a");
+
+    let mut request_b = url
+        .into_client_request()
+        .expect("request should be built from url");
+    request_b.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!(
+            "Bearer {}",
+            create_access_token(user_b, "owner", &auth_config()).expect("token")
+        ))
+        .expect("header"),
+    );
+    let (mut socket_b, _) = connect_async(request_b).await.expect("socket b");
+
+    socket_a
+        .send(WsClientMessage::Text(
+            serde_json::json!({
+                "type": "typing",
+                "payload": {
+                    "conversation_id": conversation_id,
+                    "is_typing": true
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("send typing");
+    let typing_a = recv_next_text(&mut socket_a).await;
+    let typing_b = recv_next_text(&mut socket_b).await;
+    assert!(typing_a.contains("\"type\":\"typing\""));
+    assert!(typing_b.contains("\"type\":\"typing\""));
+
+    socket_a
+        .send(WsClientMessage::Text(
+            serde_json::json!({
+                "type": "read",
+                "payload": {
+                    "conversation_id": conversation_id
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("send read");
+    let read_a = recv_next_text(&mut socket_a).await;
+    let read_b = recv_next_text(&mut socket_b).await;
+    assert!(read_a.contains("\"type\":\"read\""));
+    assert!(read_b.contains("\"type\":\"read\""));
+
+    let _ = socket_a.close(None).await;
+    let _ = socket_b.close(None).await;
     handle.stop(true).await;
 }

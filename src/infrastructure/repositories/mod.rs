@@ -8,6 +8,7 @@ pub use category_repository::CategoryRepositoryImpl;
 pub use equipment_repository::EquipmentRepositoryImpl;
 pub use message_repository::MessageRepositoryImpl;
 pub use traits::{
-    AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
+    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
+    MessageRepository, UserRepository,
 };
 pub use user_repository::{AuthRepositoryImpl, UserRepositoryImpl};

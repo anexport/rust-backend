@@ -6,6 +6,7 @@ Date: February 21, 2026
 1. Confirm latest migrations applied.
 2. Run dry-run import and validation scripts.
 3. Confirm rollback playbook owners are online.
+4. Load observability configs from `/Users/mykolborghese/rust-backend/docs/ops/observability/README.md`.
 
 ## Cutover Window Steps
 1. Enable maintenance mode for writes.

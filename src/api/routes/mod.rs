@@ -28,6 +28,7 @@ pub struct AppState {
     pub app_environment: String,
     pub metrics: Arc<AppMetrics>,
     pub db_pool: Option<sqlx::PgPool>,
+    pub ws_hub: ws::WsConnectionHub,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

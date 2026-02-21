@@ -1,3 +1,7 @@
+use std::net::IpAddr;
+
+use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
+use actix_web::dev::ServiceRequest;
 use actix_web::{
     cookie::{Cookie, SameSite},
     web, HttpRequest, HttpResponse,
@@ -11,11 +15,52 @@ use crate::api::dtos::{
 };
 use crate::api::routes::AppState;
 use crate::error::{AppError, AppResult};
+use crate::infrastructure::oauth::OAuthProviderKind;
 use crate::middleware::auth::AuthenticatedUser;
 
+#[derive(Clone, Copy)]
+struct ClientIpExtractor;
+
+impl KeyExtractor for ClientIpExtractor {
+    type Key = IpAddr;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
+
+    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        if let Some(value) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .and_then(|value| value.trim().parse::<IpAddr>().ok())
+        {
+            return Ok(value);
+        }
+
+        if let Some(value) = req
+            .connection_info()
+            .realip_remote_addr()
+            .and_then(|value| value.parse::<IpAddr>().ok())
+        {
+            return Ok(value);
+        }
+
+        Ok(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
+    }
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
+    let auth_governor = Box::leak(Box::new(
+        GovernorConfigBuilder::default()
+            .per_second(5)
+            .burst_size(10)
+            .key_extractor(ClientIpExtractor)
+            .finish()
+            .expect("auth governor config must be valid"),
+    ));
+
     cfg.service(
         web::scope("/auth")
+            .wrap(Governor::new(auth_governor))
             .route("/register", web::post().to(register))
             .route("/login", web::post().to(login))
             .route("/logout", web::post().to(logout))
@@ -161,20 +206,56 @@ async fn logout(
     Ok(HttpResponse::NoContent().finish())
 }
 
-async fn oauth_google(payload: web::Json<OAuthCallbackRequest>) -> AppResult<HttpResponse> {
+async fn oauth_google(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+) -> AppResult<HttpResponse> {
+    let payload = payload.into_inner();
     payload.validate()?;
+    validate_oauth_state(&request, payload.state.as_deref())?;
 
-    Err(AppError::BadRequest(
-        "google oauth callback will be implemented in phase 2".to_string(),
-    ))
+    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
+    let issued = state
+        .auth_service
+        .oauth_login(OAuthProviderKind::Google, &payload.code, ip)
+        .await?;
+
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie(&issued.refresh_token))
+        .cookie(csrf_cookie(&csrf_token))
+        .json(SessionAuthResponse {
+            access_token: issued.access_token,
+            refresh_token: issued.refresh_token,
+            user: issued.user,
+        }))
 }
 
-async fn oauth_github(payload: web::Json<OAuthCallbackRequest>) -> AppResult<HttpResponse> {
+async fn oauth_github(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+) -> AppResult<HttpResponse> {
+    let payload = payload.into_inner();
     payload.validate()?;
+    validate_oauth_state(&request, payload.state.as_deref())?;
 
-    Err(AppError::BadRequest(
-        "github oauth callback will be implemented in phase 2".to_string(),
-    ))
+    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
+    let issued = state
+        .auth_service
+        .oauth_login(OAuthProviderKind::GitHub, &payload.code, ip)
+        .await?;
+
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie(&issued.refresh_token))
+        .cookie(csrf_cookie(&csrf_token))
+        .json(SessionAuthResponse {
+            access_token: issued.access_token,
+            refresh_token: issued.refresh_token,
+            user: issued.user,
+        }))
 }
 
 fn refresh_cookie(token: &str) -> Cookie<'static> {
@@ -208,6 +289,21 @@ fn validate_csrf_cookie_request(request: &HttpRequest) -> AppResult<()> {
 
     if csrf_cookie_value != csrf_header {
         return Err(AppError::Unauthorized);
+    }
+
+    Ok(())
+}
+
+fn validate_oauth_state(request: &HttpRequest, state: Option<&str>) -> AppResult<()> {
+    let state = state.ok_or(AppError::Unauthorized)?;
+    if state.is_empty() {
+        return Err(AppError::Unauthorized);
+    }
+
+    if let Some(cookie_state) = request.cookie("oauth_state") {
+        if cookie_state.value() != state {
+            return Err(AppError::Unauthorized);
+        }
     }
 
     Ok(())

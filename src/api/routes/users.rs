@@ -9,9 +9,9 @@ use crate::middleware::auth::AuthenticatedUser;
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/users")
+            .route("/me/equipment", web::get().to(my_equipment))
             .route("/{id}", web::get().to(get_user_profile))
-            .route("/{id}", web::put().to(update_user_profile))
-            .route("/me/equipment", web::get().to(my_equipment)),
+            .route("/{id}", web::put().to(update_user_profile)),
     );
 }
 

@@ -114,6 +114,16 @@ impl MessageRepository for MessageRepositoryImpl {
         Ok(created)
     }
 
+    async fn find_participant_ids(&self, conversation_id: Uuid) -> AppResult<Vec<Uuid>> {
+        let participants = sqlx::query_scalar::<_, Uuid>(
+            "SELECT profile_id FROM conversation_participants WHERE conversation_id = $1",
+        )
+        .bind(conversation_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(participants)
+    }
+
     async fn is_participant(&self, conversation_id: Uuid, user_id: Uuid) -> AppResult<bool> {
         let result: Option<(i64,)> = sqlx::query_as(
             "SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND profile_id = $2"

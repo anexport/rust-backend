@@ -11,7 +11,9 @@ use crate::api::dtos::{
 };
 use crate::domain::{Condition, Equipment, EquipmentPhoto, Role};
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::repositories::{EquipmentRepository, UserRepository};
+use crate::infrastructure::repositories::{
+    EquipmentRepository, EquipmentSearchParams, UserRepository,
+};
 
 #[derive(Clone)]
 pub struct EquipmentService {
@@ -38,22 +40,41 @@ impl EquipmentService {
         let limit = params.limit.unwrap_or(20).clamp(1, 100);
         let offset = (page - 1) * limit;
 
-        let rows = self.equipment_repo.find_all(limit, offset).await?;
+        let search = EquipmentSearchParams {
+            category_id: params.category_id,
+            min_price: params.min_price,
+            max_price: params.max_price,
+            latitude: params.lat,
+            longitude: params.lng,
+            radius_km: params.radius_km,
+            is_available: params.is_available,
+        };
+
+        let rows = self.equipment_repo.search(&search, limit, offset).await?;
         let items = rows
             .into_iter()
-            .map(|item| EquipmentResponse {
-                id: item.id,
-                owner_id: item.owner_id,
-                category_id: item.category_id,
-                title: item.title,
-                description: item.description.unwrap_or_default(),
-                daily_rate: item.daily_rate,
-                condition: condition_as_str(item.condition),
-                location: item.location.unwrap_or_default(),
-                coordinates: None,
-                is_available: item.is_available,
-                photos: Vec::new(),
-                created_at: item.created_at,
+            .map(|item| {
+                let coordinates = item.coordinates_tuple().map(|(latitude, longitude)| {
+                    crate::api::dtos::Coordinates {
+                        latitude,
+                        longitude,
+                    }
+                });
+
+                EquipmentResponse {
+                    id: item.id,
+                    owner_id: item.owner_id,
+                    category_id: item.category_id,
+                    title: item.title,
+                    description: item.description.unwrap_or_default(),
+                    daily_rate: item.daily_rate,
+                    condition: condition_as_str(item.condition),
+                    location: item.location.unwrap_or_default(),
+                    coordinates,
+                    is_available: item.is_available,
+                    photos: Vec::new(),
+                    created_at: item.created_at,
+                }
             })
             .collect::<Vec<_>>();
 
@@ -328,7 +349,7 @@ fn parse_condition(raw: &str) -> AppResult<Condition> {
         "excellent" => Ok(Condition::Excellent),
         "good" => Ok(Condition::Good),
         "fair" => Ok(Condition::Fair),
-        _ => Err(AppError::ValidationError("invalid condition".to_string())),
+        _ => Err(AppError::validation_error("invalid condition")),
     }
 }
 

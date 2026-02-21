@@ -9,6 +9,7 @@ use rust_backend::application::{
 };
 use rust_backend::config::AppConfig;
 use rust_backend::infrastructure::db::{migrations::run_migrations, pool::create_pool};
+use rust_backend::infrastructure::oauth::HttpOAuthClient;
 use rust_backend::infrastructure::repositories::{
     AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
     UserRepositoryImpl,
@@ -51,12 +52,12 @@ async fn main() -> std::io::Result<()> {
     let message_repo = Arc::new(MessageRepositoryImpl::new(pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(pool.clone()));
 
+    let oauth_client = Arc::new(HttpOAuthClient::new(config.oauth.clone()));
     let state = AppState {
-        auth_service: Arc::new(AuthService::new(
-            user_repo.clone(),
-            auth_repo,
-            config.auth.clone(),
-        )),
+        auth_service: Arc::new(
+            AuthService::new(user_repo.clone(), auth_repo, config.auth.clone())
+                .with_oauth_client(oauth_client),
+        ),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -66,6 +67,7 @@ async fn main() -> std::io::Result<()> {
         app_environment: config.app.environment.clone(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: Some(pool.clone()),
+        ws_hub: routes::ws::WsConnectionHub::default(),
     };
 
     let bind_host = config.app.host.clone();

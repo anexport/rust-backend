@@ -8,6 +8,7 @@ use rust_backend::application::AuthService;
 use rust_backend::config::AuthConfig;
 use rust_backend::domain::{AuthIdentity, AuthProvider, Role, User, UserSession};
 use rust_backend::error::AppError;
+use rust_backend::infrastructure::oauth::{OAuthClient, OAuthProviderKind, OAuthUserInfo};
 use rust_backend::infrastructure::repositories::{AuthRepository, UserRepository};
 use uuid::Uuid;
 
@@ -75,6 +76,7 @@ impl UserRepository for MockUserRepo {
 #[derive(Default)]
 struct MockAuthRepo {
     identities: Mutex<Vec<AuthIdentity>>,
+    fail_create_identity: Mutex<bool>,
 }
 
 #[async_trait]
@@ -83,6 +85,9 @@ impl AuthRepository for MockAuthRepo {
         &self,
         identity: &AuthIdentity,
     ) -> rust_backend::error::AppResult<AuthIdentity> {
+        if *self.fail_create_identity.lock().unwrap() {
+            return Err(AppError::Conflict("username already taken".to_string()));
+        }
         self.identities.lock().unwrap().push(identity.clone());
         Ok(identity.clone())
     }
@@ -105,10 +110,22 @@ impl AuthRepository for MockAuthRepo {
 
     async fn find_identity_by_provider_id(
         &self,
-        _provider: &str,
-        _provider_id: &str,
+        provider: &str,
+        provider_id: &str,
     ) -> rust_backend::error::AppResult<Option<AuthIdentity>> {
-        Ok(None)
+        Ok(self
+            .identities
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| {
+                let provider_match = matches!(
+                    (provider, i.provider),
+                    ("google", AuthProvider::Google) | ("github", AuthProvider::GitHub)
+                );
+                provider_match && i.provider_id.as_deref() == Some(provider_id)
+            })
+            .cloned())
     }
 
     async fn verify_email(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
@@ -160,6 +177,22 @@ impl AuthRepository for MockAuthRepo {
 
     async fn has_active_session(&self, _user_id: Uuid) -> rust_backend::error::AppResult<bool> {
         Ok(true)
+    }
+}
+
+#[derive(Clone)]
+struct MockOAuthClient {
+    profile: OAuthUserInfo,
+}
+
+#[async_trait]
+impl OAuthClient for MockOAuthClient {
+    async fn exchange_code(
+        &self,
+        _provider: OAuthProviderKind,
+        _code: &str,
+    ) -> rust_backend::error::AppResult<OAuthUserInfo> {
+        Ok(self.profile.clone())
     }
 }
 
@@ -241,4 +274,99 @@ async fn login_returns_unauthorized_for_wrong_password() {
 
     let result = service.login(request).await;
     assert!(matches!(result, Err(AppError::Unauthorized)));
+}
+
+#[test]
+async fn oauth_login_creates_new_user_and_identity() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let auth_repo = Arc::new(MockAuthRepo::default());
+    let oauth_client = Arc::new(MockOAuthClient {
+        profile: OAuthUserInfo {
+            provider_id: "google-sub-123".to_string(),
+            email: "oauth-new@example.com".to_string(),
+            email_verified: true,
+            full_name: Some("OAuth New".to_string()),
+            avatar_url: None,
+        },
+    });
+
+    let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config())
+        .with_oauth_client(oauth_client);
+    let result = service
+        .oauth_login(
+            OAuthProviderKind::Google,
+            "code",
+            Some("127.0.0.1".to_string()),
+        )
+        .await
+        .expect("oauth login should succeed");
+
+    assert_eq!(result.user.email, "oauth-new@example.com");
+    assert_eq!(user_repo.users.lock().unwrap().len(), 1);
+
+    let identities = auth_repo.identities.lock().unwrap();
+    assert!(identities.iter().any(|identity| {
+        identity.provider == AuthProvider::Google
+            && identity.provider_id.as_deref() == Some("google-sub-123")
+    }));
+}
+
+#[test]
+async fn oauth_login_links_identity_to_existing_user_by_email() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let auth_repo = Arc::new(MockAuthRepo::default());
+    let existing = existing_user("existing-oauth@example.com");
+    let existing_id = existing.id;
+    user_repo.users.lock().unwrap().push(existing);
+
+    let oauth_client = Arc::new(MockOAuthClient {
+        profile: OAuthUserInfo {
+            provider_id: "gh-444".to_string(),
+            email: "existing-oauth@example.com".to_string(),
+            email_verified: true,
+            full_name: Some("Existing OAuth".to_string()),
+            avatar_url: None,
+        },
+    });
+
+    let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config())
+        .with_oauth_client(oauth_client);
+    let result = service
+        .oauth_login(
+            OAuthProviderKind::GitHub,
+            "code",
+            Some("127.0.0.1".to_string()),
+        )
+        .await
+        .expect("oauth login should succeed");
+
+    assert_eq!(result.user.id, existing_id);
+    assert_eq!(user_repo.users.lock().unwrap().len(), 1);
+
+    let identities = auth_repo.identities.lock().unwrap();
+    assert!(identities.iter().any(|identity| {
+        identity.user_id == existing_id
+            && identity.provider == AuthProvider::GitHub
+            && identity.provider_id.as_deref() == Some("gh-444")
+    }));
+}
+
+#[test]
+async fn register_cleans_up_profile_when_identity_creation_fails() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let auth_repo = Arc::new(MockAuthRepo::default());
+    *auth_repo.fail_create_identity.lock().unwrap() = true;
+
+    let service = AuthService::new(user_repo.clone(), auth_repo.clone(), auth_config());
+    let request = RegisterRequest {
+        email: "cleanup@example.com".to_string(),
+        password: "this-is-a-secure-password".to_string(),
+        username: Some("cleanup-user".to_string()),
+        full_name: Some("Cleanup User".to_string()),
+    };
+
+    let result = service.register(request).await;
+    assert!(matches!(result, Err(AppError::Conflict(_))));
+    assert_eq!(user_repo.users.lock().unwrap().len(), 0);
+    assert_eq!(auth_repo.identities.lock().unwrap().len(), 0);
 }

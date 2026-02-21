@@ -160,6 +160,36 @@ impl MessageService {
         })
     }
 
+    pub async fn mark_as_read(&self, user_id: Uuid, conversation_id: Uuid) -> AppResult<()> {
+        if !self
+            .can_access_conversation(user_id, conversation_id)
+            .await?
+        {
+            return Err(AppError::Forbidden("not a participant".to_string()));
+        }
+
+        self.message_repo
+            .mark_as_read(conversation_id, user_id)
+            .await
+    }
+
+    pub async fn participant_ids(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+    ) -> AppResult<Vec<Uuid>> {
+        if !self
+            .can_access_conversation(user_id, conversation_id)
+            .await?
+        {
+            return Err(AppError::Forbidden("not a participant".to_string()));
+        }
+
+        self.message_repo
+            .find_participant_ids(conversation_id)
+            .await
+    }
+
     async fn can_access_conversation(
         &self,
         user_id: Uuid,

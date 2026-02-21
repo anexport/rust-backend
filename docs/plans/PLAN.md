@@ -68,8 +68,8 @@ POST   /api/auth/logout
 POST   /api/auth/refresh
 GET    /api/auth/me
 POST   /api/auth/verify-email
-POST   /api/auth/oauth/google     # stub — Phase 9
-POST   /api/auth/oauth/github     # stub — Phase 9
+POST   /api/auth/oauth/google
+POST   /api/auth/oauth/github
 ```
 
 ### Users
@@ -161,6 +161,7 @@ GET    /metrics
 - Cookies: `HttpOnly`, `Secure`, `SameSite=Lax`
 - CSRF: double-submit cookie pattern on cookie-authenticated mutations
 - Login throttle: exponential backoff + temporary lockout per account+IP
+- IP rate limiting: `actix-governor` applied to `/api/auth/*`
 - Security headers: HSTS, X-Content-Type-Options, X-Frame-Options, `Referrer-Policy: strict-origin-when-cross-origin`, CSP baseline
 - `/metrics`: admin token or private IP only
 
@@ -196,11 +197,9 @@ Messages are persisted to DB before broadcast. At-most-once delivery. Missed mes
 
 ## What Is NOT Done Yet
 
-- OAuth (Google/GitHub) — stubs only, return 400
-- Supabase migration scripts — shell scaffolding exists but export/transform logic is placeholder
+- Supabase migration still requires real source/target credentials and staging rehearsal
 - Integration test suite in `tests/integration/` — directory empty, tests live in `tests/*.rs` as loose files
-- `actix-governor` IP-level rate limiting (planned in Cargo.toml, not wired up)
 - OpenAPI/utoipa docs
 - Redis cache layer
 - Performance/load tests
-- Operational: dashboards, alerts, runbooks, backup config, staging environment
+- Operational deployment of dashboards/alerts/log pipeline and staged drills

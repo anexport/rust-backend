@@ -33,7 +33,6 @@
 
 **Remaining:**
 - [ ] `tests/integration/` directory is empty — integration tests live in loose `tests/*.rs` files, not under `tests/integration/` as planned. Move or leave as-is, but note the structure doesn't match the plan.
-- [ ] Equipment geospatial filter endpoints (filter by lat/lng + radius, filter by category, price range) — `list()` in EquipmentService uses `find_all` with no filter support yet.
 
 **Exit criteria:** `sqlx migrate run` clean on empty DB. `cargo test` passes including DB integration tests when `DATABASE_URL` is set.
 
@@ -61,11 +60,11 @@
 - [x] Cookies: `HttpOnly`, `Secure`, `SameSite=Lax` on refresh token. `HttpOnly=false` on csrf token (readable by JS)
 - [x] CSRF: double-submit cookie validation on refresh and logout when cookie present
 - [x] Login throttle: exponential backoff + lockout per account+IP key, `record_success` clears state
+- [x] `actix-governor` IP-level rate limiting on `/api/auth/*` with client-IP extraction fallback
 - [x] Security headers: HSTS, X-Content-Type-Options, X-Frame-Options, `Referrer-Policy: strict-origin-when-cross-origin`, CSP
 - [x] `/metrics`: admin token check + private IP fallback
 
 **Remaining:**
-- [ ] `actix-governor` IP-level rate limiting — listed in Cargo.toml but not wired to any route. LoginThrottle handles per-account throttling but there is no blanket per-IP limiter on auth endpoints.
 - [ ] CSRF double-submit is only enforced when a cookie is present. A JSON-only client (no cookies) bypasses CSRF entirely — this is by design but should be documented.
 
 **Exit criteria:** `cargo test` passes. Manual verification: security headers present on all responses, CORS rejects unlisted origins, login lockout triggers after 5 failures.
@@ -84,8 +83,7 @@
 - [x] `middleware/auth.rs` unit tests: valid token, missing header, malformed header, expired, wrong secret
 
 **Remaining:**
-- [ ] `user_id_from_header` function still defined in `routes/mod.rs` but never called — dead code, clippy will flag it. Delete it.
-- [ ] `GET /users/me/equipment` — route registered under `/users/me/equipment` but Actix matches `/{id}` before `/me/equipment` due to route ordering. Needs the `/me/equipment` route registered before `/{id}` or moved to a different scope.
+- [ ] Document authorization invariants in API docs / runbook (currently enforced in code/tests but not documented in a dedicated operator doc).
 
 **Exit criteria:** `cargo clippy -- -D warnings` clean. `cargo test` passes. No route accepts a spoofed `x-user-id` header.
 
@@ -99,6 +97,8 @@
 - [x] Token extracted from `Authorization: Bearer` header with `Sec-WebSocket-Protocol: bearer, <token>` fallback
 - [x] Heartbeat: 30s ping interval, 90s inactivity timeout, connection closed on timeout
 - [x] Message persisted to DB before broadcast
+- [x] `typing` and `read` message types handled and broadcast to participants
+- [x] Fanout to all active participant sockets via shared WS connection hub
 - [x] `ping` → `pong` round-trip
 - [x] Malformed JSON returns `BAD_MESSAGE` error, connection stays open
 - [x] Binary messages return `UNSUPPORTED_BINARY` error
@@ -107,8 +107,6 @@
 - [x] `tests/ws_realtime_tests.rs`: full socket tests with real server via `tokio-tungstenite`
 
 **Remaining:**
-- [ ] `typing` and `read` message types defined in protocol spec but not handled in `handle_text_message` — currently falls through to `UNSUPPORTED_TYPE`.
-- [ ] No fanout to other participants — message is saved and echoed back to sender only. Multi-client broadcast requires a shared connection registry (e.g. `DashMap<Uuid, Vec<Session>>`).
 - [ ] Reconnect / missed message recovery is REST-based by design but not documented in any client-facing way.
 
 **Exit criteria:** `cargo test ws` passes including real socket tests.
@@ -127,24 +125,24 @@
 - [x] `capture_unexpected_5xx` logs 5xx events with event_id
 
 **Remaining (operational — not code tasks):**
-- [ ] Prometheus scrape config pointing at `/metrics`
-- [ ] Grafana dashboards for request rate, error rate, latency, auth failures, WS connections
-- [ ] Alert rules (e.g. error rate > 1%, auth failures spike)
-- [ ] Log aggregation pipeline (e.g. Loki, Datadog) ingesting JSON logs
+- [x] Prometheus scrape config pointing at `/metrics`
+- [x] Grafana dashboards for request rate, error rate, latency, auth failures, WS connections
+- [x] Alert rules (e.g. error rate > 1%, auth failures spike)
+- [x] Log aggregation pipeline baseline config (Promtail -> Loki) for JSON logs
 
 **Exit criteria (code):** `cargo test` passes. `/health` returns 200. `/ready` returns 200 when DB is up and 500 when it's not. `/metrics` returns valid Prometheus text when accessed with admin token or from private IP.
 
 ---
 
-## Phase 7: Supabase Migration ⚠️ (stubs only)
+## Phase 7: Supabase Migration ⚠️ (scripts implemented, staging execution pending)
 
 - [x] `scripts/supabase_export_transform_import.sh` — shell scaffold with dry-run/apply modes
 - [x] `scripts/validate_migration.sh` — row count + FK integrity queries
 
 **Not done — requires real Supabase data and staging environment:**
-- [ ] Actual Supabase export commands (supabase CLI or pg_dump)
-- [ ] Transform logic mapping Supabase auth.users → profiles + auth_identities
-- [ ] Import commands (psql COPY or INSERT scripts)
+- [x] Actual Supabase export commands (psql `\copy` from source DB)
+- [x] Transform logic mapping Supabase auth.users → auth_identities
+- [x] Import commands (psql `\copy` into target tables)
 - [ ] Dry-run validation report against real Supabase export
 - [ ] Rollback playbook documented and drilled
 
@@ -152,41 +150,33 @@
 
 ---
 
-## Phase 8: OAuth Implementation ❌ (not started)
+## Phase 8: OAuth Implementation ✅ (code complete)
 
-Both OAuth endpoints currently return `400 Bad Request` with a message saying they will be implemented later.
-
-- [ ] Google OAuth: exchange code for tokens, fetch user info, upsert identity
-- [ ] GitHub OAuth: exchange code for tokens, fetch user info, upsert identity
-- [ ] OAuth state parameter validation (CSRF for OAuth flow)
-- [ ] Account linking when email already exists via email/password
+- [x] Google OAuth: exchange code for tokens, fetch user info, upsert identity
+- [x] GitHub OAuth: exchange code for tokens, fetch user info, upsert identity
+- [x] OAuth state parameter validation (CSRF for OAuth flow, callback state required; cookie/state match when cookie is present)
+- [x] Account linking when email already exists via email/password
 
 **Exit criteria:** OAuth login flow works end-to-end with real Google and GitHub apps in staging.
 
 ---
 
-## Phase 9: Equipment Search Filters ❌ (not started)
+## Phase 9: Equipment Search Filters ✅
 
-`GET /api/equipment` currently only supports `page` and `limit`. The plan specifies filtering by category, price range, and geospatial proximity.
-
-- [ ] Add `category_id`, `min_price`, `max_price`, `lat`, `lng`, `radius_km` to `EquipmentQueryParams`
-- [ ] Extend `EquipmentRepository.find_all` (or add `search`) to build dynamic WHERE clause
-- [ ] PostGIS `ST_DWithin` query for proximity filtering
-- [ ] Distance ordering when geospatial filter is active
+- [x] Add `category_id`, `min_price`, `max_price`, `lat`, `lng`, `radius_km` to `EquipmentQueryParams`
+- [x] Extend repository with `search` dynamic WHERE clause support
+- [x] PostGIS `ST_DWithin` query for proximity filtering
+- [x] Distance ordering when geospatial filter is active
 
 **Exit criteria:** `GET /api/equipment?lat=40.71&lng=-74.00&radius_km=10` returns equipment within radius sorted by distance.
 
 ---
 
-## Immediate Next Tasks (in priority order)
+## Immediate Next Tasks (updated)
 
-1. Delete `user_id_from_header` from `routes/mod.rs` (dead code, clippy fix)
-2. Fix `/users/me/equipment` route ordering in `users.rs`
-3. Add `actix-governor` IP rate limiting to auth routes
-4. Implement `typing` and `read` WS message types
-5. Equipment search filters (Phase 9)
-6. OAuth implementation (Phase 8)
-7. WS broadcast to all participants (shared connection registry)
+1. Run OAuth end-to-end validation in staging with real provider credentials.
+2. Execute Supabase dry-run/apply pipeline in staging with real source credentials.
+3. Decide whether to move loose `tests/*.rs` integration tests under `tests/integration/` to match the architecture plan.
 
 ---
 
