@@ -36,8 +36,11 @@ async fn ws_upgrade(
         .map_err(|_| AppError::BadRequest("invalid websocket upgrade".to_string()))?;
 
     let message_service = state.message_service.clone();
+    let metrics = state.metrics.clone();
+    metrics.ws_connected();
     actix_web::rt::spawn(async move {
         let _ = ws_loop(session, stream, message_service, claims.sub).await;
+        metrics.ws_disconnected();
     });
 
     Ok(response)
@@ -198,4 +201,417 @@ async fn handle_text_message(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use actix_web::{http::StatusCode, test as awtest, web, App};
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use crate::api::routes::AppState;
+    use crate::application::{
+        AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    };
+    use crate::config::{AuthConfig, SecurityConfig};
+    use crate::domain::{
+        AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User, UserSession,
+    };
+    use crate::infrastructure::repositories::{
+        AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
+    };
+    use crate::observability::AppMetrics;
+    use crate::security::LoginThrottle;
+    use crate::utils::jwt::create_access_token;
+
+    struct NoopUserRepo;
+
+    #[async_trait]
+    impl UserRepository for NoopUserRepo {
+        async fn find_by_id(&self, _id: Uuid) -> crate::error::AppResult<Option<User>> {
+            Ok(None)
+        }
+
+        async fn find_by_email(&self, _email: &str) -> crate::error::AppResult<Option<User>> {
+            Ok(None)
+        }
+
+        async fn find_by_username(&self, _username: &str) -> crate::error::AppResult<Option<User>> {
+            Ok(None)
+        }
+
+        async fn create(&self, user: &User) -> crate::error::AppResult<User> {
+            Ok(user.clone())
+        }
+
+        async fn update(&self, user: &User) -> crate::error::AppResult<User> {
+            Ok(user.clone())
+        }
+
+        async fn delete(&self, _id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+    }
+
+    struct StubAuthRepo {
+        has_active_session: bool,
+    }
+
+    #[async_trait]
+    impl AuthRepository for StubAuthRepo {
+        async fn create_identity(
+            &self,
+            identity: &AuthIdentity,
+        ) -> crate::error::AppResult<AuthIdentity> {
+            Ok(identity.clone())
+        }
+
+        async fn find_identity_by_user_id(
+            &self,
+            _user_id: Uuid,
+            _provider: &str,
+        ) -> crate::error::AppResult<Option<AuthIdentity>> {
+            Ok(None)
+        }
+
+        async fn find_identity_by_provider_id(
+            &self,
+            _provider: &str,
+            _provider_id: &str,
+        ) -> crate::error::AppResult<Option<AuthIdentity>> {
+            Ok(None)
+        }
+
+        async fn verify_email(&self, _user_id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn create_session(
+            &self,
+            session: &UserSession,
+        ) -> crate::error::AppResult<UserSession> {
+            Ok(session.clone())
+        }
+
+        async fn find_session_by_token_hash(
+            &self,
+            _token_hash: &str,
+        ) -> crate::error::AppResult<Option<UserSession>> {
+            Ok(None)
+        }
+
+        async fn revoke_session(&self, _id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn revoke_session_with_replacement(
+            &self,
+            _id: Uuid,
+            _replaced_by: Option<Uuid>,
+            _reason: Option<&str>,
+        ) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn revoke_all_sessions(&self, _user_id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn revoke_family(
+            &self,
+            _family_id: Uuid,
+            _reason: &str,
+        ) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn touch_session(&self, _id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn has_active_session(&self, _user_id: Uuid) -> crate::error::AppResult<bool> {
+            Ok(self.has_active_session)
+        }
+    }
+
+    struct NoopCategoryRepo;
+
+    #[async_trait]
+    impl CategoryRepository for NoopCategoryRepo {
+        async fn find_all(&self) -> crate::error::AppResult<Vec<Category>> {
+            Ok(Vec::new())
+        }
+
+        async fn find_by_id(&self, _id: Uuid) -> crate::error::AppResult<Option<Category>> {
+            Ok(None)
+        }
+
+        async fn find_children(&self, _parent_id: Uuid) -> crate::error::AppResult<Vec<Category>> {
+            Ok(Vec::new())
+        }
+    }
+
+    struct NoopEquipmentRepo;
+
+    #[async_trait]
+    impl EquipmentRepository for NoopEquipmentRepo {
+        async fn find_by_id(&self, _id: Uuid) -> crate::error::AppResult<Option<Equipment>> {
+            Ok(None)
+        }
+
+        async fn find_all(
+            &self,
+            _limit: i64,
+            _offset: i64,
+        ) -> crate::error::AppResult<Vec<Equipment>> {
+            Ok(Vec::new())
+        }
+
+        async fn find_by_owner(&self, _owner_id: Uuid) -> crate::error::AppResult<Vec<Equipment>> {
+            Ok(Vec::new())
+        }
+
+        async fn create(&self, equipment: &Equipment) -> crate::error::AppResult<Equipment> {
+            Ok(equipment.clone())
+        }
+
+        async fn update(&self, equipment: &Equipment) -> crate::error::AppResult<Equipment> {
+            Ok(equipment.clone())
+        }
+
+        async fn delete(&self, _id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+
+        async fn add_photo(
+            &self,
+            photo: &EquipmentPhoto,
+        ) -> crate::error::AppResult<EquipmentPhoto> {
+            Ok(photo.clone())
+        }
+
+        async fn find_photos(
+            &self,
+            _equipment_id: Uuid,
+        ) -> crate::error::AppResult<Vec<EquipmentPhoto>> {
+            Ok(Vec::new())
+        }
+
+        async fn delete_photo(&self, _photo_id: Uuid) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+    }
+
+    struct NoopMessageRepo;
+
+    #[async_trait]
+    impl MessageRepository for NoopMessageRepo {
+        async fn find_conversation(
+            &self,
+            _id: Uuid,
+        ) -> crate::error::AppResult<Option<Conversation>> {
+            Ok(None)
+        }
+
+        async fn find_user_conversations(
+            &self,
+            _user_id: Uuid,
+        ) -> crate::error::AppResult<Vec<Conversation>> {
+            Ok(Vec::new())
+        }
+
+        async fn create_conversation(
+            &self,
+            _participant_ids: Vec<Uuid>,
+        ) -> crate::error::AppResult<Conversation> {
+            Ok(Conversation {
+                id: Uuid::new_v4(),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+        }
+
+        async fn find_messages(
+            &self,
+            _conversation_id: Uuid,
+            _limit: i64,
+            _offset: i64,
+        ) -> crate::error::AppResult<Vec<Message>> {
+            Ok(Vec::new())
+        }
+
+        async fn create_message(&self, message: &Message) -> crate::error::AppResult<Message> {
+            Ok(message.clone())
+        }
+
+        async fn is_participant(
+            &self,
+            _conversation_id: Uuid,
+            _user_id: Uuid,
+        ) -> crate::error::AppResult<bool> {
+            Ok(false)
+        }
+
+        async fn mark_as_read(
+            &self,
+            _conversation_id: Uuid,
+            _user_id: Uuid,
+        ) -> crate::error::AppResult<()> {
+            Ok(())
+        }
+    }
+
+    fn auth_config() -> AuthConfig {
+        AuthConfig {
+            jwt_secret: "ws-test-secret".to_string(),
+            jwt_kid: "ws-v1".to_string(),
+            previous_jwt_secrets: Vec::new(),
+            previous_jwt_kids: Vec::new(),
+            jwt_expiration_seconds: 900,
+            refresh_token_expiration_days: 7,
+            issuer: "rust-backend-test".to_string(),
+            audience: "rust-backend-client".to_string(),
+        }
+    }
+
+    fn security_config() -> SecurityConfig {
+        SecurityConfig {
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            metrics_allow_private_only: true,
+            metrics_admin_token: None,
+            login_max_failures: 5,
+            login_lockout_seconds: 300,
+            login_backoff_base_ms: 200,
+        }
+    }
+
+    fn build_state(has_active_session: bool, app_environment: &str) -> AppState {
+        let user_repo: Arc<dyn UserRepository> = Arc::new(NoopUserRepo);
+        let auth_repo: Arc<dyn AuthRepository> = Arc::new(StubAuthRepo { has_active_session });
+        let category_repo: Arc<dyn CategoryRepository> = Arc::new(NoopCategoryRepo);
+        let equipment_repo: Arc<dyn EquipmentRepository> = Arc::new(NoopEquipmentRepo);
+        let message_repo: Arc<dyn MessageRepository> = Arc::new(NoopMessageRepo);
+        let security = security_config();
+
+        AppState {
+            auth_service: Arc::new(AuthService::new(
+                user_repo.clone(),
+                auth_repo,
+                auth_config(),
+            )),
+            user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
+            category_service: Arc::new(CategoryService::new(category_repo)),
+            equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
+            message_service: Arc::new(MessageService::new(user_repo, message_repo)),
+            security: security.clone(),
+            login_throttle: Arc::new(LoginThrottle::new(&security)),
+            app_environment: app_environment.to_string(),
+            metrics: Arc::new(AppMetrics::default()),
+            db_pool: None,
+        }
+    }
+
+    #[actix_rt::test]
+    async fn ws_rejects_when_token_is_missing() {
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get().uri("/ws").to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_rt::test]
+    async fn ws_rejects_invalid_bearer_token() {
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Authorization", "Bearer invalid-token"))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_rt::test]
+    async fn ws_rejects_valid_token_when_session_is_revoked() {
+        let token = create_access_token(Uuid::new_v4(), "renter", &auth_config())
+            .expect("token should be created");
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(false, "development")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_rt::test]
+    async fn ws_requires_wss_in_production() {
+        let token = create_access_token(Uuid::new_v4(), "owner", &auth_config())
+            .expect("token should be created");
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state(true, "production")))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn extracts_token_from_authorization_header() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Authorization", "Bearer abc123"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert_eq!(token.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn extracts_token_from_subprotocol_fallback() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Sec-WebSocket-Protocol", "bearer, fallback-token"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert_eq!(token.as_deref(), Some("fallback-token"));
+    }
+
+    #[test]
+    fn ignores_invalid_subprotocol_format() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Sec-WebSocket-Protocol", "notbearer, token"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert!(token.is_none());
+    }
 }

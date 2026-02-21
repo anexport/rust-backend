@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -177,6 +178,14 @@ impl MessageService {
             .find_by_id(user_id)
             .await?
             .ok_or(AppError::Unauthorized)?;
-        Ok(user.role == Role::Admin)
+        if user.role == Role::Admin {
+            info!(
+                actor_user_id = %user_id,
+                conversation_id = %conversation_id,
+                "admin override: conversation access"
+            );
+            return Ok(true);
+        }
+        Ok(false)
     }
 }

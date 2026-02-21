@@ -2,6 +2,7 @@ use actix_web::{
     cookie::{Cookie, SameSite},
     web, HttpRequest, HttpResponse,
 };
+use tracing::{info, warn};
 use validator::Validate;
 
 use crate::api::dtos::{
@@ -48,10 +49,15 @@ async fn login(
         .issue_session_tokens(&input.email, &input.password, ip)
         .await
         .map_err(|error| match error {
-            AppError::Unauthorized => state.login_throttle.record_failure(&key),
+            AppError::Unauthorized => {
+                state.metrics.record_auth_failure();
+                warn!(email = %input.email, "login failed");
+                state.login_throttle.record_failure(&key)
+            }
             other => other,
         })?;
     state.login_throttle.record_success(&key);
+    info!(user_id = %issued.user.id, "login succeeded");
 
     let csrf_token = uuid::Uuid::new_v4().to_string();
     Ok(HttpResponse::Ok()
@@ -98,7 +104,15 @@ async fn refresh(
     let refreshed = state
         .auth_service
         .refresh_session_tokens(&refresh_token, ip)
-        .await?;
+        .await
+        .map_err(|error| {
+            if matches!(error, AppError::Unauthorized) {
+                state.metrics.record_auth_failure();
+                warn!("refresh failed");
+            }
+            error
+        })?;
+    info!(user_id = %refreshed.user.id, "refresh succeeded");
 
     let csrf_token = uuid::Uuid::new_v4().to_string();
     Ok(HttpResponse::Ok()
@@ -111,11 +125,38 @@ async fn refresh(
         }))
 }
 
-async fn logout(state: web::Data<AppState>) -> AppResult<HttpResponse> {
-    state.auth_service.logout_not_implemented()?;
-    Err(AppError::BadRequest(
-        "logout with session revocation is pending phase 2".to_string(),
-    ))
+async fn logout(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: Option<web::Json<RefreshRequest>>,
+) -> AppResult<HttpResponse> {
+    if request.cookie("refresh_token").is_some() {
+        validate_csrf_cookie_request(&request)?;
+    }
+
+    let refresh_token = request
+        .cookie("refresh_token")
+        .map(|cookie| cookie.value().to_string())
+        .or_else(|| payload.as_ref().map(|json| json.refresh_token.clone()))
+        .ok_or(AppError::Unauthorized)?;
+
+    if let Some(json) = &payload {
+        json.validate()?;
+    }
+
+    state
+        .auth_service
+        .logout(&refresh_token)
+        .await
+        .map_err(|error| {
+            if matches!(error, AppError::Unauthorized) {
+                state.metrics.record_auth_failure();
+                warn!("logout failed");
+            }
+            error
+        })?;
+    info!("logout succeeded");
+    Ok(HttpResponse::NoContent().finish())
 }
 
 async fn oauth_google(payload: web::Json<OAuthCallbackRequest>) -> AppResult<HttpResponse> {

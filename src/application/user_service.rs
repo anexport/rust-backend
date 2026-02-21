@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -76,6 +77,11 @@ impl UserService {
                     "cannot modify another user".to_string(),
                 ));
             }
+            info!(
+                actor_user_id = %actor_user_id,
+                target_user_id = %target_user_id,
+                "admin updated another user profile"
+            );
         }
 
         if let Some(username) = request.username {

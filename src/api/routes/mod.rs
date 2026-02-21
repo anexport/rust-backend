@@ -8,6 +8,7 @@ use crate::application::{
 };
 use crate::config::SecurityConfig;
 use crate::error::{AppError, AppResult};
+use crate::observability::AppMetrics;
 use crate::security::LoginThrottle;
 
 pub mod auth;
@@ -26,6 +27,8 @@ pub struct AppState {
     pub security: SecurityConfig,
     pub login_throttle: Arc<LoginThrottle>,
     pub app_environment: String,
+    pub metrics: Arc<AppMetrics>,
+    pub db_pool: Option<sqlx::PgPool>,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
@@ -56,8 +59,14 @@ async fn health() -> &'static str {
     "ok"
 }
 
-async fn ready() -> &'static str {
-    "ready"
+async fn ready(state: web::Data<AppState>) -> AppResult<HttpResponse> {
+    if let Some(pool) = &state.db_pool {
+        sqlx::query_scalar::<_, i32>("SELECT 1")
+            .fetch_one(pool)
+            .await
+            .map_err(|_| AppError::InternalError(anyhow::anyhow!("database is not ready")))?;
+    }
+    Ok(HttpResponse::Ok().body("ready"))
 }
 
 async fn metrics(state: web::Data<AppState>, request: HttpRequest) -> AppResult<HttpResponse> {
@@ -72,7 +81,10 @@ async fn metrics(state: web::Data<AppState>, request: HttpRequest) -> AppResult<
             .get("x-admin-token")
             .and_then(|value| value.to_str().ok());
         if admin_header == Some(token) {
-            return Ok(HttpResponse::Ok().body("metrics-not-implemented"));
+            let (db_size, db_idle) = pool_stats(&state);
+            return Ok(HttpResponse::Ok()
+                .content_type("text/plain; version=0.0.4")
+                .body(state.metrics.render_prometheus(db_size, db_idle)));
         }
     }
 
@@ -87,12 +99,23 @@ async fn metrics(state: web::Data<AppState>, request: HttpRequest) -> AppResult<
         }
     }
 
-    Ok(HttpResponse::Ok().body("metrics-not-implemented"))
+    let (db_size, db_idle) = pool_stats(&state);
+    Ok(HttpResponse::Ok()
+        .content_type("text/plain; version=0.0.4")
+        .body(state.metrics.render_prometheus(db_size, db_idle)))
 }
 
 fn is_private_or_loopback(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_loopback(),
         std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.is_unique_local(),
+    }
+}
+
+fn pool_stats(state: &web::Data<AppState>) -> (u32, usize) {
+    if let Some(pool) = &state.db_pool {
+        (pool.size(), pool.num_idle())
+    } else {
+        (0, 0)
     }
 }

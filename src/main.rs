@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::time::Instant;
 
+use actix_web::dev::Service as _;
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
@@ -11,9 +13,13 @@ use rust_backend::infrastructure::repositories::{
     AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
     UserRepositoryImpl,
 };
+use rust_backend::observability::error_tracking::capture_unexpected_5xx;
+use rust_backend::observability::AppMetrics;
 use rust_backend::security::{cors_middleware, security_headers, LoginThrottle};
+use tracing::info;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
+use uuid::Uuid;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -43,7 +49,7 @@ async fn main() -> std::io::Result<()> {
     let auth_repo = Arc::new(AuthRepositoryImpl::new(pool.clone()));
     let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(pool.clone()));
     let message_repo = Arc::new(MessageRepositoryImpl::new(pool.clone()));
-    let category_repo = Arc::new(CategoryRepositoryImpl::new(pool));
+    let category_repo = Arc::new(CategoryRepositoryImpl::new(pool.clone()));
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(
@@ -58,15 +64,68 @@ async fn main() -> std::io::Result<()> {
         security: config.security.clone(),
         login_throttle: Arc::new(LoginThrottle::new(&config.security)),
         app_environment: config.app.environment.clone(),
+        metrics: Arc::new(AppMetrics::default()),
+        db_pool: Some(pool.clone()),
     };
 
     let bind_host = config.app.host.clone();
     let bind_port = config.app.port;
     let security_config = config.security.clone();
+    let metrics = state.metrics.clone();
 
     HttpServer::new(move || {
+        let metrics = metrics.clone();
         App::new()
             .wrap(Logger::default())
+            .wrap_fn(move |req, srv| {
+                let request_id = Uuid::new_v4().to_string();
+                let user_id = req
+                    .headers()
+                    .get("x-user-id")
+                    .and_then(|value| value.to_str().ok())
+                    .map(|value| value.to_string());
+                let path = req.path().to_string();
+                let method = req.method().to_string();
+                let metrics = metrics.clone();
+                let start = Instant::now();
+
+                let fut = srv.call(req);
+                async move {
+                    match fut.await {
+                        Ok(mut response) => {
+                            response.headers_mut().insert(
+                                actix_web::http::header::HeaderName::from_static("x-request-id"),
+                                actix_web::http::header::HeaderValue::from_str(&request_id)
+                                    .unwrap_or_else(|_| {
+                                        actix_web::http::header::HeaderValue::from_static(
+                                            "invalid-request-id",
+                                        )
+                                    }),
+                            );
+
+                            let status = response.status().as_u16();
+                            let latency_ms = start.elapsed().as_millis() as u64;
+                            metrics.record_request(status, latency_ms);
+
+                            info!(
+                                request_id = %request_id,
+                                user_id = ?user_id,
+                                method = %method,
+                                path = %path,
+                                status = status,
+                                latency_ms = latency_ms,
+                                "request completed"
+                            );
+
+                            if status >= 500 {
+                                capture_unexpected_5xx(&path, &method, status, &request_id);
+                            }
+                            Ok(response)
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+            })
             .wrap(cors_middleware(&security_config))
             .wrap(security_headers())
             .app_data(web::Data::new(state.clone()))

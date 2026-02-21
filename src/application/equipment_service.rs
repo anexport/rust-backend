@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -167,6 +168,11 @@ impl EquipmentService {
             if actor.role != Role::Admin {
                 return Err(AppError::Forbidden("not equipment owner".to_string()));
             }
+            info!(
+                actor_user_id = %actor_user_id,
+                equipment_id = %equipment_id,
+                "admin override: update equipment"
+            );
         }
 
         if let Some(title) = request.title {
@@ -224,6 +230,11 @@ impl EquipmentService {
             if actor.role != Role::Admin {
                 return Err(AppError::Forbidden("not equipment owner".to_string()));
             }
+            info!(
+                actor_user_id = %actor_user_id,
+                equipment_id = %equipment_id,
+                "admin override: delete equipment"
+            );
         }
 
         self.equipment_repo.delete(equipment_id).await
@@ -252,6 +263,11 @@ impl EquipmentService {
             if actor.role != Role::Admin {
                 return Err(AppError::Forbidden("not equipment owner".to_string()));
             }
+            info!(
+                actor_user_id = %actor_user_id,
+                equipment_id = %equipment_id,
+                "admin override: add equipment photo"
+            );
         }
 
         let photos = self.equipment_repo.find_photos(equipment_id).await?;
@@ -294,6 +310,12 @@ impl EquipmentService {
             if actor.role != Role::Admin {
                 return Err(AppError::Forbidden("not equipment owner".to_string()));
             }
+            info!(
+                actor_user_id = %actor_user_id,
+                equipment_id = %equipment_id,
+                photo_id = %photo_id,
+                "admin override: delete equipment photo"
+            );
         }
 
         self.equipment_repo.delete_photo(photo_id).await

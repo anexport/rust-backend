@@ -16,6 +16,7 @@ use rust_backend::domain::{
 use rust_backend::infrastructure::repositories::{
     AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
 };
+use rust_backend::observability::AppMetrics;
 use rust_backend::security::LoginThrottle;
 use rust_backend::security::{cors_middleware, security_headers};
 use rust_decimal::Decimal;
@@ -438,6 +439,8 @@ fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo
         security: security_config(),
         login_throttle: Arc::new(LoginThrottle::new(&security_config())),
         app_environment: "test".to_string(),
+        metrics: Arc::new(AppMetrics::default()),
+        db_pool: None,
     }
 }
 
@@ -1100,4 +1103,58 @@ async fn ws_upgrade_requires_wss_in_production() {
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[test]
+async fn metrics_endpoint_exposes_auth_failure_counter() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let mut state = app_state(user_repo, equipment_repo);
+    state.security.metrics_allow_private_only = false;
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let failed_login = actix_test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(serde_json::json!({
+            "email": "missing@example.com",
+            "password": "wrong"
+        }))
+        .to_request();
+    let failed_login_response = actix_test::call_service(&app, failed_login).await;
+    assert_eq!(failed_login_response.status(), StatusCode::UNAUTHORIZED);
+
+    let metrics_request = actix_test::TestRequest::get().uri("/metrics").to_request();
+    let metrics_response = actix_test::call_service(&app, metrics_request).await;
+    assert_eq!(metrics_response.status(), StatusCode::OK);
+    let metrics_body = actix_test::read_body(metrics_response).await;
+    let text = String::from_utf8(metrics_body.to_vec()).expect("metrics should be utf8");
+    assert!(text.contains("auth_failures_total"));
+}
+
+#[test]
+async fn ready_endpoint_checks_dependencies() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get().uri("/ready").to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
 }
