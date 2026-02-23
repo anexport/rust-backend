@@ -27,11 +27,14 @@ use rust_backend::application::{
 };
 use rust_backend::config::{AuthConfig, SecurityConfig};
 use rust_backend::domain::{
-    AuthIdentity, Category, Condition, Conversation, Equipment,
-    EquipmentPhoto, Message, User, UserSession,
+    AuthIdentity, Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, User,
+    UserSession,
 };
 use rust_backend::error::{AppError, AppResult};
-use rust_backend::infrastructure::auth0_api::{Auth0ApiClient, Auth0SignupResponse, Auth0TokenResponse, Auth0ErrorResponse};
+use rust_backend::infrastructure::auth0_api::{
+    Auth0ApiClient, Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse,
+};
+use rust_backend::infrastructure::oauth::{OAuthClient, OAuthProviderKind, OAuthUserInfo};
 use rust_backend::infrastructure::repositories::{
     AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
     MessageRepository, UserRepository,
@@ -39,7 +42,6 @@ use rust_backend::infrastructure::repositories::{
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::LoginThrottle;
 use rust_backend::security::{cors_middleware, security_headers};
-use rust_backend::infrastructure::oauth::{OAuthClient, OAuthProviderKind, OAuthUserInfo};
 
 // =============================================================================
 // Mock Auth0ApiClient for Actual Trait
@@ -177,16 +179,12 @@ impl Auth0ApiClient for MockAuth0ApiClient {
             username: user.username,
             picture: None,
             name: user.name,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            created_at: Some(Utc::now().to_rfc3339()),
+            updated_at: Some(Utc::now().to_rfc3339()),
         })
     }
 
-    async fn password_grant(
-        &self,
-        email: &str,
-        password: &str,
-    ) -> AppResult<Auth0TokenResponse> {
+    async fn password_grant(&self, email: &str, password: &str) -> AppResult<Auth0TokenResponse> {
         if *self.service_unavailable.lock().unwrap() {
             return Err(AppError::InternalError(anyhow::anyhow!(
                 "Auth0 service unavailable"
@@ -317,9 +315,10 @@ impl AuthRepository for MockAuthRepo {
 
     async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
         let mut identities = self.identities.lock().unwrap();
-        if let Some(existing) = identities.iter_mut().find(|i| {
-            i.provider == identity.provider && i.provider_id == identity.provider_id
-        }) {
+        if let Some(existing) = identities
+            .iter_mut()
+            .find(|i| i.provider == identity.provider && i.provider_id == identity.provider_id)
+        {
             *existing = identity.clone();
         } else {
             identities.push(identity.clone());
@@ -580,11 +579,10 @@ fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
     let oauth_client = Arc::new(MockOAuthClient);
 
     AppState {
-        auth_service: Arc::new(AuthService::new(
-            user_repo.clone(),
-            auth_repo,
-            auth_config(),
-        ).with_oauth_client(oauth_client)),
+        auth_service: Arc::new(
+            AuthService::new(user_repo.clone(), auth_repo, auth_config())
+                .with_oauth_client(oauth_client),
+        ),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -647,8 +645,7 @@ async fn auth0_signup_with_valid_data_returns_201() {
 
     assert_eq!(status, StatusCode::CREATED);
 
-    let body: Auth0SignupResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0SignupResponseDto = actix_test::read_body_json(response).await;
     assert_eq!(body.email, "newuser@example.com");
     assert!(!body.email_verified);
     assert!(body.id.starts_with("auth0|"));
@@ -666,9 +663,7 @@ async fn auth0_signup_with_duplicate_email_returns_409() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -718,6 +713,9 @@ async fn auth0_signup_with_invalid_email_format_returns_400() {
     let response = actix_test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert!(body["message"].as_str().unwrap().contains("Invalid email format"));
 }
 
 #[actix_web::test]
@@ -772,6 +770,9 @@ async fn auth0_signup_with_weak_password_returns_400() {
     let response = actix_test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert!(body["message"].as_str().unwrap().contains("Password is too short"));
 }
 
 #[actix_web::test]
@@ -900,9 +901,7 @@ async fn auth0_login_with_valid_credentials_returns_200() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -927,8 +926,7 @@ async fn auth0_login_with_valid_credentials_returns_200() {
 
     assert_eq!(status, StatusCode::OK);
 
-    let body: Auth0LoginResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0LoginResponseDto = actix_test::read_body_json(response).await;
     assert_eq!(body.token_type, "Bearer");
     assert_eq!(body.expires_in, 86400);
     assert!(!body.access_token.is_empty());
@@ -947,9 +945,7 @@ async fn auth0_login_with_wrong_password_returns_401() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1027,8 +1023,10 @@ async fn auth0_login_with_empty_email_returns_400() {
 
     // Empty email may pass validation but fail at Auth0 level
     // The endpoint doesn't validate email format for login
-    assert!(matches!(response.status(),
-        StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST));
+    assert!(matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST
+    ));
 }
 
 #[actix_web::test]
@@ -1055,8 +1053,10 @@ async fn auth0_login_with_empty_password_returns_400() {
 
     let response = actix_test::call_service(&app, request).await;
 
-    assert!(matches!(response.status(),
-        StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST));
+    assert!(matches!(
+        response.status(),
+        StatusCode::UNAUTHORIZED | StatusCode::BAD_REQUEST
+    ));
 }
 
 #[actix_web::test]
@@ -1101,9 +1101,7 @@ async fn auth0_login_returns_bearer_token_type() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1127,8 +1125,7 @@ async fn auth0_login_returns_bearer_token_type() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: Auth0LoginResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0LoginResponseDto = actix_test::read_body_json(response).await;
     assert_eq!(body.token_type, "Bearer");
 }
 
@@ -1143,9 +1140,7 @@ async fn auth0_login_returns_expiration_time() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1169,8 +1164,7 @@ async fn auth0_login_returns_expiration_time() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: Auth0LoginResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0LoginResponseDto = actix_test::read_body_json(response).await;
     // Auth0 typically returns 86400 seconds (24 hours)
     assert_eq!(body.expires_in, 86400);
 }
@@ -1186,9 +1180,7 @@ async fn auth0_login_returns_all_required_token_fields() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1212,14 +1204,22 @@ async fn auth0_login_returns_all_required_token_fields() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: Auth0LoginResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0LoginResponseDto = actix_test::read_body_json(response).await;
 
     // Verify all required fields are present
-    assert!(!body.access_token.is_empty(), "access_token should not be empty");
+    assert!(
+        !body.access_token.is_empty(),
+        "access_token should not be empty"
+    );
     assert!(!body.id_token.is_empty(), "id_token should not be empty");
-    assert!(body.refresh_token.is_some(), "refresh_token should be present");
-    assert!(!body.refresh_token.unwrap().is_empty(), "refresh_token should not be empty");
+    assert!(
+        body.refresh_token.is_some(),
+        "refresh_token should be present"
+    );
+    assert!(
+        !body.refresh_token.unwrap().is_empty(),
+        "refresh_token should not be empty"
+    );
 }
 
 #[actix_web::test]
@@ -1233,9 +1233,7 @@ async fn auth0_tokens_have_jwt_structure() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1259,17 +1257,22 @@ async fn auth0_tokens_have_jwt_structure() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: Auth0LoginResponseDto =
-        actix_test::read_body_json(response).await;
+    let body: Auth0LoginResponseDto = actix_test::read_body_json(response).await;
 
     // JWT tokens should have 3 parts separated by dots
     let parts: Vec<&str> = body.access_token.split('.').collect();
-    assert_eq!(parts.len(), 3,
-        "JWT should have 3 parts: header.payload.signature");
+    assert_eq!(
+        parts.len(),
+        3,
+        "JWT should have 3 parts: header.payload.signature"
+    );
 
     let id_parts: Vec<&str> = body.id_token.split('.').collect();
-    assert_eq!(id_parts.len(), 3,
-        "ID token should have 3 parts: header.payload.signature");
+    assert_eq!(
+        id_parts.len(),
+        3,
+        "ID token should have 3 parts: header.payload.signature"
+    );
 }
 
 // =============================================================================
@@ -1278,9 +1281,7 @@ async fn auth0_tokens_have_jwt_structure() {
 
 #[actix_web::test]
 async fn auth0_signup_with_auth0_unavailable_returns_500() {
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_service_unavailable(true)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_service_unavailable(true));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1302,15 +1303,15 @@ async fn auth0_signup_with_auth0_unavailable_returns_500() {
 
     let response = actix_test::call_service(&app, request).await;
 
-    assert!(matches!(response.status(),
-        StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE));
+    assert!(matches!(
+        response.status(),
+        StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE
+    ));
 }
 
 #[actix_web::test]
 async fn auth0_login_with_auth0_unavailable_returns_500() {
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_service_unavailable(true)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_service_unavailable(true));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1332,8 +1333,10 @@ async fn auth0_login_with_auth0_unavailable_returns_500() {
 
     let response = actix_test::call_service(&app, request).await;
 
-    assert!(matches!(response.status(),
-        StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE));
+    assert!(matches!(
+        response.status(),
+        StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE
+    ));
 }
 
 // =============================================================================
@@ -1367,7 +1370,10 @@ async fn auth0_signup_respects_rate_limiting() {
 
         let response = actix_test::call_service(&app, request).await;
         // First 9 requests should succeed, last one may fail due to duplicate email
-        assert!(matches!(response.status(), StatusCode::CREATED | StatusCode::CONFLICT));
+        assert!(matches!(
+            response.status(),
+            StatusCode::CREATED | StatusCode::CONFLICT
+        ));
     }
 }
 
@@ -1382,9 +1388,7 @@ async fn auth0_login_respects_rate_limiting() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(
@@ -1408,8 +1412,10 @@ async fn auth0_login_respects_rate_limiting() {
 
         let response = actix_test::call_service(&app, request).await;
         // First few attempts should return 401, later attempts may be rate limited (429)
-        assert!(matches!(response.status(),
-            StatusCode::UNAUTHORIZED | StatusCode::TOO_MANY_REQUESTS));
+        assert!(matches!(
+            response.status(),
+            StatusCode::UNAUTHORIZED | StatusCode::TOO_MANY_REQUESTS
+        ));
     }
 }
 
@@ -1520,9 +1526,7 @@ async fn auth0_login_endpoint_responds_to_post() {
         email_verified: true,
     };
 
-    let auth0_api_client = Arc::new(
-        MockAuth0ApiClient::new().with_user(existing_user)
-    );
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));
     let state = web::Data::new(app_state(auth0_api_client));
 
     let app = actix_test::init_service(

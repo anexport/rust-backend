@@ -55,7 +55,9 @@ async fn login(
             state.login_throttle.record_success(&throttle_key);
             tokens
         }
-        Err(AppError::Unauthorized) => return Err(state.login_throttle.record_failure(&throttle_key)),
+        Err(AppError::Unauthorized) => {
+            return Err(state.login_throttle.record_failure(&throttle_key))
+        }
         Err(error) => return Err(error),
     };
 
@@ -125,7 +127,11 @@ async fn logout(
 ) -> AppResult<HttpResponse> {
     let body_refresh = payload.into_inner().refresh_token;
     let refresh_token = body_refresh
-        .or_else(|| request.cookie("refresh_token").map(|cookie| cookie.value().to_string()))
+        .or_else(|| {
+            request
+                .cookie("refresh_token")
+                .map(|cookie| cookie.value().to_string())
+        })
         .ok_or(AppError::Unauthorized)?;
 
     state.auth_service.logout(&refresh_token).await?;
@@ -166,7 +172,11 @@ async fn oauth_callback(
     let throttle_key = crate::security::LoginThrottle::key("oauth", ip.as_deref());
     state.login_throttle.ensure_allowed(&throttle_key)?;
 
-    let issued = match state.auth_service.oauth_login(provider, &data.code, ip).await {
+    let issued = match state
+        .auth_service
+        .oauth_login(provider, &data.code, ip)
+        .await
+    {
         Ok(tokens) => {
             state.login_throttle.record_success(&throttle_key);
             tokens
@@ -209,7 +219,9 @@ async fn me(
 
     // Fall back to Auth0 authentication
     let mut payload = Payload::None;
-    let auth: Auth0AuthenticatedUser = <Auth0AuthenticatedUser as actix_web::FromRequest>::from_request(&request, &mut payload).await?;
+    let auth: Auth0AuthenticatedUser =
+        <Auth0AuthenticatedUser as actix_web::FromRequest>::from_request(&request, &mut payload)
+            .await?;
     let result = state.auth_service.me(auth.0.user_id).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -235,15 +247,27 @@ async fn auth0_signup(
     request: HttpRequest,
     payload: web::Json<Auth0SignupRequestDto>,
 ) -> AppResult<HttpResponse> {
+    tracing::info!(
+        email = %payload.email,
+        username = ?payload.username,
+        "Processing Auth0 signup request"
+    );
+
     // Validate email format (basic check)
     let email = &payload.email;
-    if email.is_empty() || !email.contains('@') || !email.contains('.') {
-        return Err(AppError::BadRequest("Invalid email format".to_string()));
+    if email.is_empty() {
+        return Err(AppError::BadRequest("Email is required".to_string()));
+    }
+    if !email.contains('@') || !email.contains('.') {
+        return Err(AppError::BadRequest(format!("Invalid email format: '{}' (must contain '@' and '.')", email)));
     }
 
     // Validate password
     if payload.password.len() < 12 {
-        return Err(AppError::BadRequest("Password must be at least 12 characters".to_string()));
+        return Err(AppError::BadRequest(format!(
+            "Password is too short ({} chars). It must be at least 12 characters.",
+            payload.password.len()
+        )));
     }
 
     let ip = client_ip(&request);
@@ -251,11 +275,14 @@ async fn auth0_signup(
     state.login_throttle.ensure_allowed(&throttle_key)?;
 
     // Call Auth0 to create user
-    let auth0_response = state.auth0_api_client.signup(
-        &payload.email,
-        &payload.password,
-        payload.username.as_deref(),
-    ).await
+    let auth0_response = state
+        .auth0_api_client
+        .signup(
+            &payload.email,
+            &payload.password,
+            payload.username.as_deref(),
+        )
+        .await
         .map_err(|e| match e {
             AppError::Conflict(_) => {
                 state.login_throttle.record_failure(&throttle_key);
@@ -275,7 +302,9 @@ async fn auth0_signup(
     let claims = crate::utils::auth0_claims::Auth0Claims {
         iss: "https://dev-r6elgiuf266abffs.us.auth0.com/".to_string(),
         sub: auth0_response.id.clone(),
-        aud: crate::utils::auth0_claims::Audience::Single("https://api.your-app.example".to_string()),
+        aud: crate::utils::auth0_claims::Audience::Single(
+            "https://api.your-app.example".to_string(),
+        ),
         exp: u64::MAX,
         iat: chrono::Utc::now().timestamp() as u64,
         email: Some(auth0_response.email.clone()),
@@ -328,10 +357,10 @@ async fn auth0_login(
     state.login_throttle.ensure_allowed(&throttle_key)?;
 
     // Call Auth0 to authenticate
-    let auth0_response = state.auth0_api_client.password_grant(
-        &payload.email,
-        &payload.password,
-    ).await
+    let auth0_response = state
+        .auth0_api_client
+        .password_grant(&payload.email, &payload.password)
+        .await
         .map_err(|e| {
             state.login_throttle.record_failure(&throttle_key);
             e
@@ -385,4 +414,23 @@ fn client_ip(request: &HttpRequest) -> Option<String> {
         .connection_info()
         .realip_remote_addr()
         .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::client_ip;
+
+    #[test]
+    fn client_ip_returns_none_without_forwarded_address() {
+        let request = actix_web::test::TestRequest::default().to_http_request();
+        assert_eq!(client_ip(&request), None);
+    }
+
+    #[test]
+    fn client_ip_uses_forwarded_address_when_present() {
+        let request = actix_web::test::TestRequest::default()
+            .insert_header(("x-forwarded-for", "203.0.113.10"))
+            .to_http_request();
+        assert_eq!(client_ip(&request), Some("203.0.113.10".to_string()));
+    }
 }
