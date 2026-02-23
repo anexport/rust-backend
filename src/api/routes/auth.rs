@@ -1,75 +1,31 @@
-use std::net::IpAddr;
+use actix_web::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
+use actix_web::{web, HttpRequest, HttpResponse};
+use serde::{Deserialize, Serialize};
 
-use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
-use actix_web::dev::ServiceRequest;
-use actix_web::{
-    cookie::{Cookie, SameSite},
-    web, HttpRequest, HttpResponse,
-};
-use tracing::{info, warn};
-use validator::Validate;
-
-use crate::api::dtos::{
-    AuthResponse, LoginRequest, OAuthCallbackRequest, RefreshRequest, RegisterRequest,
-    SessionAuthResponse,
-};
+use crate::api::dtos::{LoginRequest, OAuthCallbackRequest, RegisterRequest, SessionAuthResponse};
 use crate::api::routes::AppState;
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::oauth::OAuthProviderKind;
-use crate::middleware::auth::AuthenticatedUser;
-
-#[derive(Clone, Copy)]
-struct ClientIpExtractor;
-
-impl KeyExtractor for ClientIpExtractor {
-    type Key = IpAddr;
-    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
-
-    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        if let Some(value) = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .and_then(|value| value.trim().parse::<IpAddr>().ok())
-        {
-            return Ok(value);
-        }
-
-        if let Some(value) = req
-            .connection_info()
-            .realip_remote_addr()
-            .and_then(|value| value.parse::<IpAddr>().ok())
-        {
-            return Ok(value);
-        }
-
-        Ok(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST))
-    }
-}
+use crate::middleware::auth::Auth0AuthenticatedUser;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    let auth_governor = Box::leak(Box::new(
-        GovernorConfigBuilder::default()
-            .per_second(5)
-            .burst_size(10)
-            .key_extractor(ClientIpExtractor)
-            .finish()
-            .expect("auth governor config must be valid"),
-    ));
-
     cfg.service(
         web::scope("/auth")
-            .wrap(Governor::new(auth_governor))
             .route("/register", web::post().to(register))
             .route("/login", web::post().to(login))
+            .route("/refresh", web::post().to(refresh))
             .route("/logout", web::post().to(logout))
             .route("/oauth/google", web::post().to(oauth_google))
             .route("/oauth/github", web::post().to(oauth_github))
-            .route("/refresh", web::post().to(refresh))
-            .route("/me", web::get().to(me))
-            .route("/verify-email", web::post().to(verify_email)),
+            .route("/auth0/signup", web::post().to(auth0_signup))
+            .route("/auth0/login", web::post().to(auth0_login))
+            .route("/me", web::get().to(me)),
     );
+}
+
+#[derive(Debug, Deserialize)]
+struct OptionalRefreshRequest {
+    refresh_token: Option<String>,
 }
 
 async fn register(
@@ -85,125 +41,98 @@ async fn login(
     request: HttpRequest,
     payload: web::Json<LoginRequest>,
 ) -> AppResult<HttpResponse> {
-    let input = payload.into_inner();
-    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
-    let key = crate::security::LoginThrottle::key(&input.email, ip.as_deref());
-    state.login_throttle.ensure_allowed(&key)?;
+    let data = payload.into_inner();
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key(&data.email, ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
 
-    let issued = state
+    let issued = match state
         .auth_service
-        .issue_session_tokens(&input.email, &input.password, ip)
+        .issue_session_tokens(&data.email, &data.password, ip.clone())
         .await
-        .map_err(|error| match error {
-            AppError::Unauthorized => {
-                state.metrics.record_auth_failure();
-                warn!(email = %input.email, "login failed");
-                state.login_throttle.record_failure(&key)
-            }
-            other => other,
-        })?;
-    state.login_throttle.record_success(&key);
-    info!(user_id = %issued.user.id, "login succeeded");
+    {
+        Ok(tokens) => {
+            state.login_throttle.record_success(&throttle_key);
+            tokens
+        }
+        Err(AppError::Unauthorized) => return Err(state.login_throttle.record_failure(&throttle_key)),
+        Err(error) => return Err(error),
+    };
 
     let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
+
     Ok(HttpResponse::Ok()
         .cookie(refresh_cookie(&issued.refresh_token))
         .cookie(csrf_cookie(&csrf_token))
-        .json(AuthResponse {
-            access_token: issued.access_token,
-            user: issued.user,
-        }))
-}
-
-async fn me(state: web::Data<AppState>, auth: AuthenticatedUser) -> AppResult<HttpResponse> {
-    let result = state.auth_service.me(auth.0.sub).await?;
-    Ok(HttpResponse::Ok().json(result))
-}
-
-async fn verify_email(
-    state: web::Data<AppState>,
-    auth: AuthenticatedUser,
-) -> AppResult<HttpResponse> {
-    state.auth_service.verify_email(auth.0.sub).await?;
-    Ok(HttpResponse::NoContent().finish())
+        .json(response))
 }
 
 async fn refresh(
     state: web::Data<AppState>,
     request: HttpRequest,
-    payload: Option<web::Json<RefreshRequest>>,
+    payload: web::Json<OptionalRefreshRequest>,
 ) -> AppResult<HttpResponse> {
-    if request.cookie("refresh_token").is_some() {
-        validate_csrf_cookie_request(&request)?;
-    }
+    let body_refresh = payload.into_inner().refresh_token;
 
-    let refresh_token = request
+    let cookie_refresh = request
         .cookie("refresh_token")
-        .map(|cookie| cookie.value().to_string())
-        .or_else(|| payload.as_ref().map(|json| json.refresh_token.clone()))
+        .map(|cookie| cookie.value().to_string());
+    let refresh_token = body_refresh
+        .or(cookie_refresh)
         .ok_or(AppError::Unauthorized)?;
 
-    if let Some(json) = &payload {
-        json.validate()?;
+    if request.cookie("refresh_token").is_some() {
+        let csrf_cookie = request
+            .cookie("csrf_token")
+            .map(|cookie| cookie.value().to_string())
+            .ok_or(AppError::Unauthorized)?;
+        let csrf_header = request
+            .headers()
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AppError::Unauthorized)?;
+        if csrf_cookie != csrf_header {
+            return Err(AppError::Unauthorized);
+        }
     }
 
-    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
-    let refreshed = state
+    let issued = state
         .auth_service
-        .refresh_session_tokens(&refresh_token, ip)
-        .await
-        .map_err(|error| {
-            if matches!(error, AppError::Unauthorized) {
-                state.metrics.record_auth_failure();
-                warn!("refresh failed");
-            }
-            error
-        })?;
-    info!(user_id = %refreshed.user.id, "refresh succeeded");
-
+        .refresh_session_tokens(&refresh_token, client_ip(&request))
+        .await?;
     let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
+
     Ok(HttpResponse::Ok()
-        .cookie(refresh_cookie(&refreshed.refresh_token))
+        .cookie(refresh_cookie(&issued.refresh_token))
         .cookie(csrf_cookie(&csrf_token))
-        .json(SessionAuthResponse {
-            access_token: refreshed.access_token,
-            refresh_token: refreshed.refresh_token,
-            user: refreshed.user,
-        }))
+        .json(response))
 }
 
 async fn logout(
     state: web::Data<AppState>,
     request: HttpRequest,
-    payload: Option<web::Json<RefreshRequest>>,
+    payload: web::Json<OptionalRefreshRequest>,
 ) -> AppResult<HttpResponse> {
-    if request.cookie("refresh_token").is_some() {
-        validate_csrf_cookie_request(&request)?;
-    }
-
-    let refresh_token = request
-        .cookie("refresh_token")
-        .map(|cookie| cookie.value().to_string())
-        .or_else(|| payload.as_ref().map(|json| json.refresh_token.clone()))
+    let body_refresh = payload.into_inner().refresh_token;
+    let refresh_token = body_refresh
+        .or_else(|| request.cookie("refresh_token").map(|cookie| cookie.value().to_string()))
         .ok_or(AppError::Unauthorized)?;
 
-    if let Some(json) = &payload {
-        json.validate()?;
-    }
-
-    state
-        .auth_service
-        .logout(&refresh_token)
-        .await
-        .map_err(|error| {
-            if matches!(error, AppError::Unauthorized) {
-                state.metrics.record_auth_failure();
-                warn!("logout failed");
-            }
-            error
-        })?;
-    info!("logout succeeded");
-    Ok(HttpResponse::NoContent().finish())
+    state.auth_service.logout(&refresh_token).await?;
+    Ok(HttpResponse::NoContent()
+        .cookie(clear_cookie("refresh_token", true))
+        .cookie(clear_cookie("csrf_token", false))
+        .finish())
 }
 
 async fn oauth_google(
@@ -211,25 +140,7 @@ async fn oauth_google(
     request: HttpRequest,
     payload: web::Json<OAuthCallbackRequest>,
 ) -> AppResult<HttpResponse> {
-    let payload = payload.into_inner();
-    payload.validate()?;
-    validate_oauth_state(&request, payload.state.as_deref())?;
-
-    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
-    let issued = state
-        .auth_service
-        .oauth_login(OAuthProviderKind::Google, &payload.code, ip)
-        .await?;
-
-    let csrf_token = uuid::Uuid::new_v4().to_string();
-    Ok(HttpResponse::Ok()
-        .cookie(refresh_cookie(&issued.refresh_token))
-        .cookie(csrf_cookie(&csrf_token))
-        .json(SessionAuthResponse {
-            access_token: issued.access_token,
-            refresh_token: issued.refresh_token,
-            user: issued.user,
-        }))
+    oauth_callback(state, request, payload, OAuthProviderKind::Google).await
 }
 
 async fn oauth_github(
@@ -237,74 +148,241 @@ async fn oauth_github(
     request: HttpRequest,
     payload: web::Json<OAuthCallbackRequest>,
 ) -> AppResult<HttpResponse> {
-    let payload = payload.into_inner();
-    payload.validate()?;
-    validate_oauth_state(&request, payload.state.as_deref())?;
+    oauth_callback(state, request, payload, OAuthProviderKind::GitHub).await
+}
 
-    let ip = request.peer_addr().map(|addr| addr.ip().to_string());
-    let issued = state
-        .auth_service
-        .oauth_login(OAuthProviderKind::GitHub, &payload.code, ip)
-        .await?;
+async fn oauth_callback(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+    provider: OAuthProviderKind,
+) -> AppResult<HttpResponse> {
+    let data = payload.into_inner();
+    if data.state.as_deref().is_none() {
+        return Err(AppError::Unauthorized);
+    }
+
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key("oauth", ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    let issued = match state.auth_service.oauth_login(provider, &data.code, ip).await {
+        Ok(tokens) => {
+            state.login_throttle.record_success(&throttle_key);
+            tokens
+        }
+        Err(_) => return Err(state.login_throttle.record_failure(&throttle_key)),
+    };
 
     let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
     Ok(HttpResponse::Ok()
         .cookie(refresh_cookie(&issued.refresh_token))
         .cookie(csrf_cookie(&csrf_token))
-        .json(SessionAuthResponse {
-            access_token: issued.access_token,
-            refresh_token: issued.refresh_token,
-            user: issued.user,
-        }))
+        .json(response))
 }
 
-fn refresh_cookie(token: &str) -> Cookie<'static> {
-    Cookie::build("refresh_token", token.to_string())
+async fn me(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    auth_config: web::Data<crate::config::AuthConfig>,
+) -> AppResult<HttpResponse> {
+    use actix_web::dev::Payload;
+
+    // Extract token from Authorization header
+    let token = request
+        .headers()
+        .get(actix_web::http::header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer "))
+        .ok_or(AppError::Unauthorized)?;
+
+    // Try internal JWT validation first (for legacy auth flow)
+    if let Ok(claims) = crate::utils::jwt::validate_token(token, &auth_config) {
+        let result = state.auth_service.me(claims.sub).await?;
+        return Ok(HttpResponse::Ok().json(result));
+    }
+
+    // Fall back to Auth0 authentication
+    let mut payload = Payload::None;
+    let auth: Auth0AuthenticatedUser = <Auth0AuthenticatedUser as actix_web::FromRequest>::from_request(&request, &mut payload).await?;
+    let result = state.auth_service.me(auth.0.user_id).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// Auth0 Database Connection Signup
+///
+/// This endpoint creates a user in Auth0 using a Database Connection.
+/// The user can then authenticate using /auth/auth0/login.
+#[derive(Debug, Deserialize)]
+struct Auth0SignupRequestDto {
+    #[serde(alias = "email")]
+    email: String,
+    #[serde(alias = "password")]
+    password: String,
+    #[serde(alias = "username")]
+    username: Option<String>,
+    #[serde(alias = "full_name")]
+    _full_name: Option<String>,
+}
+
+async fn auth0_signup(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<Auth0SignupRequestDto>,
+) -> AppResult<HttpResponse> {
+    // Validate email format (basic check)
+    let email = &payload.email;
+    if email.is_empty() || !email.contains('@') || !email.contains('.') {
+        return Err(AppError::BadRequest("Invalid email format".to_string()));
+    }
+
+    // Validate password
+    if payload.password.len() < 12 {
+        return Err(AppError::BadRequest("Password must be at least 12 characters".to_string()));
+    }
+
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key("auth0_signup", ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    // Call Auth0 to create user
+    let auth0_response = state.auth0_api_client.signup(
+        &payload.email,
+        &payload.password,
+        payload.username.as_deref(),
+    ).await
+        .map_err(|e| match e {
+            AppError::Conflict(_) => {
+                state.login_throttle.record_failure(&throttle_key);
+                AppError::Conflict("Email already registered".to_string())
+            }
+            _ => {
+                state.login_throttle.record_failure(&throttle_key);
+                e
+            }
+        })?;
+
+    state.login_throttle.record_success(&throttle_key);
+
+    // Create local user and identity using the Auth0 user ID
+    // The JIT provisioning will handle this on first API call, but we create it now
+    // to ensure that user record exists before they make any API calls.
+    let claims = crate::utils::auth0_claims::Auth0Claims {
+        iss: "https://dev-r6elgiuf266abffs.us.auth0.com/".to_string(),
+        sub: auth0_response.id.clone(),
+        aud: crate::utils::auth0_claims::Audience::Single("https://api.your-app.example".to_string()),
+        exp: u64::MAX,
+        iat: chrono::Utc::now().timestamp() as u64,
+        email: Some(auth0_response.email.clone()),
+        email_verified: Some(auth0_response.email_verified),
+        name: auth0_response.name.clone(),
+        picture: auth0_response.picture.clone(),
+        custom_claims: std::collections::HashMap::new(),
+    };
+
+    // Use the auth service to provision the user from Auth0
+    // This will create local user and auth_identity records
+    state.auth_service.upsert_user_from_auth0(&claims).await?;
+
+    // Return minimal success response
+    Ok(HttpResponse::Created().json(serde_json::json!({
+        "id": auth0_response.id,
+        "email": auth0_response.email,
+        "email_verified": auth0_response.email_verified,
+    })))
+}
+
+/// Auth0 Database Connection Login (Password Grant)
+///
+/// This endpoint authenticates a user using Auth0 Password Grant flow.
+/// Returns Auth0 access token and ID token which can be used with the API.
+#[derive(Debug, Deserialize)]
+struct Auth0LoginRequestDto {
+    #[serde(alias = "email")]
+    email: String,
+    #[serde(alias = "password")]
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Auth0LoginResponse {
+    access_token: String,
+    id_token: String,
+    refresh_token: Option<String>,
+    expires_in: u64,
+    token_type: String,
+}
+
+async fn auth0_login(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<Auth0LoginRequestDto>,
+) -> AppResult<HttpResponse> {
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key(&payload.email, ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    // Call Auth0 to authenticate
+    let auth0_response = state.auth0_api_client.password_grant(
+        &payload.email,
+        &payload.password,
+    ).await
+        .map_err(|e| {
+            state.login_throttle.record_failure(&throttle_key);
+            e
+        })?;
+
+    state.login_throttle.record_success(&throttle_key);
+
+    let response = Auth0LoginResponse {
+        access_token: auth0_response.access_token.clone(),
+        id_token: auth0_response.id_token.clone(),
+        refresh_token: auth0_response.refresh_token.clone(),
+        expires_in: auth0_response.expires_in,
+        token_type: auth0_response.token_type,
+    };
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn refresh_cookie(value: &str) -> Cookie<'static> {
+    Cookie::build("refresh_token", value.to_string())
+        .path("/")
         .http_only(true)
         .secure(true)
         .same_site(SameSite::Lax)
-        .path("/")
         .finish()
 }
 
-fn csrf_cookie(token: &str) -> Cookie<'static> {
-    Cookie::build("csrf_token", token.to_string())
-        .http_only(false)
+fn csrf_cookie(value: &str) -> Cookie<'static> {
+    Cookie::build("csrf_token", value.to_string())
+        .path("/")
         .secure(true)
         .same_site(SameSite::Lax)
-        .path("/")
         .finish()
 }
 
-fn validate_csrf_cookie_request(request: &HttpRequest) -> AppResult<()> {
-    let csrf_cookie_value = request
-        .cookie("csrf_token")
-        .map(|cookie| cookie.value().to_string())
-        .ok_or(AppError::Unauthorized)?;
-    let csrf_header = request
-        .headers()
-        .get("x-csrf-token")
-        .and_then(|value| value.to_str().ok())
-        .ok_or(AppError::Unauthorized)?;
-
-    if csrf_cookie_value != csrf_header {
-        return Err(AppError::Unauthorized);
+fn clear_cookie(name: &str, http_only: bool) -> Cookie<'static> {
+    let mut builder = Cookie::build(name.to_string(), String::new());
+    builder = builder
+        .path("/")
+        .max_age(CookieDuration::seconds(0))
+        .secure(true)
+        .same_site(SameSite::Lax);
+    if http_only {
+        builder = builder.http_only(true);
     }
-
-    Ok(())
+    builder.finish()
 }
 
-fn validate_oauth_state(request: &HttpRequest, state: Option<&str>) -> AppResult<()> {
-    let state = state.ok_or(AppError::Unauthorized)?;
-    if state.is_empty() {
-        return Err(AppError::Unauthorized);
-    }
-
-    if let Some(cookie_state) = request.cookie("oauth_state") {
-        if cookie_state.value() != state {
-            return Err(AppError::Unauthorized);
-        }
-    }
-
-    Ok(())
+fn client_ip(request: &HttpRequest) -> Option<String> {
+    request
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string)
 }
