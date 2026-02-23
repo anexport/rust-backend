@@ -1,60 +1,32 @@
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use actix_web::{web, HttpRequest, HttpResponse};
-use chrono::Utc;
 use futures_util::StreamExt;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::api::dtos::SendMessageRequest;
 use crate::api::routes::AppState;
 use crate::error::{AppError, AppResult};
 use crate::middleware::auth::UserProvisioningService;
 use crate::utils::auth0_jwks::{validate_auth0_token, JwksProvider};
 
+mod handlers;
+mod hub;
+mod messages;
+
+use self::handlers::handle_text_message;
+#[cfg(test)]
+use self::messages::{
+    parse_read_payload, parse_send_message_payload, parse_typing_payload, parse_ws_envelope,
+};
+
+pub use self::hub::WsConnectionHub;
+pub use self::messages::{WsClientEnvelope, WsReadPayload, WsSendMessagePayload, WsTypingPayload};
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.route("/ws", web::get().to(ws_upgrade));
-}
-
-#[derive(Clone, Default)]
-pub struct WsConnectionHub {
-    sessions: Arc<RwLock<HashMap<Uuid, Vec<mpsc::UnboundedSender<String>>>>>,
-}
-
-impl WsConnectionHub {
-    pub fn register(&self, user_id: Uuid) -> mpsc::UnboundedReceiver<String> {
-        let (tx, rx) = mpsc::unbounded_channel();
-        if let Ok(mut sessions) = self.sessions.write() {
-            sessions.entry(user_id).or_default().push(tx);
-        }
-        rx
-    }
-
-    pub fn prune_user(&self, user_id: Uuid) {
-        if let Ok(mut sessions) = self.sessions.write() {
-            if let Some(user_sessions) = sessions.get_mut(&user_id) {
-                user_sessions.retain(|sender| !sender.is_closed());
-                if user_sessions.is_empty() {
-                    sessions.remove(&user_id);
-                }
-            }
-        }
-    }
-
-    pub fn broadcast_to_users(&self, user_ids: &[Uuid], payload: &str) {
-        if let Ok(mut sessions) = self.sessions.write() {
-            for user_id in user_ids {
-                if let Some(user_sessions) = sessions.get_mut(user_id) {
-                    user_sessions.retain(|sender| sender.send(payload.to_string()).is_ok());
-                }
-            }
-            sessions.retain(|_, user_sessions| !user_sessions.is_empty());
-        }
-    }
 }
 
 async fn ws_upgrade(
@@ -252,138 +224,6 @@ async fn ws_loop(
 
     Ok(())
 }
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct WsClientEnvelope {
-    #[serde(rename = "type")]
-    pub message_type: String,
-    pub payload: Option<Value>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct WsSendMessagePayload {
-    pub conversation_id: Uuid,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct WsTypingPayload {
-    pub conversation_id: Uuid,
-    pub is_typing: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct WsReadPayload {
-    pub conversation_id: Uuid,
-}
-
-async fn handle_text_message(
-    session: &mut actix_ws::Session,
-    message_service: &std::sync::Arc<crate::application::MessageService>,
-    hub: &WsConnectionHub,
-    user_id: Uuid,
-    text: String,
-) -> AppResult<()> {
-    let envelope = parse_ws_envelope(&text)?;
-
-    match envelope.message_type.as_str() {
-        "ping" => {
-            let payload = json!({ "type": "pong" });
-            session
-                .text(payload.to_string())
-                .await
-                .map_err(|_| AppError::InternalError(anyhow::anyhow!("failed to send pong")))?;
-        }
-        "message" => {
-            let parsed = parse_send_message_payload(envelope.payload)?;
-
-            // Persist first, then deliver to the socket.
-            let saved = message_service
-                .send_message(
-                    user_id,
-                    parsed.conversation_id,
-                    SendMessageRequest {
-                        content: parsed.content,
-                    },
-                )
-                .await?;
-
-            let server_event = json!({ "type": "message", "payload": saved });
-            let participants = message_service
-                .participant_ids(user_id, parsed.conversation_id)
-                .await?;
-            hub.broadcast_to_users(&participants, &server_event.to_string());
-        }
-        "typing" => {
-            let parsed = parse_typing_payload(envelope.payload)?;
-            let participants = message_service
-                .participant_ids(user_id, parsed.conversation_id)
-                .await?;
-            let event = json!({
-                "type": "typing",
-                "payload": {
-                    "conversation_id": parsed.conversation_id,
-                    "user_id": user_id,
-                    "is_typing": parsed.is_typing.unwrap_or(true),
-                }
-            });
-            hub.broadcast_to_users(&participants, &event.to_string());
-        }
-        "read" => {
-            let parsed = parse_read_payload(envelope.payload)?;
-            message_service
-                .mark_as_read(user_id, parsed.conversation_id)
-                .await?;
-            let participants = message_service
-                .participant_ids(user_id, parsed.conversation_id)
-                .await?;
-            let event = json!({
-                "type": "read",
-                "payload": {
-                    "conversation_id": parsed.conversation_id,
-                    "user_id": user_id,
-                    "read_at": Utc::now(),
-                }
-            });
-            hub.broadcast_to_users(&participants, &event.to_string());
-        }
-        _ => {
-            let payload = json!({ "type": "error", "payload": { "code": "UNSUPPORTED_TYPE" } });
-            session.text(payload.to_string()).await.map_err(|_| {
-                AppError::InternalError(anyhow::anyhow!("failed to send error event"))
-            })?;
-        }
-    }
-
-    Ok(())
-}
-
-fn parse_ws_envelope(text: &str) -> AppResult<WsClientEnvelope> {
-    serde_json::from_str(text)
-        .map_err(|_| AppError::BadRequest("invalid websocket message".to_string()))
-}
-
-fn parse_send_message_payload(payload: Option<Value>) -> AppResult<WsSendMessagePayload> {
-    let payload =
-        payload.ok_or_else(|| AppError::BadRequest("missing message payload".to_string()))?;
-    serde_json::from_value(payload)
-        .map_err(|_| AppError::BadRequest("invalid message payload".to_string()))
-}
-
-fn parse_typing_payload(payload: Option<Value>) -> AppResult<WsTypingPayload> {
-    let payload =
-        payload.ok_or_else(|| AppError::BadRequest("missing typing payload".to_string()))?;
-    serde_json::from_value(payload)
-        .map_err(|_| AppError::BadRequest("invalid typing payload".to_string()))
-}
-
-fn parse_read_payload(payload: Option<Value>) -> AppResult<WsReadPayload> {
-    let payload =
-        payload.ok_or_else(|| AppError::BadRequest("missing read payload".to_string()))?;
-    serde_json::from_value(payload)
-        .map_err(|_| AppError::BadRequest("invalid read payload".to_string()))
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -413,8 +253,8 @@ mod tests {
     use crate::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
     use crate::utils::auth0_jwks::{Auth0JwksClient, JwksProvider};
 
-    const TEST_PRIVATE_KEY_PEM: &str = include_str!("../../../tests/test_private_key.pem");
-    const TEST_PUBLIC_KEY_PEM: &str = include_str!("../../../tests/test_public_key.pem");
+    const TEST_PRIVATE_KEY_PEM: &str = include_str!("../../../../tests/test_private_key.pem");
+    const TEST_PUBLIC_KEY_PEM: &str = include_str!("../../../../tests/test_public_key.pem");
 
     struct NoopUserRepo {
         user: User,
