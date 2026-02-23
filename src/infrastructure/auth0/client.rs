@@ -268,7 +268,7 @@ impl Auth0ApiClient for HttpAuth0ApiClient {
 
         let response = self
             .client
-            .post(&self.signup_url())
+            .post(self.signup_url())
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .json(&request)
@@ -315,7 +315,7 @@ impl Auth0ApiClient for HttpAuth0ApiClient {
 
         let response = self
             .client
-            .post(&self.oauth_token_url())
+            .post(self.oauth_token_url())
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
             .json(&request)

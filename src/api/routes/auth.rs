@@ -164,9 +164,8 @@ async fn auth0_login(
         .auth0_api_client
         .password_grant(&payload.email, &payload.password)
         .await
-        .map_err(|e| {
-            state.login_throttle.record_failure(&throttle_key);
-            e
+        .inspect_err(|_| {
+            let _ = state.login_throttle.record_failure(&throttle_key);
         })?;
 
     state.login_throttle.record_success(&throttle_key);

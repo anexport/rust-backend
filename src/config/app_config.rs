@@ -104,13 +104,12 @@ impl Auth0Config {
     }
 
     pub fn issuer(&self) -> Option<String> {
-        if let Some(issuer) = Self::non_empty(self.auth0_issuer.as_deref()) {
-            Some(issuer.to_string())
-        } else if let Some(domain) = Self::non_empty(self.auth0_domain.as_deref()) {
-            Some(format!("https://{}/", domain))
-        } else {
-            None
-        }
+        Self::non_empty(self.auth0_issuer.as_deref())
+            .map(|issuer| issuer.to_string())
+            .or_else(|| {
+                Self::non_empty(self.auth0_domain.as_deref())
+                    .map(|domain| format!("https://{}/", domain))
+            })
     }
 }
 
