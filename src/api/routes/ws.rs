@@ -83,7 +83,15 @@ async fn ws_upgrade(
     let metrics = state.metrics.clone();
     metrics.ws_connected();
     actix_web::rt::spawn(async move {
-        let _ = ws_loop(session, stream, outbound_rx, message_service, hub.clone(), user_id).await;
+        let _ = ws_loop(
+            session,
+            stream,
+            outbound_rx,
+            message_service,
+            hub.clone(),
+            user_id,
+        )
+        .await;
         hub.prune_user(user_id);
         metrics.ws_disconnected();
     });
@@ -91,7 +99,10 @@ async fn ws_upgrade(
     Ok(response)
 }
 
-async fn authenticate_ws_user(request: &HttpRequest, _state: &web::Data<AppState>) -> AppResult<Uuid> {
+async fn authenticate_ws_user(
+    request: &HttpRequest,
+    _state: &web::Data<AppState>,
+) -> AppResult<Uuid> {
     let token = extract_ws_token(request).ok_or(AppError::Unauthorized)?;
 
     let jwks_client = request
@@ -102,9 +113,16 @@ async fn authenticate_ws_user(request: &HttpRequest, _state: &web::Data<AppState
         .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("missing Auth0Config app data")))?;
     let provisioning_service = request
         .app_data::<web::Data<Arc<dyn UserProvisioningService>>>()
-        .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("missing UserProvisioningService app data")))?;
+        .ok_or_else(|| {
+            AppError::InternalError(anyhow::anyhow!("missing UserProvisioningService app data"))
+        })?;
 
-    let claims = validate_auth0_token(&token, jwks_client.as_ref().as_ref(), auth0_config.get_ref()).await?;
+    let claims = validate_auth0_token(
+        &token,
+        jwks_client.as_ref().as_ref(),
+        auth0_config.get_ref(),
+    )
+    .await?;
     let user_context = provisioning_service.provision_user(&claims).await?;
     Ok(user_context.user_id)
 }
@@ -372,7 +390,8 @@ mod tests {
 
     use actix_web::{http::StatusCode, test as awtest, web, App};
     use async_trait::async_trait;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
     use serde_json::json;
     use tokio::sync::mpsc::error::TryRecvError;
     use uuid::Uuid;
@@ -391,7 +410,11 @@ mod tests {
     use crate::middleware::auth::JitUserProvisioningService;
     use crate::observability::AppMetrics;
     use crate::security::LoginThrottle;
-    use crate::utils::auth0_jwks::Auth0JwksClient;
+    use crate::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
+    use crate::utils::auth0_jwks::{Auth0JwksClient, JwksProvider};
+
+    const TEST_PRIVATE_KEY_PEM: &str = include_str!("../../../tests/test_private_key.pem");
+    const TEST_PUBLIC_KEY_PEM: &str = include_str!("../../../tests/test_public_key.pem");
 
     struct NoopUserRepo {
         user: User,
@@ -461,56 +484,35 @@ mod tests {
         ) -> crate::error::AppResult<AuthIdentity> {
             Ok(identity.clone())
         }
+    }
 
-        async fn verify_email(&self, _user_id: Uuid) -> crate::error::AppResult<()> {
-            Ok(())
+    struct StaticJwksProvider {
+        key: DecodingKey,
+    }
+
+    #[async_trait]
+    impl JwksProvider for StaticJwksProvider {
+        async fn get_decoding_key(&self, _kid: &str) -> crate::error::AppResult<DecodingKey> {
+            Ok(self.key.clone())
         }
+    }
 
-        async fn create_session(
+    struct StaticProvisioningService {
+        user_id: Uuid,
+    }
+
+    #[async_trait]
+    impl crate::middleware::auth::UserProvisioningService for StaticProvisioningService {
+        async fn provision_user(
             &self,
-            _session: &crate::domain::UserSession,
-        ) -> crate::error::AppResult<crate::domain::UserSession> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn find_session_by_token_hash(
-            &self,
-            _token_hash: &str,
-        ) -> crate::error::AppResult<Option<crate::domain::UserSession>> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn revoke_session(&self, _id: Uuid) -> crate::error::AppResult<()> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn revoke_session_with_replacement(
-            &self,
-            _id: Uuid,
-            _replaced_by: Option<Uuid>,
-            _reason: Option<&str>,
-        ) -> crate::error::AppResult<()> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn revoke_all_sessions(&self, _user_id: Uuid) -> crate::error::AppResult<()> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn revoke_family(
-            &self,
-            _family_id: Uuid,
-            _reason: &str,
-        ) -> crate::error::AppResult<()> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn touch_session(&self, _id: Uuid) -> crate::error::AppResult<()> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
-        }
-
-        async fn has_active_session(&self, _user_id: Uuid) -> crate::error::AppResult<bool> {
-            unimplemented!("session methods not needed for Auth0 WS tests")
+            claims: &Auth0Claims,
+        ) -> crate::error::AppResult<Auth0UserContext> {
+            Ok(Auth0UserContext {
+                user_id: self.user_id,
+                auth0_sub: claims.sub.clone(),
+                role: "renter".to_string(),
+                email: claims.email.clone(),
+            })
         }
     }
 
@@ -675,6 +677,31 @@ mod tests {
         format!("test-auth0-token-{}", sub)
     }
 
+    fn create_valid_auth0_token(sub: &str) -> String {
+        let claims = Auth0Claims {
+            iss: "https://test.auth0.com/".to_string(),
+            sub: sub.to_string(),
+            aud: Audience::Single("test-audience".to_string()),
+            exp: (Utc::now() + Duration::minutes(5)).timestamp() as u64,
+            iat: (Utc::now() - Duration::minutes(1)).timestamp() as u64,
+            email: Some("ws-user@example.com".to_string()),
+            email_verified: Some(true),
+            name: Some("Ws User".to_string()),
+            picture: None,
+            custom_claims: std::collections::HashMap::new(),
+        };
+
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some("ws-test-kid".to_string());
+        encode(
+            &header,
+            &claims,
+            &EncodingKey::from_rsa_pem(TEST_PRIVATE_KEY_PEM.as_bytes())
+                .expect("private test key should parse"),
+        )
+        .expect("valid RS256 auth0 token should encode")
+    }
+
     fn security_config() -> SecurityConfig {
         SecurityConfig {
             cors_allowed_origins: vec!["http://localhost:3000".to_string()],
@@ -784,6 +811,42 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
+    #[actix_rt::test]
+    async fn ws_allows_valid_auth0_token_without_local_session() {
+        let auth0_config = auth0_config();
+        let token = create_valid_auth0_token("auth0|ws-no-session");
+        let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider {
+            key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes())
+                .expect("public test key should parse"),
+        });
+        let provisioning_service: Arc<dyn crate::middleware::auth::UserProvisioningService> =
+            Arc::new(StaticProvisioningService {
+                user_id: Uuid::new_v4(),
+            });
+
+        let app = awtest::init_service(
+            App::new()
+                .app_data(web::Data::new(build_state("development")))
+                .app_data(web::Data::new(auth0_config))
+                .app_data(web::Data::new(jwks_provider))
+                .app_data(web::Data::new(provisioning_service))
+                .configure(super::configure),
+        )
+        .await;
+
+        let request = awtest::TestRequest::get()
+            .uri("/ws")
+            .insert_header(("Connection", "Upgrade"))
+            .insert_header(("Upgrade", "websocket"))
+            .insert_header(("Sec-WebSocket-Version", "13"))
+            .insert_header(("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="))
+            .insert_header(("Authorization", format!("Bearer {token}")))
+            .to_request();
+
+        let response = awtest::call_service(&app, request).await;
+        assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    }
+
     #[test]
     fn extracts_token_from_authorization_header() {
         let request = awtest::TestRequest::default()
@@ -815,8 +878,55 @@ mod tests {
     }
 
     #[test]
+    fn extract_ws_token_prefers_authorization_header() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Authorization", "Bearer auth-header-token"))
+            .insert_header(("Sec-WebSocket-Protocol", "bearer, protocol-token"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert_eq!(token.as_deref(), Some("auth-header-token"));
+    }
+
+    #[test]
+    fn extract_ws_token_rejects_lowercase_bearer_prefix_in_authorization_header() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Authorization", "bearer lower-token"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert!(token.is_none());
+    }
+
+    #[test]
+    fn extract_ws_token_rejects_empty_subprotocol_token() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Sec-WebSocket-Protocol", "bearer,    "))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert!(token.is_none());
+    }
+
+    #[test]
+    fn extract_ws_token_accepts_mixed_case_subprotocol_prefix() {
+        let request = awtest::TestRequest::default()
+            .insert_header(("Sec-WebSocket-Protocol", "BeArEr, token-1"))
+            .to_http_request();
+
+        let token = super::extract_ws_token(&request);
+        assert_eq!(token.as_deref(), Some("token-1"));
+    }
+
+    #[test]
     fn malformed_ws_text_message_returns_bad_request() {
         let result = super::parse_ws_envelope("{not-json");
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn malformed_ws_text_envelope_shape_returns_bad_request() {
+        let result = super::parse_ws_envelope(r#"[1,2,3]"#);
         assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
     }
 
@@ -831,6 +941,51 @@ mod tests {
         let result =
             super::parse_send_message_payload(Some(json!({ "conversation_id": "not-a-uuid" })));
         assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn invalid_ws_message_payload_content_type_returns_bad_request() {
+        let result = super::parse_send_message_payload(Some(json!({
+            "conversation_id": Uuid::new_v4(),
+            "content": 123
+        })));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn missing_typing_payload_returns_bad_request() {
+        let result = super::parse_typing_payload(None);
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn invalid_typing_payload_returns_bad_request() {
+        let result = super::parse_typing_payload(Some(json!({
+            "conversation_id": "not-a-uuid",
+            "is_typing": true
+        })));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn missing_read_payload_returns_bad_request() {
+        let result = super::parse_read_payload(None);
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn invalid_read_payload_returns_bad_request() {
+        let result = super::parse_read_payload(Some(json!({
+            "conversation_id": "not-a-uuid"
+        })));
+        assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    }
+
+    #[test]
+    fn unsupported_text_message_type_is_retained_for_error_path() {
+        let result = super::parse_ws_envelope(r#"{"type":"unsupported","payload":{}}"#)
+            .expect("envelope should parse");
+        assert_eq!(result.message_type, "unsupported");
     }
 
     #[test]
@@ -878,6 +1033,35 @@ mod tests {
     }
 
     #[test]
+    fn secure_ws_request_rejects_http_forwarded_proto_without_https_hints() {
+        let request = awtest::TestRequest::default()
+            .uri("http://example.test/ws")
+            .insert_header(("x-forwarded-proto", "http"))
+            .to_http_request();
+
+        assert!(!super::is_secure_ws_request(&request));
+    }
+
+    #[test]
+    fn secure_ws_request_rejects_missing_scheme_and_forwarded_proto() {
+        let request = awtest::TestRequest::default()
+            .uri("http://example.test/ws")
+            .to_http_request();
+
+        assert!(!super::is_secure_ws_request(&request));
+    }
+
+    #[test]
+    fn secure_ws_request_accepts_forwarded_proto_list_when_https_is_first() {
+        let request = awtest::TestRequest::default()
+            .uri("http://example.test/ws")
+            .insert_header(("x-forwarded-proto", "https,http"))
+            .to_http_request();
+
+        assert!(super::is_secure_ws_request(&request));
+    }
+
+    #[test]
     fn parse_typing_payload_accepts_valid_shape() {
         let conversation_id = Uuid::new_v4();
         let result = super::parse_typing_payload(Some(json!({
@@ -894,5 +1078,30 @@ mod tests {
             "conversation_id": conversation_id
         })));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn ws_hub_broadcast_prunes_and_isolates_multiple_participants() {
+        let hub = super::WsConnectionHub::default();
+        let user_a = Uuid::new_v4();
+        let user_b = Uuid::new_v4();
+        let user_c = Uuid::new_v4();
+
+        let mut rx_a_open = hub.register(user_a);
+        let rx_a_closed = hub.register(user_a);
+        let mut rx_b_open = hub.register(user_b);
+        let mut rx_c_open = hub.register(user_c);
+        drop(rx_a_closed);
+
+        hub.broadcast_to_users(&[user_a, user_b], "group-message");
+
+        assert_eq!(rx_a_open.try_recv(), Ok("group-message".to_string()));
+        assert_eq!(rx_b_open.try_recv(), Ok("group-message".to_string()));
+        assert_eq!(rx_c_open.try_recv(), Err(TryRecvError::Empty));
+
+        drop(rx_a_open);
+        hub.prune_user(user_a);
+        hub.broadcast_to_users(&[user_a], "post-prune-message");
+        assert_eq!(rx_b_open.try_recv(), Err(TryRecvError::Empty));
     }
 }

@@ -163,16 +163,16 @@ Links Auth0 users to local profiles.
 | `AUTH0_CLIENT_SECRET` | Yes (for password grant flow) | Auth0 Client Secret for your application | `your-client-secret` |
 | `AUTH0_CONNECTION` | No | Auth0 connection name (default: Username-Password-Authentication) | `Username-Password-Authentication` |
 
-### Legacy Configuration (OAuth Flow Only)
+### Compatibility Auth Configuration
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `JWT_SECRET` | Yes | For local JWT token generation (OAuth flow only) |
+| `JWT_SECRET` | Yes | Compatibility config key used by existing app config shape |
 | `JWT_KID` | No | JWT key ID (default: "v1") |
 | `PREVIOUS_JWT_SECRETS` | No | Previous JWT secrets for rotation |
 | `PREVIOUS_JWT_KIDS` | No | Previous JWT key IDs for rotation |
 
-**Important:** The legacy `JWT_SECRET` is only used for issuing local JWT tokens during OAuth callbacks. For API authentication, all bearer tokens must be Auth0 access tokens.
+**Important:** API authentication is Auth0-only. These compatibility keys should not be used for local auth flows.
 
 ## Claims and Role Mapping
 
@@ -250,19 +250,19 @@ const apiResponse = await fetch('https://api.example.com/api/auth/me', {
 For client-side applications that cannot safely store the client secret, you can proxy requests through the backend:
 
 ```rust
-// POST /api/auth/register - Proxy to Auth0 signup
-async fn register_proxy(
+// POST /api/auth/auth0/signup - Proxy to Auth0 signup
+async fn auth0_signup_proxy(
     state: web::Data<AppState>,
-    payload: web::Json<RegisterRequest>,
+    payload: web::Json<Auth0SignupRequest>,
 ) -> AppResult<HttpResponse> {
     let response = state.auth0_client.signup(payload.into_inner()).await?;
     Ok(HttpResponse::Created().json(response))
 }
 
-// POST /api/auth/login - Proxy to Auth0 password grant
-async fn login_proxy(
+// POST /api/auth/auth0/login - Proxy to Auth0 password grant
+async fn auth0_login_proxy(
     state: web::Data<AppState>,
-    payload: web::Json<LoginRequest>,
+    payload: web::Json<Auth0LoginRequest>,
 ) -> AppResult<HttpResponse> {
     let tokens = state.auth0_client.password_grant(payload.into_inner()).await?;
     Ok(HttpResponse::Ok().json(tokens))
@@ -389,20 +389,13 @@ All API endpoints require a valid Auth0 access token:
 | POST | `/api/equipment` | Create equipment listing |
 | etc. | ... | All other API endpoints |
 
-### Legacy Routes (for backward compatibility)
-
-The following routes are maintained for backward compatibility with existing OAuth flows:
+### Current Auth Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/register` | Legacy registration (local flow) |
-| POST | `/api/auth/login` | Legacy login (local flow) |
-| POST | `/api/auth/logout` | Legacy logout |
-| POST | `/api/auth/refresh` | Legacy token refresh |
-| POST | `/api/auth/oauth/google` | Legacy Google OAuth callback |
-| POST | `/api/auth/oauth/github` | Legacy GitHub OAuth callback |
-
-**Note:** These legacy endpoints issue local JWT tokens for compatibility but do not support bearer token authentication for API routes. New applications should use Auth0 directly.
+| POST | `/api/auth/auth0/signup` | Auth0 database-connection signup proxy |
+| POST | `/api/auth/auth0/login` | Auth0 password-grant login proxy |
+| GET | `/api/auth/me` | Get current user profile from Auth0 token |
 
 ## Migration Guide
 

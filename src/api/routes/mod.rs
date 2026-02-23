@@ -111,3 +111,34 @@ fn pool_stats(state: &web::Data<AppState>) -> (u32, usize) {
         (0, 0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    use super::*;
+
+    #[test]
+    fn is_private_or_loopback_ipv4_private_true() {
+        let ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        assert!(is_private_or_loopback(ip));
+    }
+
+    #[test]
+    fn is_private_or_loopback_ipv4_public_false() {
+        let ip = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        assert!(!is_private_or_loopback(ip));
+    }
+
+    #[test]
+    fn is_private_or_loopback_ipv6_loopback_true() {
+        let ip = IpAddr::V6(Ipv6Addr::LOCALHOST);
+        assert!(is_private_or_loopback(ip));
+    }
+
+    #[test]
+    fn is_private_or_loopback_ipv6_unique_local_true() {
+        let ip = IpAddr::V6(Ipv6Addr::new(0xfd00, 0, 0, 0, 0, 0, 0, 1));
+        assert!(is_private_or_loopback(ip));
+    }
+}

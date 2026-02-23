@@ -8,12 +8,6 @@ url = "postgres://postgres:postgres@localhost:5432/rust_backend"
 max_connections = 10
 min_connections = 1
 
-# ============================================================
-# Local JWT Configuration (Legacy - OAuth Flow Only)
-# ============================================================
-# Note: These are only used for issuing local JWT tokens during
-# OAuth callbacks. For API authentication, all bearer tokens must
-# be Auth0 access tokens.
 [auth]
 jwt_secret = "change-me-in-production"
 jwt_kid = "v1"
@@ -58,18 +52,6 @@ metrics_admin_token = ""
 login_max_failures = 5
 login_lockout_seconds = 300
 login_backoff_base_ms = 200
-
-# ============================================================
-# OAuth Configuration (Legacy - Direct to Auth0)
-# ============================================================
-# Note: Google and GitHub OAuth is now handled directly through Auth0,
-# not via local OAuth implementation. These values are only kept for
-# reference and may be removed in future versions.
-[oauth]
-google_client_id = ""
-google_client_secret = ""
-github_client_id = ""
-github_client_secret = ""
 
 [logging]
 level = "info"

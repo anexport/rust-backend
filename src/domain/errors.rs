@@ -156,4 +156,103 @@ mod tests {
             assert!(error.source().is_none());
         }
     }
+
+    mod constructors {
+        use super::*;
+
+        #[test]
+        fn not_found_constructor_maps_to_not_found_variant() {
+            let error = DomainError::not_found("Equipment 42");
+            assert_eq!(error, DomainError::NotFound("Equipment 42".to_string()));
+        }
+
+        #[test]
+        fn validation_constructor_maps_to_validation_variant() {
+            let error = DomainError::validation("Missing name");
+            assert_eq!(
+                error,
+                DomainError::ValidationError("Missing name".to_string())
+            );
+        }
+
+        #[test]
+        fn conflict_constructor_maps_to_conflict_variant() {
+            let error = DomainError::conflict("Username already exists");
+            assert_eq!(
+                error,
+                DomainError::Conflict("Username already exists".to_string())
+            );
+        }
+
+        #[test]
+        fn cannot_delete_active_rental_has_expected_message() {
+            let error = DomainError::cannot_delete_active_rental();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation(
+                    "Cannot delete rental while it is active".to_string()
+                )
+            );
+        }
+
+        #[test]
+        fn equipment_not_available_has_expected_message() {
+            let error = DomainError::equipment_not_available();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation(
+                    "Equipment is not available for the requested period".to_string()
+                )
+            );
+        }
+
+        #[test]
+        fn cannot_modify_completed_rental_has_expected_message() {
+            let error = DomainError::cannot_modify_completed_rental();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation("Cannot modify a completed rental".to_string())
+            );
+        }
+
+        #[test]
+        fn insufficient_inventory_includes_item_name() {
+            let error = DomainError::insufficient_inventory("Camera");
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation("Insufficient inventory for Camera".to_string())
+            );
+        }
+
+        #[test]
+        fn user_already_has_active_rental_has_expected_message() {
+            let error = DomainError::user_already_has_active_rental();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation("User already has an active rental".to_string())
+            );
+        }
+
+        #[test]
+        fn rental_cannot_be_cancelled_has_expected_message() {
+            let error = DomainError::rental_cannot_be_cancelled();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation(
+                    "Rental cannot be cancelled at this stage".to_string()
+                )
+            );
+        }
+
+        #[test]
+        fn payment_required_for_action_has_expected_message() {
+            let error = DomainError::payment_required_for_action();
+            assert_eq!(
+                error,
+                DomainError::BusinessRuleViolation(
+                    "Payment is required before this action can be performed".to_string()
+                )
+            );
+        }
+    }
 }

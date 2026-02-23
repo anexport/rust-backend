@@ -1,12 +1,12 @@
 #![allow(dead_code)]
 
+use chrono::Utc;
 use rust_backend::domain::equipment::{Condition, Equipment};
 use rust_backend::domain::user::{AuthIdentity, AuthProvider, Role, User};
 use rust_backend::domain::Category;
-use chrono::Utc;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
 // Counter for generating unique test values
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -61,9 +61,9 @@ pub fn test_auth_identity(user_id: Uuid) -> AuthIdentity {
     AuthIdentity {
         id: Uuid::new_v4(),
         user_id,
-        provider: AuthProvider::Email,
-        provider_id: None,
-        password_hash: Some("hashed_password".to_string()),
+        provider: AuthProvider::Auth0,
+        provider_id: Some(format!("auth0|{}", Uuid::new_v4())),
+        password_hash: None,
         verified: true,
         created_at: Utc::now(),
     }

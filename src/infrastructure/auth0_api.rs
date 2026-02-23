@@ -199,7 +199,7 @@ impl HttpAuth0ApiClient {
             Ok(err) => {
                 let description = err.description_or_error_description().to_string();
                 let mapped = err.to_app_error();
-                
+
                 error!(
                     status = %status,
                     code = %err.code_or_error(),

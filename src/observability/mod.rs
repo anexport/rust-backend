@@ -66,3 +66,78 @@ impl AppMetrics {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::AppMetrics;
+
+    #[test]
+    fn record_request_increments_request_count() {
+        let metrics = AppMetrics::default();
+
+        metrics.record_request(200, 25);
+
+        let rendered = metrics.render_prometheus(0, 0);
+        assert!(rendered.contains("http_requests_total 1"));
+    }
+
+    #[test]
+    fn record_request_5xx_increments_error_count() {
+        let metrics = AppMetrics::default();
+
+        metrics.record_request(503, 12);
+
+        let rendered = metrics.render_prometheus(0, 0);
+        assert!(rendered.contains("http_error_total 1"));
+    }
+
+    #[test]
+    fn record_auth_failure_increments_counter() {
+        let metrics = AppMetrics::default();
+
+        metrics.record_auth_failure();
+
+        let rendered = metrics.render_prometheus(0, 0);
+        assert!(rendered.contains("auth_failures_total 1"));
+    }
+
+    #[test]
+    fn ws_connected_and_disconnected_update_gauge() {
+        let metrics = AppMetrics::default();
+
+        metrics.ws_connected();
+        metrics.ws_connected();
+        metrics.ws_disconnected();
+
+        let rendered = metrics.render_prometheus(0, 0);
+        assert!(rendered.contains("ws_connections 1"));
+    }
+
+    #[test]
+    fn render_prometheus_includes_all_metrics_with_expected_values() {
+        let metrics = AppMetrics::default();
+
+        metrics.record_request(200, 20);
+        metrics.record_request(503, 40);
+        metrics.record_auth_failure();
+        metrics.record_auth_failure();
+        metrics.ws_connected();
+
+        let rendered = metrics.render_prometheus(8, 3);
+
+        assert!(rendered.contains("# TYPE http_requests_total counter"));
+        assert!(rendered.contains("http_requests_total 2"));
+        assert!(rendered.contains("# TYPE http_error_total counter"));
+        assert!(rendered.contains("http_error_total 1"));
+        assert!(rendered.contains("# TYPE auth_failures_total counter"));
+        assert!(rendered.contains("auth_failures_total 2"));
+        assert!(rendered.contains("# TYPE ws_connections gauge"));
+        assert!(rendered.contains("ws_connections 1"));
+        assert!(rendered.contains("# TYPE http_latency_avg_ms gauge"));
+        assert!(rendered.contains("http_latency_avg_ms 30.00"));
+        assert!(rendered.contains("# TYPE db_pool_size gauge"));
+        assert!(rendered.contains("db_pool_size 8"));
+        assert!(rendered.contains("# TYPE db_pool_idle gauge"));
+        assert!(rendered.contains("db_pool_idle 3"));
+    }
+}

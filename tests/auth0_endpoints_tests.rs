@@ -28,13 +28,11 @@ use rust_backend::application::{
 use rust_backend::config::{AuthConfig, SecurityConfig};
 use rust_backend::domain::{
     AuthIdentity, Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, User,
-    UserSession,
 };
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::auth0_api::{
     Auth0ApiClient, Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse,
 };
-use rust_backend::infrastructure::oauth::{OAuthClient, OAuthProviderKind, OAuthUserInfo};
 use rust_backend::infrastructure::repositories::{
     AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
     MessageRepository, UserRepository,
@@ -325,50 +323,6 @@ impl AuthRepository for MockAuthRepo {
         }
         Ok(identity.clone())
     }
-
-    async fn verify_email(&self, _user_id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn create_session(&self, session: &UserSession) -> AppResult<UserSession> {
-        Ok(session.clone())
-    }
-
-    async fn find_session_by_token_hash(
-        &self,
-        _token_hash: &str,
-    ) -> AppResult<Option<UserSession>> {
-        Ok(None)
-    }
-
-    async fn revoke_session(&self, _id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_all_sessions(&self, _user_id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_session_with_replacement(
-        &self,
-        _id: Uuid,
-        _replaced_by: Option<Uuid>,
-        _reason: Option<&str>,
-    ) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_family(&self, _family_id: Uuid, _reason: &str) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn touch_session(&self, _id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn has_active_session(&self, _user_id: Uuid) -> AppResult<bool> {
-        Ok(true)
-    }
 }
 
 #[derive(Clone)]
@@ -522,26 +476,6 @@ impl MessageRepository for MockMessageRepo {
     }
 }
 
-#[derive(Clone)]
-struct MockOAuthClient;
-
-#[async_trait]
-impl OAuthClient for MockOAuthClient {
-    async fn exchange_code(
-        &self,
-        _provider: OAuthProviderKind,
-        _code: &str,
-    ) -> AppResult<OAuthUserInfo> {
-        Ok(OAuthUserInfo {
-            provider_id: "mock_provider_id".to_string(),
-            email: "mock@example.com".to_string(),
-            email_verified: true,
-            full_name: Some("Mock User".to_string()),
-            avatar_url: None,
-        })
-    }
-}
-
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -576,13 +510,13 @@ fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
     let category_repo = Arc::new(MockCategoryRepo);
     let equipment_repo = Arc::new(MockEquipmentRepo);
     let message_repo = Arc::new(MockMessageRepo);
-    let oauth_client = Arc::new(MockOAuthClient);
 
     AppState {
-        auth_service: Arc::new(
-            AuthService::new(user_repo.clone(), auth_repo, auth_config())
-                .with_oauth_client(oauth_client),
-        ),
+        auth_service: Arc::new(AuthService::new(
+            user_repo.clone(),
+            auth_repo,
+            auth_config(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -713,9 +647,12 @@ async fn auth0_signup_with_invalid_email_format_returns_400() {
     let response = actix_test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    
+
     let body: serde_json::Value = actix_test::read_body_json(response).await;
-    assert!(body["message"].as_str().unwrap().contains("Invalid email format"));
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid email format"));
 }
 
 #[actix_web::test]
@@ -770,9 +707,12 @@ async fn auth0_signup_with_weak_password_returns_400() {
     let response = actix_test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    
+
     let body: serde_json::Value = actix_test::read_body_json(response).await;
-    assert!(body["message"].as_str().unwrap().contains("Password is too short"));
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("Password is too short"));
 }
 
 #[actix_web::test]

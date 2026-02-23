@@ -1,54 +1,10 @@
 mod common;
 
-use rust_backend::api::dtos::{
-    CreateEquipmentRequest, LoginRequest, RegisterRequest, UpdateEquipmentRequest,
-};
-use rust_backend::application::{AuthService, EquipmentService};
+use rust_backend::api::dtos::{CreateEquipmentRequest, UpdateEquipmentRequest};
+use rust_backend::application::EquipmentService;
 use rust_backend::error::AppError;
-use rust_backend::infrastructure::repositories::{
-    AuthRepositoryImpl, EquipmentRepositoryImpl, UserRepositoryImpl,
-};
+use rust_backend::infrastructure::repositories::{EquipmentRepositoryImpl, UserRepositoryImpl};
 use rust_decimal::Decimal;
-
-#[actix_rt::test]
-async fn db_auth_register_login_me_flow() {
-    let Some(test_db) = common::TestDb::new().await else {
-        eprintln!(
-            "Skipping db_auth_register_login_me_flow: TEST_DATABASE_URL or DATABASE_URL not set"
-        );
-        return;
-    };
-
-    let user_repo = std::sync::Arc::new(UserRepositoryImpl::new(test_db.pool().clone()));
-    let auth_repo = std::sync::Arc::new(AuthRepositoryImpl::new(test_db.pool().clone()));
-    let auth_service = AuthService::new(user_repo.clone(), auth_repo, common::test_auth_config());
-
-    let register = auth_service
-        .register(RegisterRequest {
-            email: "phase1-auth@example.com".to_string(),
-            password: "this-is-a-valid-password".to_string(),
-            username: Some("phase1-auth-user".to_string()),
-            full_name: Some("Phase One Auth".to_string()),
-        })
-        .await
-        .expect("register should succeed");
-    assert!(!register.access_token.is_empty());
-
-    let login = auth_service
-        .login(LoginRequest {
-            email: "phase1-auth@example.com".to_string(),
-            password: "this-is-a-valid-password".to_string(),
-        })
-        .await
-        .expect("login should succeed");
-    assert!(!login.access_token.is_empty());
-
-    let me = auth_service
-        .me(register.user.id)
-        .await
-        .expect("me should succeed");
-    assert_eq!(me.email, "phase1-auth@example.com");
-}
 
 #[actix_rt::test]
 async fn db_equipment_crud_flow() {

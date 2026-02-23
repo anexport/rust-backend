@@ -1,5 +1,5 @@
 use crate::domain::{
-    AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User, UserSession,
+    AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User,
 };
 use crate::error::AppResult;
 use async_trait::async_trait;
@@ -41,21 +41,6 @@ pub trait AuthRepository: Send + Sync {
         provider_id: &str,
     ) -> AppResult<Option<AuthIdentity>>;
     async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity>;
-    async fn verify_email(&self, user_id: Uuid) -> AppResult<()>;
-
-    async fn create_session(&self, session: &UserSession) -> AppResult<UserSession>;
-    async fn find_session_by_token_hash(&self, token_hash: &str) -> AppResult<Option<UserSession>>;
-    async fn revoke_session(&self, id: Uuid) -> AppResult<()>;
-    async fn revoke_session_with_replacement(
-        &self,
-        id: Uuid,
-        replaced_by: Option<Uuid>,
-        reason: Option<&str>,
-    ) -> AppResult<()>;
-    async fn revoke_all_sessions(&self, user_id: Uuid) -> AppResult<()>;
-    async fn revoke_family(&self, family_id: Uuid, reason: &str) -> AppResult<()>;
-    async fn touch_session(&self, id: Uuid) -> AppResult<()>;
-    async fn has_active_session(&self, user_id: Uuid) -> AppResult<bool>;
 }
 
 #[async_trait]

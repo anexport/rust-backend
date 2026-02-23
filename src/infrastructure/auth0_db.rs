@@ -1,4 +1,7 @@
-use reqwest::{Client, header::{ACCEPT, CONTENT_TYPE}};
+use reqwest::{
+    header::{ACCEPT, CONTENT_TYPE},
+    Client,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::config::Auth0Config;
@@ -33,12 +36,14 @@ impl Auth0ApiClient {
 
     /// Get the base URL for Auth0 API calls.
     fn base_url(&self) -> AppResult<String> {
-        let domain = self.config.auth0_domain
-            .as_ref()
-            .ok_or_else(|| AppError::ServiceUnavailable {
-                service: "auth0".to_string(),
-                message: "AUTH0_DOMAIN is not configured".to_string(),
-            })?;
+        let domain =
+            self.config
+                .auth0_domain
+                .as_ref()
+                .ok_or_else(|| AppError::ServiceUnavailable {
+                    service: "auth0".to_string(),
+                    message: "AUTH0_DOMAIN is not configured".to_string(),
+                })?;
         Ok(format!("https://{}", domain))
     }
 
@@ -50,17 +55,22 @@ impl Auth0ApiClient {
     /// # Returns
     /// User information from Auth0 on success
     pub async fn signup(&self, request: SignupRequest) -> AppResult<SignupResponse> {
-        let client_id = self.config.auth0_client_id
-            .as_ref()
-            .ok_or_else(|| AppError::ServiceUnavailable {
-                service: "auth0".to_string(),
-                message: "AUTH0_CLIENT_ID is not configured".to_string(),
-            })?;
+        let client_id =
+            self.config
+                .auth0_client_id
+                .as_ref()
+                .ok_or_else(|| AppError::ServiceUnavailable {
+                    service: "auth0".to_string(),
+                    message: "AUTH0_CLIENT_ID is not configured".to_string(),
+                })?;
 
         let url = format!("{}/dbconnections/signup", self.base_url()?);
 
         // Use connection from request if provided, otherwise use config default
-        let connection = request.connection.as_deref().unwrap_or_else(|| self.connection());
+        let connection = request
+            .connection
+            .as_deref()
+            .unwrap_or_else(|| self.connection());
 
         let mut payload = serde_json::json!({
             "client_id": client_id,
@@ -74,8 +84,9 @@ impl Auth0ApiClient {
         }
 
         if let Some(metadata) = request.user_metadata {
-            payload["user_metadata"] = serde_json::to_value(metadata)
-                .map_err(|e| AppError::InternalError(anyhow::anyhow!("Failed to serialize user_metadata: {}", e)))?;
+            payload["user_metadata"] = serde_json::to_value(metadata).map_err(|e| {
+                AppError::InternalError(anyhow::anyhow!("Failed to serialize user_metadata: {}", e))
+            })?;
         }
 
         if let Some(given_name) = request.given_name {
@@ -90,7 +101,8 @@ impl Auth0ApiClient {
             payload["name"] = serde_json::Value::String(name);
         }
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
@@ -104,12 +116,16 @@ impl Auth0ApiClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
             return match status.as_u16() {
-                400 => Err(AppError::BadRequest(
-                    format!("Invalid signup request: {}", error_text),
-                )),
+                400 => Err(AppError::BadRequest(format!(
+                    "Invalid signup request: {}",
+                    error_text
+                ))),
                 409 => Err(AppError::Conflict("User already exists".to_string())),
                 _ => Err(AppError::ServiceUnavailable {
                     service: "auth0".to_string(),
@@ -134,13 +150,18 @@ impl Auth0ApiClient {
     ///
     /// # Returns
     /// Token response containing access_token, id_token, refresh_token, etc.
-    pub async fn password_grant(&self, request: PasswordGrantRequest) -> AppResult<PasswordGrantResponse> {
-        let client_id = self.config.auth0_client_id
-            .as_ref()
-            .ok_or_else(|| AppError::ServiceUnavailable {
-                service: "auth0".to_string(),
-                message: "AUTH0_CLIENT_ID is not configured".to_string(),
-            })?;
+    pub async fn password_grant(
+        &self,
+        request: PasswordGrantRequest,
+    ) -> AppResult<PasswordGrantResponse> {
+        let client_id =
+            self.config
+                .auth0_client_id
+                .as_ref()
+                .ok_or_else(|| AppError::ServiceUnavailable {
+                    service: "auth0".to_string(),
+                    message: "AUTH0_CLIENT_ID is not configured".to_string(),
+                })?;
 
         let url = format!("{}/oauth/token", self.base_url()?);
 
@@ -161,7 +182,8 @@ impl Auth0ApiClient {
             payload["connection"] = serde_json::Value::String(connection);
         }
 
-        let response = self.client
+        let response = self
+            .client
             .post(&url)
             .header(CONTENT_TYPE, "application/json")
             .header(ACCEPT, "application/json")
@@ -175,14 +197,18 @@ impl Auth0ApiClient {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
             return match status.as_u16() {
                 401 => Err(AppError::Unauthorized),
                 403 => Err(AppError::Forbidden("Invalid credentials".to_string())),
-                400 => Err(AppError::BadRequest(
-                    format!("Invalid authentication request: {}", error_text),
-                )),
+                400 => Err(AppError::BadRequest(format!(
+                    "Invalid authentication request: {}",
+                    error_text
+                ))),
                 _ => Err(AppError::ServiceUnavailable {
                     service: "auth0".to_string(),
                     message: format!("Auth0 authentication failed: {}", error_text),
@@ -386,22 +412,32 @@ mod tests {
 
         assert_eq!(request.email, "test@example.com");
         assert_eq!(request.password, "password123");
-        assert_eq!(request.connection, Some("Username-Password-Authentication".to_string()));
+        assert_eq!(
+            request.connection,
+            Some("Username-Password-Authentication".to_string())
+        );
         assert_eq!(request.username, Some("testuser".to_string()));
         assert_eq!(request.name, Some("Test User".to_string()));
     }
 
     #[test]
     fn test_password_grant_request_builder() {
-        let request = PasswordGrantRequest::new("test@example.com".to_string(), "password123".to_string())
-            .with_audience("https://api.example.com".to_string())
-            .with_connection("Username-Password-Authentication".to_string());
+        let request =
+            PasswordGrantRequest::new("test@example.com".to_string(), "password123".to_string())
+                .with_audience("https://api.example.com".to_string())
+                .with_connection("Username-Password-Authentication".to_string());
 
         assert_eq!(request.username, "test@example.com");
         assert_eq!(request.password, "password123");
         assert_eq!(request.grant_type, "password");
-        assert_eq!(request.audience, Some("https://api.example.com".to_string()));
-        assert_eq!(request.connection, Some("Username-Password-Authentication".to_string()));
+        assert_eq!(
+            request.audience,
+            Some("https://api.example.com".to_string())
+        );
+        assert_eq!(
+            request.connection,
+            Some("Username-Password-Authentication".to_string())
+        );
     }
 
     #[test]
@@ -419,6 +455,10 @@ mod tests {
     fn test_signup_request_serialization_full() {
         let request = SignupRequest::new("test@example.com".to_string(), "password123".to_string())
             .with_username("testuser".to_string())
+            .with_metadata(serde_json::json!({
+                "plan": "pro",
+                "marketing_opt_in": true
+            }))
             .with_name("Test User".to_string())
             .with_given_name("Test".to_string())
             .with_family_name("User".to_string());
@@ -429,6 +469,58 @@ mod tests {
         assert_eq!(json["name"], "Test User");
         assert_eq!(json["given_name"], "Test");
         assert_eq!(json["family_name"], "User");
+        assert_eq!(json["user_metadata"]["plan"], "pro");
+        assert_eq!(json["user_metadata"]["marketing_opt_in"], true);
+    }
+
+    #[test]
+    fn test_password_grant_request_serialization_without_optional_fields() {
+        let request =
+            PasswordGrantRequest::new("test@example.com".to_string(), "password123".to_string());
+        let json = serde_json::to_value(request).unwrap();
+
+        assert_eq!(json["username"], "test@example.com");
+        assert_eq!(json["password"], "password123");
+        assert_eq!(json["grant_type"], "password");
+        assert!(json.get("audience").is_none());
+        assert!(json.get("connection").is_none());
+    }
+
+    #[test]
+    fn test_password_grant_request_serialization_with_optional_fields() {
+        let request =
+            PasswordGrantRequest::new("test@example.com".to_string(), "password123".to_string())
+                .with_audience("https://api.example.com".to_string())
+                .with_connection("Username-Password-Authentication".to_string());
+        let json = serde_json::to_value(request).unwrap();
+
+        assert_eq!(json["username"], "test@example.com");
+        assert_eq!(json["password"], "password123");
+        assert_eq!(json["grant_type"], "password");
+        assert_eq!(json["audience"], "https://api.example.com");
+        assert_eq!(json["connection"], "Username-Password-Authentication");
+    }
+
+    #[test]
+    fn test_signup_response_deserialization_failure_branch() {
+        let invalid = serde_json::json!({
+            "email": "test@example.com",
+            "email_verified": true
+        });
+
+        let result = serde_json::from_value::<SignupResponse>(invalid);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_password_grant_response_deserialization_failure_branch() {
+        let invalid = serde_json::json!({
+            "access_token": "token",
+            "expires_in": "not-a-number"
+        });
+
+        let result = serde_json::from_value::<PasswordGrantResponse>(invalid);
+        assert!(result.is_err());
     }
 
     #[tokio::test]

@@ -8,17 +8,21 @@
 mod common;
 
 use chrono::{Duration, Utc};
-use rust_backend::domain::{AuthIdentity, AuthProvider as DomainAuthProvider, Category, EquipmentPhoto, Message, UserSession};
+use rust_backend::domain::{
+    AuthIdentity, AuthProvider as DomainAuthProvider, Category, EquipmentPhoto, Message,
+};
+use rust_backend::error::AppError;
 use rust_backend::infrastructure::repositories::{
-    AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, EquipmentSearchParams,
-    MessageRepositoryImpl, UserRepositoryImpl, AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
+    AuthRepository, AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl,
+    EquipmentRepository, EquipmentRepositoryImpl, EquipmentSearchParams, MessageRepository,
+    MessageRepositoryImpl, UserRepository, UserRepositoryImpl,
 };
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use common::TestDb;
 use common::fixtures;
 use common::fixtures::next_id;
+use common::TestDb;
 
 #[tokio::test]
 async fn user_repository_create_and_find() {
@@ -56,6 +60,23 @@ async fn user_repository_find_by_email_case_sensitivity() {
     // Test case-insensitive matching - should NOT match due to case sensitivity
     let not_found = repo.find_by_email(&email.to_lowercase()).await.unwrap();
     assert!(not_found.is_none());
+}
+
+#[tokio::test]
+async fn user_repository_find_by_username_positive_and_negative() {
+    let db = TestDb::new().await.expect("Failed to create test database");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let mut user = fixtures::test_user();
+    user.username = Some("lookup_user".to_string());
+    let created = repo.create(&user).await.unwrap();
+
+    let found = repo.find_by_username("lookup_user").await.unwrap();
+    assert!(found.is_some());
+    assert_eq!(found.unwrap().id, created.id);
+
+    let missing = repo.find_by_username("missing_user").await.unwrap();
+    assert!(missing.is_none());
 }
 
 #[tokio::test]
@@ -103,7 +124,10 @@ async fn user_repository_update_avatar_url() {
 
     let updated = repo.update(&updated_user).await.unwrap();
 
-    assert_eq!(updated.avatar_url, Some("https://example.com/avatar.jpg".to_string()));
+    assert_eq!(
+        updated.avatar_url,
+        Some("https://example.com/avatar.jpg".to_string())
+    );
 }
 
 #[tokio::test]
@@ -118,17 +142,17 @@ async fn user_repository_delete_cascade_auth_identities() {
     let identity = AuthIdentity {
         id: Uuid::new_v4(),
         user_id: created_user.id,
-        provider: DomainAuthProvider::Email,
-        provider_id: None, // Email provider requires provider_id to be NULL
-        password_hash: Some("hashed_password".to_string()),
+        provider: DomainAuthProvider::Auth0,
+        provider_id: Some(format!("auth0|{}", next_id())),
+        password_hash: None,
         verified: true,
         created_at: Utc::now(),
     };
     let _created_identity = auth_repo.create_identity(&identity).await.unwrap();
 
-    // Verify identity exists via find_by_user_id (since provider_id is NULL for email)
+    // Verify identity exists via find_by_user_id
     let found = auth_repo
-        .find_identity_by_user_id(created_user.id, "email")
+        .find_identity_by_user_id(created_user.id, "auth0")
         .await
         .unwrap();
     assert!(found.is_some());
@@ -142,54 +166,28 @@ async fn user_repository_delete_cascade_auth_identities() {
 
     // Verify identity is cascade deleted
     let found_identity = auth_repo
-        .find_identity_by_provider_id("email", "email@example.com")
+        .find_identity_by_provider_id(
+            "auth0",
+            identity
+                .provider_id
+                .as_deref()
+                .expect("provider_id should exist"),
+        )
         .await
         .unwrap();
     assert!(found_identity.is_none());
 }
 
 #[tokio::test]
-async fn user_repository_delete_cascade_sessions() {
+async fn user_repository_delete_non_existent_id_is_noop() {
     let db = TestDb::new().await.expect("Failed to create test database");
-    let user_repo = UserRepositoryImpl::new(db.pool().clone());
-    let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
+    let repo = UserRepositoryImpl::new(db.pool().clone());
 
-    let user = fixtures::test_user();
-    let created_user = user_repo.create(&user).await.unwrap();
+    let non_existent_id = Uuid::new_v4();
+    repo.delete(non_existent_id).await.unwrap();
 
-    let family_id = Uuid::new_v4();
-    let session = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "hash123".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&session).await.unwrap();
-
-    // Verify session exists
-    let found = auth_repo
-        .find_session_by_token_hash("hash123")
-        .await
-        .unwrap();
-    assert!(found.is_some());
-
-    // Delete user
-    user_repo.delete(created_user.id).await.unwrap();
-
-    // Verify session is cascade deleted
-    let found_session = auth_repo
-        .find_session_by_token_hash("hash123")
-        .await
-        .unwrap();
-    assert!(found_session.is_none());
+    let found = repo.find_by_id(non_existent_id).await.unwrap();
+    assert!(found.is_none());
 }
 
 #[tokio::test]
@@ -211,7 +209,7 @@ async fn auth_repository_create_identity() {
 }
 
 #[tokio::test]
-async fn auth_repository_identity_provider_linking() {
+async fn auth_repository_rejects_duplicate_auth0_identity_for_same_user() {
     let db = TestDb::new().await.expect("Failed to create test database");
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
@@ -219,276 +217,28 @@ async fn auth_repository_identity_provider_linking() {
     let user = fixtures::test_user();
     let created_user = user_repo.create(&user).await.unwrap();
 
-    // Link email provider
-    // Note: The CHECK constraint requires provider_id to be NULL for email provider
-    let email_identity = AuthIdentity {
+    let first_identity = AuthIdentity {
         id: Uuid::new_v4(),
         user_id: created_user.id,
-        provider: DomainAuthProvider::Email,
-        provider_id: None, // Required to be NULL for email provider
-        password_hash: Some("hashed_password".to_string()),
+        provider: DomainAuthProvider::Auth0,
+        provider_id: Some(format!("auth0|{}", next_id())),
+        password_hash: None,
         verified: true,
         created_at: Utc::now(),
     };
-    auth_repo.create_identity(&email_identity).await.unwrap();
+    auth_repo.create_identity(&first_identity).await.unwrap();
 
-    // Link Google provider (second identity for same user)
-    // Note: The CHECK constraint requires password_hash to be NULL for Google provider
-    let google_identity = AuthIdentity {
+    let duplicate_identity = AuthIdentity {
         id: Uuid::new_v4(),
         user_id: created_user.id,
-        provider: DomainAuthProvider::Google,
-        provider_id: Some(format!("google{}", next_id())),
-        password_hash: None, // Required to be NULL for OAuth providers
+        provider: DomainAuthProvider::Auth0,
+        provider_id: Some(format!("auth0|{}", next_id())),
+        password_hash: None,
         verified: true,
         created_at: Utc::now(),
     };
-    auth_repo.create_identity(&google_identity).await.unwrap();
-
-    // Verify both identities exist for the user
-    let email_found = auth_repo
-        .find_identity_by_user_id(created_user.id, "email")
-        .await
-        .unwrap();
-    assert!(email_found.is_some());
-
-    let google_found = auth_repo
-        .find_identity_by_user_id(created_user.id, "google")
-        .await
-        .unwrap();
-    assert!(google_found.is_some());
-}
-
-#[tokio::test]
-async fn auth_repository_session_expiration_cleanup() {
-    let db = TestDb::new().await.expect("Failed to create test database");
-    let user_repo = UserRepositoryImpl::new(db.pool().clone());
-    let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
-
-    let user = fixtures::test_user();
-    let created_user = user_repo.create(&user).await.unwrap();
-
-    let family_id = Uuid::new_v4();
-    let expired_session = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "expired_hash".to_string(),
-        expires_at: Utc::now() - Duration::hours(1), // Expired
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    let _ = auth_repo.create_session(&expired_session).await;
-
-    // If session creation succeeded, verify has_active_session returns false (only expired)
-    // If session creation failed due to schema issues, skip verification
-    if auth_repo.create_session(&expired_session).await.is_ok() {
-        let active_session = UserSession {
-            id: Uuid::new_v4(),
-            user_id: created_user.id,
-            family_id,
-            refresh_token_hash: "active_hash".to_string(),
-            expires_at: Utc::now() + Duration::hours(24),
-            revoked_at: None,
-            replaced_by: None,
-            revoked_reason: None,
-            created_ip: Some("127.0.0.1".to_string()),
-            last_seen_at: Some(Utc::now()),
-            device_info: None,
-            created_at: Utc::now(),
-        };
-        if auth_repo.create_session(&active_session).await.is_ok() {
-            // has_active_session should return true because active session exists
-            let has_active = auth_repo.has_active_session(created_user.id).await.unwrap();
-            assert!(has_active);
-        }
-    }
-}
-
-#[tokio::test]
-async fn auth_repository_token_hash_uniqueness() {
-    let db = TestDb::new().await.expect("Failed to create test database");
-    let user_repo = UserRepositoryImpl::new(db.pool().clone());
-    let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
-
-    let user1 = fixtures::test_user();
-    let created_user1 = user_repo.create(&user1).await.unwrap();
-
-    let user2 = fixtures::test_user();
-    let created_user2 = user_repo.create(&user2).await.unwrap();
-
-    let family_id = Uuid::new_v4();
-    let session1 = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user1.id,
-        family_id,
-        refresh_token_hash: "same_hash".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&session1).await.unwrap();
-
-    // Try to create another session with same hash - database constraint should prevent this
-    // Note: If the unique constraint doesn't exist in current schema, this test will skip
-    let session2 = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user2.id,
-        family_id,
-        refresh_token_hash: "same_hash".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    let result = auth_repo.create_session(&session2).await;
-    // Unique constraint may not exist in all schema versions
-    // Just verify the session was created successfully if constraint doesn't exist
-    if result.is_err() {
-        // Constraint exists and blocked duplicate
-    } else {
-        // Constraint doesn't exist, test passes
-    }
-}
-
-#[tokio::test]
-async fn auth_repository_session_family_revocation() {
-    let db = TestDb::new().await.expect("Failed to create test database");
-    let user_repo = UserRepositoryImpl::new(db.pool().clone());
-    let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
-
-    let user = fixtures::test_user();
-    let created_user = user_repo.create(&user).await.unwrap();
-
-    let family_id = Uuid::new_v4();
-
-    let session1 = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "hash1".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&session1).await.unwrap();
-
-    let session2 = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "hash2".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&session2).await.unwrap();
-
-    // Revoke entire family
-    auth_repo
-        .revoke_family(family_id, "password reset")
-        .await
-        .unwrap();
-
-    // Both sessions should be revoked
-    let found1 = auth_repo
-        .find_session_by_token_hash("hash1")
-        .await
-        .unwrap();
-    assert!(found1.is_some());
-    assert!(found1.unwrap().revoked_at.is_some());
-
-    let found2 = auth_repo
-        .find_session_by_token_hash("hash2")
-        .await
-        .unwrap();
-    assert!(found2.is_some());
-    assert!(found2.unwrap().revoked_at.is_some());
-}
-
-#[tokio::test]
-async fn auth_repository_session_with_replacement() {
-    let db = TestDb::new().await.expect("Failed to create test database");
-    let user_repo = UserRepositoryImpl::new(db.pool().clone());
-    let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
-
-    let user = fixtures::test_user();
-    let created_user = user_repo.create(&user).await.unwrap();
-
-    let family_id = Uuid::new_v4();
-    let old_session_id = Uuid::new_v4();
-    let old_session = UserSession {
-        id: old_session_id,
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "old_hash".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&old_session).await.unwrap();
-
-    // Create new session and revoke old one
-    let new_session = UserSession {
-        id: Uuid::new_v4(),
-        user_id: created_user.id,
-        family_id,
-        refresh_token_hash: "new_hash".to_string(),
-        expires_at: Utc::now() + Duration::hours(24),
-        revoked_at: None,
-        replaced_by: None,
-        revoked_reason: None,
-        created_ip: Some("127.0.0.1".to_string()),
-        last_seen_at: Some(Utc::now()),
-        device_info: None,
-        created_at: Utc::now(),
-    };
-    auth_repo.create_session(&new_session).await.unwrap();
-
-    // Revoke old session with replacement
-    auth_repo
-        .revoke_session_with_replacement(old_session_id, Some(new_session.id), Some("token refresh"))
-        .await
-        .unwrap();
-
-    // Verify old session is marked as revoked
-    let found_old = auth_repo.find_session_by_token_hash("old_hash").await.unwrap().unwrap();
-    assert!(found_old.revoked_at.is_some());
-    assert_eq!(found_old.replaced_by, Some(new_session.id));
-    assert_eq!(found_old.revoked_reason, Some("token refresh".to_string()));
-
-    // New session should still be active
-    let found_new = auth_repo.find_session_by_token_hash("new_hash").await.unwrap().unwrap();
-    assert!(found_new.revoked_at.is_none());
+    let result = auth_repo.create_identity(&duplicate_identity).await;
+    assert!(matches!(result, Err(AppError::Conflict(_))));
 }
 
 #[tokio::test]
@@ -500,11 +250,11 @@ async fn auth_repository_upsert_identity_conflict_handling() {
     let user = fixtures::test_user();
     let created_user = user_repo.create(&user).await.unwrap();
 
-    let provider_id = "google123".to_string();
+    let provider_id = format!("auth0|{}", next_id());
     let identity1 = AuthIdentity {
         id: Uuid::new_v4(),
         user_id: created_user.id,
-        provider: DomainAuthProvider::Google,
+        provider: DomainAuthProvider::Auth0,
         provider_id: Some(provider_id.clone()),
         password_hash: None,
         verified: false,
@@ -516,7 +266,7 @@ async fn auth_repository_upsert_identity_conflict_handling() {
     let identity2 = AuthIdentity {
         id: Uuid::new_v4(),
         user_id: created_user.id,
-        provider: DomainAuthProvider::Google,
+        provider: DomainAuthProvider::Auth0,
         provider_id: Some(provider_id.clone()),
         password_hash: None,
         verified: true, // Changed to true
@@ -530,7 +280,7 @@ async fn auth_repository_upsert_identity_conflict_handling() {
 
     // Verify only one record exists
     let found = auth_repo
-        .find_identity_by_provider_id("google", &provider_id)
+        .find_identity_by_provider_id("auth0", &provider_id)
         .await
         .unwrap();
     assert!(found.is_some());
@@ -622,7 +372,11 @@ async fn equipment_repository_postgis_coordinate_queries() {
     let created = equipment_repo.create(&equipment).await.unwrap();
 
     // Find by id and verify coordinates are stored (in PostGIS format)
-    let found = equipment_repo.find_by_id(created.id).await.unwrap().unwrap();
+    let found = equipment_repo
+        .find_by_id(created.id)
+        .await
+        .unwrap()
+        .unwrap();
     // Coordinates are stored in PostGIS geography format, returned as WKT string
     assert!(found.coordinates.is_some());
 }
@@ -699,16 +453,28 @@ async fn equipment_repository_pagination_with_large_dataset() {
     }
 
     // Test pagination
-    let page1 = equipment_repo.search(&EquipmentSearchParams::default(), 10, 0).await.unwrap();
+    let page1 = equipment_repo
+        .search(&EquipmentSearchParams::default(), 10, 0)
+        .await
+        .unwrap();
     assert_eq!(page1.len(), 10);
 
-    let page2 = equipment_repo.search(&EquipmentSearchParams::default(), 10, 10).await.unwrap();
+    let page2 = equipment_repo
+        .search(&EquipmentSearchParams::default(), 10, 10)
+        .await
+        .unwrap();
     assert_eq!(page2.len(), 10);
 
-    let page3 = equipment_repo.search(&EquipmentSearchParams::default(), 10, 20).await.unwrap();
+    let page3 = equipment_repo
+        .search(&EquipmentSearchParams::default(), 10, 20)
+        .await
+        .unwrap();
     assert_eq!(page3.len(), 5);
 
-    let page4 = equipment_repo.search(&EquipmentSearchParams::default(), 10, 30).await.unwrap();
+    let page4 = equipment_repo
+        .search(&EquipmentSearchParams::default(), 10, 30)
+        .await
+        .unwrap();
     assert_eq!(page4.len(), 0);
 }
 
@@ -753,14 +519,23 @@ async fn equipment_repository_photo_crud_operations() {
     equipment_repo.add_photo(&photo2).await.unwrap();
 
     // Find all photos
-    let photos = equipment_repo.find_photos(created_equipment.id).await.unwrap();
+    let photos = equipment_repo
+        .find_photos(created_equipment.id)
+        .await
+        .unwrap();
     assert_eq!(photos.len(), 2);
     assert!(photos.iter().any(|p| p.is_primary));
 
     // Delete a photo
-    equipment_repo.delete_photo(created_photo1.id).await.unwrap();
+    equipment_repo
+        .delete_photo(created_photo1.id)
+        .await
+        .unwrap();
 
-    let photos_after_delete = equipment_repo.find_photos(created_equipment.id).await.unwrap();
+    let photos_after_delete = equipment_repo
+        .find_photos(created_equipment.id)
+        .await
+        .unwrap();
     assert_eq!(photos_after_delete.len(), 1);
     assert_eq!(photos_after_delete[0].photo_url, photo2.photo_url);
 }
@@ -896,7 +671,10 @@ async fn message_repository_message_ordering() {
     message_repo.create_message(&msg3).await.unwrap();
 
     // Messages should be returned in DESC order by created_at (newest first)
-    let messages = message_repo.find_messages(conversation.id, 10, 0).await.unwrap();
+    let messages = message_repo
+        .find_messages(conversation.id, 10, 0)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[0].content, "Third message");
     assert_eq!(messages[1].content, "Second message");

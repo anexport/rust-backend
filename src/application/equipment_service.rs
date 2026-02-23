@@ -129,7 +129,9 @@ impl EquipmentService {
         request.validate()?;
 
         if request.daily_rate <= Decimal::ZERO {
-            return Err(AppError::validation_error("Daily rate must be greater than zero"));
+            return Err(AppError::validation_error(
+                "Daily rate must be greater than zero",
+            ));
         }
 
         let condition = parse_condition(&request.condition)?;
@@ -192,7 +194,9 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("You can only modify your own equipment listings".to_string()));
+                return Err(AppError::Forbidden(
+                    "You can only modify your own equipment listings".to_string(),
+                ));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -209,7 +213,9 @@ impl EquipmentService {
         }
         if let Some(daily_rate) = request.daily_rate {
             if daily_rate <= Decimal::ZERO {
-                return Err(AppError::validation_error("Daily rate must be greater than zero"));
+                return Err(AppError::validation_error(
+                    "Daily rate must be greater than zero",
+                ));
             }
             existing.daily_rate = daily_rate;
         }
@@ -257,7 +263,9 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("You can only delete your own equipment listings".to_string()));
+                return Err(AppError::Forbidden(
+                    "You can only delete your own equipment listings".to_string(),
+                ));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -290,7 +298,9 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("You can only add photos to your own equipment listings".to_string()));
+                return Err(AppError::Forbidden(
+                    "You can only add photos to your own equipment listings".to_string(),
+                ));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -337,7 +347,9 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("You can only delete photos from your own equipment listings".to_string()));
+                return Err(AppError::Forbidden(
+                    "You can only delete photos from your own equipment listings".to_string(),
+                ));
             }
             info!(
                 actor_user_id = %actor_user_id,

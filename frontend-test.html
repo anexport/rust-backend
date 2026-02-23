@@ -271,6 +271,7 @@
             if (accessToken) {
                 document.getElementById('authView').classList.add('hidden');
                 document.getElementById('logoutBtn').classList.remove('hidden');
+                bootstrapSession();
                 showView('equipment');
                 loadEquipment();
             }
@@ -296,6 +297,17 @@
             return data;
         }
 
+        async function bootstrapSession() {
+            if (!accessToken) return;
+            try {
+                currentUser = await api('/api/auth/me');
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            } catch (_) {
+                logout();
+                showToast('Session expired. Please login again.', 'error');
+            }
+        }
+
         // Toast notification
         function showToast(message, type = 'success') {
             const toast = document.createElement('div');
@@ -316,7 +328,7 @@
         async function handleLogin(e) {
             e.preventDefault();
             try {
-                const data = await api('/api/auth/login', {
+                const data = await api('/api/auth/auth0/login', {
                     method: 'POST',
                     body: JSON.stringify({
                         email: document.getElementById('loginEmail').value,
@@ -324,8 +336,8 @@
                     })
                 });
                 accessToken = data.access_token;
-                currentUser = data.user;
                 localStorage.setItem('accessToken', accessToken);
+                currentUser = await api('/api/auth/me');
                 localStorage.setItem('currentUser', JSON.stringify(currentUser));
                 document.getElementById('authView').classList.add('hidden');
                 document.getElementById('logoutBtn').classList.remove('hidden');
@@ -349,7 +361,7 @@
                 if (username) payload.username = username;
                 if (fullName) payload.full_name = fullName;
 
-                await api('/api/auth/register', {
+                await api('/api/auth/auth0/signup', {
                     method: 'POST',
                     body: JSON.stringify(payload)
                 });

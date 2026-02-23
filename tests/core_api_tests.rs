@@ -4,11 +4,12 @@ use actix_rt::test;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use jsonwebtoken::{encode, Algorithm, Header};
 use rust_backend::api::routes::{self, AppState};
-use rust_backend::config::{AuthConfig, Auth0Config};
+use rust_backend::config::{Auth0Config, AuthConfig};
 use rust_backend::domain::{
     AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, Role,
-    User, UserSession,
+    User,
 };
 use rust_backend::infrastructure::auth0_api::Auth0ApiClient;
 use rust_backend::infrastructure::repositories::{
@@ -17,8 +18,7 @@ use rust_backend::infrastructure::repositories::{
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::security::{cors_middleware, security_headers};
-use rust_backend::utils::auth0_claims::{Auth0Claims, Auth0UserContext, Audience};
-use jsonwebtoken::{encode, Algorithm, Header};
+use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -96,7 +96,6 @@ impl UserRepository for MockUserRepo {
 #[derive(Default)]
 struct MockAuthRepo {
     identities: Mutex<Vec<AuthIdentity>>,
-    sessions: Mutex<Vec<UserSession>>,
 }
 
 #[async_trait]
@@ -124,8 +123,8 @@ impl AuthRepository for MockAuthRepo {
             .iter()
             .find(|identity| {
                 identity.user_id == user_id
-                    && identity.provider == AuthProvider::Email
-                    && provider == "email"
+                    && identity.provider == AuthProvider::Auth0
+                    && provider == "auth0"
             })
             .cloned())
     }
@@ -147,97 +146,6 @@ impl AuthRepository for MockAuthRepo {
             .expect("identities mutex poisoned")
             .push(identity.clone());
         Ok(identity.clone())
-    }
-
-    async fn verify_email(&self, user_id: Uuid) -> rust_backend::error::AppResult<()> {
-        let mut identities = self.identities.lock().expect("identities mutex poisoned");
-        for identity in identities.iter_mut() {
-            if identity.user_id == user_id {
-                identity.verified = true;
-            }
-        }
-        Ok(())
-    }
-
-    async fn create_session(
-        &self,
-        session: &UserSession,
-    ) -> rust_backend::error::AppResult<UserSession> {
-        self.sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .push(session.clone());
-        Ok(session.clone())
-    }
-
-    async fn find_session_by_token_hash(
-        &self,
-        token_hash: &str,
-    ) -> rust_backend::error::AppResult<Option<UserSession>> {
-        Ok(self
-            .sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .iter()
-            .find(|session| session.refresh_token_hash == token_hash)
-            .cloned())
-    }
-
-    async fn revoke_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
-        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
-        if let Some(session) = sessions.iter_mut().find(|session| session.id == _id) {
-            session.revoked_at = Some(Utc::now());
-        }
-        Ok(())
-    }
-
-    async fn revoke_all_sessions(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
-        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
-        for session in sessions
-            .iter_mut()
-            .filter(|session| session.user_id == _user_id)
-        {
-            session.revoked_at = Some(Utc::now());
-        }
-        Ok(())
-    }
-
-    async fn revoke_session_with_replacement(
-        &self,
-        _id: Uuid,
-        _replaced_by: Option<Uuid>,
-        _reason: Option<&str>,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_family(
-        &self,
-        _family_id: Uuid,
-        _reason: &str,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn touch_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
-        let mut sessions = self.sessions.lock().expect("sessions mutex poisoned");
-        if let Some(session) = sessions.iter_mut().find(|session| session.id == _id) {
-            session.last_seen_at = Some(Utc::now());
-        }
-        Ok(())
-    }
-
-    async fn has_active_session(&self, user_id: Uuid) -> rust_backend::error::AppResult<bool> {
-        Ok(self
-            .sessions
-            .lock()
-            .expect("sessions mutex poisoned")
-            .iter()
-            .any(|session| {
-                session.user_id == user_id
-                    && session.revoked_at.is_none()
-                    && session.expires_at > Utc::now()
-            }))
     }
 }
 
@@ -425,7 +333,10 @@ impl MessageRepository for MockMessageRepo {
         &self,
         user_id: Uuid,
     ) -> rust_backend::error::AppResult<Vec<Conversation>> {
-        let participants = self.participants.lock().expect("participants mutex poisoned");
+        let participants = self
+            .participants
+            .lock()
+            .expect("participants mutex poisoned");
         let conversation_ids: Vec<Uuid> = participants
             .iter()
             .filter(|(_, uid)| *uid == user_id)
@@ -453,12 +364,18 @@ impl MessageRepository for MockMessageRepo {
             updated_at: Utc::now(),
         };
 
-        let mut participants = self.participants.lock().expect("participants mutex poisoned");
+        let mut participants = self
+            .participants
+            .lock()
+            .expect("participants mutex poisoned");
         for participant_id in participant_ids {
             participants.push((conversation.id, participant_id));
         }
 
-        let mut conversations = self.conversations.lock().expect("conversations mutex poisoned");
+        let mut conversations = self
+            .conversations
+            .lock()
+            .expect("conversations mutex poisoned");
         conversations.push(conversation.clone());
 
         Ok(conversation)
@@ -596,7 +513,8 @@ impl Auth0ApiClient for MockAuth0ApiClient {
         _email: &str,
         _password: &str,
         _username: Option<&str>,
-    ) -> rust_backend::error::AppResult<rust_backend::infrastructure::auth0_api::Auth0SignupResponse> {
+    ) -> rust_backend::error::AppResult<rust_backend::infrastructure::auth0_api::Auth0SignupResponse>
+    {
         Err(rust_backend::error::AppError::ServiceUnavailable {
             service: "auth0".to_string(),
             message: "Auth0 not available in tests".to_string(),
@@ -607,7 +525,8 @@ impl Auth0ApiClient for MockAuth0ApiClient {
         &self,
         _email: &str,
         _password: &str,
-    ) -> rust_backend::error::AppResult<rust_backend::infrastructure::auth0_api::Auth0TokenResponse> {
+    ) -> rust_backend::error::AppResult<rust_backend::infrastructure::auth0_api::Auth0TokenResponse>
+    {
         Err(rust_backend::error::AppError::ServiceUnavailable {
             service: "auth0".to_string(),
             message: "Auth0 not available in tests".to_string(),
@@ -624,7 +543,10 @@ struct MockJitUserProvisioningService {
 
 impl MockJitUserProvisioningService {
     fn new(user_repo: Arc<MockUserRepo>, auth_repo: Arc<MockAuthRepo>) -> Self {
-        Self { user_repo, auth_repo }
+        Self {
+            user_repo,
+            auth_repo,
+        }
     }
 }
 
@@ -652,13 +574,14 @@ impl rust_backend::middleware::auth::UserProvisioningService for MockJitUserProv
             let users = self.user_repo.users.lock().unwrap();
             existing_identity_user_id
                 .or_else(|| {
-                    sub_user_id.and_then(|user_id| users.iter().find(|u| u.id == user_id).map(|u| u.id))
+                    sub_user_id
+                        .and_then(|user_id| users.iter().find(|u| u.id == user_id).map(|u| u.id))
                 })
                 .or_else(|| {
                     users
-                .iter()
-                .find(|u| u.email == claims.email.as_deref().unwrap_or(""))
-                .map(|u| u.id)
+                        .iter()
+                        .find(|u| u.email == claims.email.as_deref().unwrap_or(""))
+                        .map(|u| u.id)
                 })
         };
 
@@ -673,7 +596,10 @@ impl rust_backend::middleware::auth::UserProvisioningService for MockJitUserProv
             // Create new user if not found
             let user = rust_backend::domain::User {
                 id: sub_user_id.unwrap_or_else(Uuid::new_v4),
-                email: claims.email.clone().unwrap_or_else(|| format!("{}@placeholder.test", claims.sub)),
+                email: claims
+                    .email
+                    .clone()
+                    .unwrap_or_else(|| format!("{}@placeholder.test", claims.sub)),
                 role,
                 username: None,
                 full_name: claims.name.clone(),
@@ -714,7 +640,10 @@ impl rust_backend::middleware::auth::UserProvisioningService for MockJitUserProv
 
 fn map_role_from_claim(claims: &Auth0Claims) -> String {
     // Try to get role from custom claims
-    if let Some(role_value) = claims.custom_claims.get("https://test-tenant.auth0.com/role") {
+    if let Some(role_value) = claims
+        .custom_claims
+        .get("https://test-tenant.auth0.com/role")
+    {
         if let Some(role_str) = role_value.as_str() {
             return role_str.to_string();
         }
@@ -750,7 +679,10 @@ impl MockJwksClient {
 
 #[async_trait]
 impl rust_backend::utils::auth0_jwks::JwksProvider for MockJwksClient {
-    async fn get_decoding_key(&self, kid: &str) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
+    async fn get_decoding_key(
+        &self,
+        kid: &str,
+    ) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
         self.decoding_keys
             .lock()
             .expect("decoding_keys mutex poisoned")
@@ -781,7 +713,10 @@ fn create_auth0_token_with_role(
     key_id: &str,
 ) -> String {
     let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert("https://test-tenant.auth0.com/role".to_string(), serde_json::json!(role));
+    custom_claims.insert(
+        "https://test-tenant.auth0.com/role".to_string(),
+        serde_json::json!(role),
+    );
     custom_claims.insert("role".to_string(), serde_json::json!(role));
 
     let claims = Auth0Claims {
@@ -809,7 +744,13 @@ fn create_auth0_token_with_role(
 
 fn create_auth0_token(user_id: Uuid, role: &str) -> String {
     let exp = (Utc::now() + Duration::hours(1)).timestamp();
-    create_auth0_token_with_role(&format!("auth0|{}", user_id), None, role, exp, "test-key-id")
+    create_auth0_token_with_role(
+        &format!("auth0|{}", user_id),
+        None,
+        role,
+        exp,
+        "test-key-id",
+    )
 }
 
 /// Creates app state and all required Auth0 app_data for tests that need authenticated endpoints
@@ -822,7 +763,11 @@ fn app_with_auth0_data(
     web::Data<Arc<dyn rust_backend::utils::auth0_jwks::JwksProvider>>,
     web::Data<Arc<dyn UserProvisioningService>>,
 ) {
-    app_with_auth0_data_and_message_repo(user_repo, equipment_repo, Arc::new(MockMessageRepo::default()))
+    app_with_auth0_data_and_message_repo(
+        user_repo,
+        equipment_repo,
+        Arc::new(MockMessageRepo::default()),
+    )
 }
 
 fn app_with_auth0_data_and_message_repo(
@@ -839,12 +784,12 @@ fn app_with_auth0_data_and_message_repo(
     let category_repo = Arc::new(MockCategoryRepo);
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
 
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(MockJitUserProvisioningService::new(
-        user_repo.clone(),
-        auth_repo.clone(),
-    ));
+    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(
+        MockJitUserProvisioningService::new(user_repo.clone(), auth_repo.clone()),
+    );
 
-    let jwks_provider: Arc<dyn rust_backend::utils::auth0_jwks::JwksProvider> = Arc::new(MockJwksClient::new());
+    let jwks_provider: Arc<dyn rust_backend::utils::auth0_jwks::JwksProvider> =
+        Arc::new(MockJwksClient::new());
 
     let state = AppState {
         auth_service: Arc::new(rust_backend::application::AuthService::new(
@@ -852,10 +797,21 @@ fn app_with_auth0_data_and_message_repo(
             auth_repo,
             auth_config(),
         )),
-        user_service: Arc::new(rust_backend::application::UserService::new(user_repo.clone(), equipment_repo.clone())),
-        category_service: Arc::new(rust_backend::application::CategoryService::new(category_repo)),
-        equipment_service: Arc::new(rust_backend::application::EquipmentService::new(user_repo.clone(), equipment_repo)),
-        message_service: Arc::new(rust_backend::application::MessageService::new(user_repo.clone(), message_repo)),
+        user_service: Arc::new(rust_backend::application::UserService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+        )),
+        category_service: Arc::new(rust_backend::application::CategoryService::new(
+            category_repo,
+        )),
+        equipment_service: Arc::new(rust_backend::application::EquipmentService::new(
+            user_repo.clone(),
+            equipment_repo,
+        )),
+        message_service: Arc::new(rust_backend::application::MessageService::new(
+            user_repo.clone(),
+            message_repo,
+        )),
         security: rust_backend::config::SecurityConfig {
             cors_allowed_origins: vec!["http://localhost:3000".to_string()],
             metrics_allow_private_only: true,
@@ -864,14 +820,16 @@ fn app_with_auth0_data_and_message_repo(
             login_lockout_seconds: 300,
             login_backoff_base_ms: 200,
         },
-        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&rust_backend::config::SecurityConfig {
-            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
-            metrics_allow_private_only: true,
-            metrics_admin_token: None,
-            login_max_failures: 5,
-            login_lockout_seconds: 300,
-            login_backoff_base_ms: 200,
-        })),
+        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
+            &rust_backend::config::SecurityConfig {
+                cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+                metrics_allow_private_only: true,
+                metrics_admin_token: None,
+                login_max_failures: 5,
+                login_lockout_seconds: 300,
+                login_backoff_base_ms: 200,
+            },
+        )),
         app_environment: "test".to_string(),
         metrics: Arc::new(rust_backend::observability::AppMetrics::default()),
         db_pool: None,
@@ -888,7 +846,11 @@ fn app_with_auth0_data_and_message_repo(
 }
 
 fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo>) -> AppState {
-    app_state_with_message_repo(user_repo, equipment_repo, Arc::new(MockMessageRepo::default()))
+    app_state_with_message_repo(
+        user_repo,
+        equipment_repo,
+        Arc::new(MockMessageRepo::default()),
+    )
 }
 
 fn app_state_with_message_repo(
@@ -917,10 +879,21 @@ fn app_state_with_message_repo(
             auth_repo,
             auth_config(),
         )),
-        user_service: Arc::new(rust_backend::application::UserService::new(user_repo.clone(), equipment_repo.clone())),
-        category_service: Arc::new(rust_backend::application::CategoryService::new(category_repo)),
-        equipment_service: Arc::new(rust_backend::application::EquipmentService::new(user_repo.clone(), equipment_repo)),
-        message_service: Arc::new(rust_backend::application::MessageService::new(user_repo.clone(), message_repo)),
+        user_service: Arc::new(rust_backend::application::UserService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+        )),
+        category_service: Arc::new(rust_backend::application::CategoryService::new(
+            category_repo,
+        )),
+        equipment_service: Arc::new(rust_backend::application::EquipmentService::new(
+            user_repo.clone(),
+            equipment_repo,
+        )),
+        message_service: Arc::new(rust_backend::application::MessageService::new(
+            user_repo.clone(),
+            message_repo,
+        )),
         security: rust_backend::config::SecurityConfig {
             cors_allowed_origins: vec!["http://localhost:3000".to_string()],
             metrics_allow_private_only: true,
@@ -929,14 +902,16 @@ fn app_state_with_message_repo(
             login_lockout_seconds: 300,
             login_backoff_base_ms: 200,
         },
-        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&rust_backend::config::SecurityConfig {
-            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
-            metrics_allow_private_only: true,
-            metrics_admin_token: None,
-            login_max_failures: 5,
-            login_lockout_seconds: 300,
-            login_backoff_base_ms: 200,
-        })),
+        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
+            &rust_backend::config::SecurityConfig {
+                cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+                metrics_allow_private_only: true,
+                metrics_admin_token: None,
+                login_max_failures: 5,
+                login_lockout_seconds: 300,
+                login_backoff_base_ms: 200,
+            },
+        )),
         app_environment: "test".to_string(),
         metrics: Arc::new(rust_backend::observability::AppMetrics::default()),
         db_pool: None,
@@ -967,6 +942,7 @@ async fn metrics_route_is_registered() {
 }
 
 #[test]
+#[ignore = "legacy auth flow removed; covered by auth0_endpoints_tests"]
 async fn auth_register_login_and_me_flow_succeeds() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1020,6 +996,7 @@ async fn auth_register_login_and_me_flow_succeeds() {
 }
 
 #[test]
+#[ignore = "legacy auth flow removed; covered by auth0_endpoints_tests"]
 async fn auth_register_validation_error_has_specific_field_feedback() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1056,7 +1033,8 @@ async fn auth_register_validation_error_has_specific_field_feedback() {
 async fn equipment_crud_flow_succeeds() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo);
 
     let owner_id = Uuid::new_v4();
     user_repo.push(User {
@@ -1135,9 +1113,11 @@ async fn equipment_crud_flow_succeeds() {
 async fn users_me_equipment_route_wins_over_dynamic_id_route() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let user_id = Uuid::new_v4();
+    let other_user_id = Uuid::new_v4();
     user_repo.push(User {
         id: user_id,
         email: "owner-route@example.com".to_string(),
@@ -1166,6 +1146,24 @@ async fn users_me_equipment_route_wins_over_dynamic_id_route() {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         });
+    equipment_repo
+        .equipment
+        .lock()
+        .expect("equipment mutex poisoned")
+        .push(Equipment {
+            id: Uuid::new_v4(),
+            owner_id: other_user_id,
+            category_id: Uuid::new_v4(),
+            title: "Other owner item".to_string(),
+            description: Some("Owned by another user".to_string()),
+            daily_rate: Decimal::new(2200, 2),
+            condition: rust_backend::domain::Condition::Good,
+            location: Some("Boston".to_string()),
+            coordinates: None,
+            is_available: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        });
 
     let app = actix_test::init_service(
         App::new()
@@ -1187,9 +1185,78 @@ async fn users_me_equipment_route_wins_over_dynamic_id_route() {
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
+    let items: Vec<serde_json::Value> = actix_test::read_body_json(response).await;
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0]
+            .get("owner_id")
+            .and_then(serde_json::Value::as_str)
+            .expect("owner_id should be present"),
+        user_id.to_string()
+    );
 }
 
 #[test]
+async fn get_users_id_returns_public_profile() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo);
+
+    let user_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: user_id,
+        email: "public-user@example.com".to_string(),
+        role: Role::Renter,
+        username: Some("public-user".to_string()),
+        full_name: Some("Public User".to_string()),
+        avatar_url: Some("https://example.com/public-user.png".to_string()),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri(&format!("/api/users/{user_id}"))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(
+        body.get("id")
+            .and_then(serde_json::Value::as_str)
+            .expect("id should be present"),
+        user_id.to_string()
+    );
+    assert_eq!(
+        body.get("username")
+            .and_then(serde_json::Value::as_str)
+            .expect("username should be present"),
+        "public-user"
+    );
+    assert_eq!(
+        body.get("avatar_url")
+            .and_then(serde_json::Value::as_str)
+            .expect("avatar_url should be present"),
+        "https://example.com/public-user.png"
+    );
+    assert!(
+        body.get("email").is_none(),
+        "public profile response should not expose email"
+    );
+}
+
+#[test]
+#[ignore = "legacy oauth callback route removed"]
 async fn auth_scope_has_ip_rate_limit() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1225,6 +1292,7 @@ async fn auth_scope_has_ip_rate_limit() {
 }
 
 #[test]
+#[ignore = "legacy oauth callback route removed"]
 async fn oauth_callback_requires_state() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1414,7 +1482,7 @@ async fn cors_preflight_respects_allowlist() {
 
     let allowed_preflight = actix_test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
-        .uri("/api/auth/login")
+        .uri("/api/auth/auth0/login")
         .insert_header(("Origin", "http://localhost:3000"))
         .insert_header(("Access-Control-Request-Method", "POST"))
         .to_request();
@@ -1430,7 +1498,7 @@ async fn cors_preflight_respects_allowlist() {
 
     let denied_preflight = actix_test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
-        .uri("/api/auth/login")
+        .uri("/api/auth/auth0/login")
         .insert_header(("Origin", "http://evil.example"))
         .insert_header(("Access-Control-Request-Method", "POST"))
         .to_request();
@@ -1439,6 +1507,7 @@ async fn cors_preflight_respects_allowlist() {
 }
 
 #[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
 async fn login_sets_secure_refresh_and_csrf_cookies() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1496,6 +1565,7 @@ async fn login_sets_secure_refresh_and_csrf_cookies() {
 }
 
 #[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
 async fn refresh_requires_csrf_token_for_cookie_auth() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1563,6 +1633,197 @@ async fn refresh_requires_csrf_token_for_cookie_auth() {
 }
 
 #[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
+async fn refresh_rejects_when_token_missing_in_body_and_cookie() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::post()
+        .uri("/api/auth/refresh")
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
+async fn refresh_rejects_when_csrf_cookie_missing_for_cookie_auth() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let register_request = actix_test::TestRequest::post()
+        .uri("/api/auth/register")
+        .set_json(serde_json::json!({
+            "email": "csrf-cookie-missing@example.com",
+            "password": "super-secure-password",
+            "username": "csrf-cookie-missing",
+            "full_name": "Csrf Cookie Missing"
+        }))
+        .to_request();
+    let register_response = actix_test::call_service(&app, register_request).await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+
+    let login_request = actix_test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(serde_json::json!({
+            "email": "csrf-cookie-missing@example.com",
+            "password": "super-secure-password"
+        }))
+        .to_request();
+    let login_response = actix_test::call_service(&app, login_request).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookie_values: Vec<String> = login_response
+        .headers()
+        .get_all("set-cookie")
+        .map(|value| value.to_str().expect("set-cookie should be valid utf8"))
+        .map(ToString::to_string)
+        .collect();
+    let refresh_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("refresh_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("refresh cookie should be set")
+        .to_string();
+
+    let request = actix_test::TestRequest::post()
+        .uri("/api/auth/refresh")
+        .insert_header(("Cookie", refresh_cookie))
+        .insert_header(("x-csrf-token", "does-not-matter"))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
+async fn logout_with_cookie_refresh_token_clears_refresh_and_csrf_cookies() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let register_request = actix_test::TestRequest::post()
+        .uri("/api/auth/register")
+        .set_json(serde_json::json!({
+            "email": "logout-cookie-user@example.com",
+            "password": "super-secure-password",
+            "username": "logout-cookie-user",
+            "full_name": "Logout Cookie User"
+        }))
+        .to_request();
+    let register_response = actix_test::call_service(&app, register_request).await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+
+    let login_request = actix_test::TestRequest::post()
+        .uri("/api/auth/login")
+        .set_json(serde_json::json!({
+            "email": "logout-cookie-user@example.com",
+            "password": "super-secure-password"
+        }))
+        .to_request();
+    let login_response = actix_test::call_service(&app, login_request).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookie_values: Vec<String> = login_response
+        .headers()
+        .get_all("set-cookie")
+        .map(|value| value.to_str().expect("set-cookie should be valid utf8"))
+        .map(ToString::to_string)
+        .collect();
+    let refresh_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("refresh_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("refresh cookie should be set")
+        .to_string();
+    let csrf_cookie = set_cookie_values
+        .iter()
+        .find(|cookie| cookie.starts_with("csrf_token="))
+        .and_then(|cookie| cookie.split(';').next())
+        .expect("csrf cookie should be set")
+        .to_string();
+
+    let logout_request = actix_test::TestRequest::post()
+        .uri("/api/auth/logout")
+        .insert_header(("Cookie", format!("{refresh_cookie}; {csrf_cookie}")))
+        .set_json(serde_json::json!({}))
+        .to_request();
+    let logout_response = actix_test::call_service(&app, logout_request).await;
+    assert_eq!(logout_response.status(), StatusCode::NO_CONTENT);
+
+    let cleared_cookies: Vec<String> = logout_response
+        .headers()
+        .get_all("set-cookie")
+        .map(|value| value.to_str().expect("set-cookie should be valid utf8"))
+        .map(ToString::to_string)
+        .collect();
+
+    assert!(cleared_cookies.iter().any(|cookie| {
+        cookie.starts_with("refresh_token=")
+            && cookie.contains("Max-Age=0")
+            && cookie.contains("HttpOnly")
+    }));
+    assert!(cleared_cookies
+        .iter()
+        .any(|cookie| { cookie.starts_with("csrf_token=") && cookie.contains("Max-Age=0") }));
+}
+
+#[test]
+async fn auth_me_rejects_when_authorization_header_missing() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo, equipment_repo);
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/api/auth/me")
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
 async fn login_backoff_and_lockout_returns_too_many_requests() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1609,6 +1870,7 @@ async fn login_backoff_and_lockout_returns_too_many_requests() {
 }
 
 #[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
 async fn refresh_rejects_when_csrf_header_does_not_match_cookie() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1677,6 +1939,7 @@ async fn refresh_rejects_when_csrf_header_does_not_match_cookie() {
 }
 
 #[test]
+#[ignore = "legacy cookie refresh/logout flow removed"]
 async fn refresh_succeeds_with_matching_csrf_cookie_and_header() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -1780,7 +2043,8 @@ async fn metrics_allows_admin_token_from_non_private_request() {
 async fn renter_cannot_create_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo);
 
     let renter_id = Uuid::new_v4();
     user_repo.push(User {
@@ -1828,7 +2092,8 @@ async fn renter_cannot_create_equipment() {
 async fn non_owner_cannot_update_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let other_user_id = Uuid::new_v4();
@@ -1903,7 +2168,8 @@ async fn non_owner_cannot_update_equipment() {
 async fn admin_can_update_other_users_profile() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo);
 
     let admin_id = Uuid::new_v4();
     let target_id = Uuid::new_v4();
@@ -1958,7 +2224,8 @@ async fn admin_can_update_other_users_profile() {
 async fn admin_can_update_foreign_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let admin_id = Uuid::new_v4();
     let owner_id = Uuid::new_v4();
@@ -2033,7 +2300,8 @@ async fn admin_can_update_foreign_equipment() {
 async fn non_admin_cannot_update_other_users_profile() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo);
 
     let actor_id = Uuid::new_v4();
     let target_id = Uuid::new_v4();
@@ -2111,10 +2379,12 @@ async fn ws_upgrade_requires_authorization() {
 }
 
 #[test]
+#[ignore = "legacy local-session gate removed; ws auth is Auth0 token based"]
 async fn ws_upgrade_rejects_when_user_has_no_active_session() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo);
 
     let user_id = Uuid::new_v4();
     user_repo.push(User {
@@ -2183,6 +2453,7 @@ async fn ws_upgrade_requires_wss_in_production() {
 }
 
 #[test]
+#[ignore = "legacy login metric path removed"]
 async fn metrics_endpoint_exposes_auth_failure_counter() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
@@ -2258,7 +2529,8 @@ async fn create_conversation_succeeds() {
         updated_at: Utc::now(),
     });
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2294,7 +2566,8 @@ async fn create_conversation_validates_min_participants() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
     let message_repo = Arc::new(MockMessageRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2339,7 +2612,8 @@ async fn list_conversations_returns_empty_for_new_user() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
     let message_repo = Arc::new(MockMessageRepo::default());
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2408,7 +2682,8 @@ async fn get_conversation_fails_for_non_participant() {
     });
     message_repo.add_participant(conversation_id, other_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2460,7 +2735,8 @@ async fn get_conversation_succeeds_for_participant() {
     });
     message_repo.add_participant(conversation_id, user_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2513,7 +2789,8 @@ async fn send_message_fails_for_non_participant() {
     });
     message_repo.add_participant(conversation_id, other_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2568,11 +2845,15 @@ async fn send_message_succeeds_for_participant() {
     });
     message_repo.add_participant(conversation_id, user_id);
 
-    eprintln!("DEBUG: user_id={}, conversation_id={}", user_id, conversation_id);
+    eprintln!(
+        "DEBUG: user_id={}, conversation_id={}",
+        user_id, conversation_id
+    );
     let is_participant = message_repo.is_participant(conversation_id, user_id).await;
     eprintln!("DEBUG: is_participant={:?}", is_participant);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2628,7 +2909,8 @@ async fn send_message_validates_content_length() {
     });
     message_repo.add_participant(conversation_id, user_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2724,7 +3006,9 @@ async fn list_messages_respects_pagination() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}/messages?limit=5&offset=0"))
+        .uri(&format!(
+            "/api/conversations/{conversation_id}/messages?limit=5&offset=0"
+        ))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2763,7 +3047,8 @@ async fn list_messages_fails_for_non_participant() {
     });
     message_repo.add_participant(conversation_id, other_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -2922,7 +3207,8 @@ async fn admin_can_access_foreign_conversation() {
     });
     message_repo.add_participant(conversation_id, other_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()
@@ -3032,7 +3318,8 @@ async fn admin_can_list_foreign_conversation_messages() {
     });
     message_repo.add_participant(conversation_id, other_id);
 
-    let (state, auth0_config_data, jwks_client, provisioning_service) = app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
+    let (state, auth0_config_data, jwks_client, provisioning_service) =
+        app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
     let app = actix_test::init_service(
         App::new()

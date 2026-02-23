@@ -6,7 +6,7 @@ use chrono::Utc;
 use tracing::info;
 
 use crate::config::Auth0Config;
-use crate::domain::{AuthProvider, AuthIdentity, Role, User};
+use crate::domain::{AuthIdentity, AuthProvider, Role, User};
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{AuthRepository, UserRepository};
 use crate::utils::auth0_claims::Auth0UserContext;
@@ -14,7 +14,10 @@ use crate::utils::auth0_jwks::{validate_auth0_token, JwksProvider};
 
 #[async_trait]
 pub trait UserProvisioningService: Send + Sync {
-    async fn provision_user(&self, claims: &crate::utils::auth0_claims::Auth0Claims) -> AppResult<Auth0UserContext>;
+    async fn provision_user(
+        &self,
+        claims: &crate::utils::auth0_claims::Auth0Claims,
+    ) -> AppResult<Auth0UserContext>;
 }
 
 pub struct JitUserProvisioningService {
@@ -39,9 +42,12 @@ impl JitUserProvisioningService {
 
 #[async_trait]
 impl UserProvisioningService for JitUserProvisioningService {
-    async fn provision_user(&self, claims: &crate::utils::auth0_claims::Auth0Claims) -> AppResult<Auth0UserContext> {
+    async fn provision_user(
+        &self,
+        claims: &crate::utils::auth0_claims::Auth0Claims,
+    ) -> AppResult<Auth0UserContext> {
         let provider_id = claims.sub.clone();
-        
+
         if let Some(identity) = self
             .auth_repo
             .find_identity_by_provider_id("auth0", &provider_id)
@@ -56,30 +62,35 @@ impl UserProvisioningService for JitUserProvisioningService {
                         "user not found for existing auth0 identity"
                     ))
                 })?;
-            
+
             info!(
                 auth0_sub = %claims.sub,
                 user_id = %user.id,
                 "authenticated existing auth0 user"
             );
-            
+
             return Ok(Auth0UserContext::from_claims(
                 claims,
                 user.id,
                 &self.auth0_namespace,
             ));
         }
-        
-        let user = if let Some(existing) = self.user_repo.find_by_email(
-            claims.email.as_deref().unwrap_or("")
-        ).await? {
+
+        let user = if let Some(existing) = self
+            .user_repo
+            .find_by_email(claims.email.as_deref().unwrap_or(""))
+            .await?
+        {
             existing
         } else {
             let now = Utc::now();
             self.user_repo
                 .create(&User {
                     id: uuid::Uuid::new_v4(),
-                    email: claims.email.clone().unwrap_or_else(|| format!("{}@auth0.placeholder", claims.sub)),
+                    email: claims
+                        .email
+                        .clone()
+                        .unwrap_or_else(|| format!("{}@auth0.placeholder", claims.sub)),
                     role: Role::Renter,
                     username: None,
                     full_name: claims.name.clone(),
@@ -89,7 +100,7 @@ impl UserProvisioningService for JitUserProvisioningService {
                 })
                 .await?
         };
-        
+
         self.auth_repo
             .create_identity(&AuthIdentity {
                 id: uuid::Uuid::new_v4(),
@@ -101,13 +112,13 @@ impl UserProvisioningService for JitUserProvisioningService {
                 created_at: Utc::now(),
             })
             .await?;
-        
+
         info!(
             auth0_sub = %claims.sub,
             user_id = %user.id,
             "provisioned new user from auth0"
         );
-        
+
         Ok(Auth0UserContext::from_claims(
             claims,
             user.id,
@@ -139,15 +150,23 @@ impl FromRequest for Auth0AuthenticatedUser {
 
             let jwks_client = req
                 .app_data::<web::Data<Arc<dyn JwksProvider>>>()
-                .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("missing JwksProvider app data")))?;
-            let auth0_config = req
-                .app_data::<web::Data<Auth0Config>>()
-                .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("missing Auth0Config app data")))?;
+                .ok_or_else(|| {
+                    AppError::InternalError(anyhow::anyhow!("missing JwksProvider app data"))
+                })?;
+            let auth0_config = req.app_data::<web::Data<Auth0Config>>().ok_or_else(|| {
+                AppError::InternalError(anyhow::anyhow!("missing Auth0Config app data"))
+            })?;
             let provisioning_service = req
                 .app_data::<web::Data<Arc<dyn UserProvisioningService>>>()
-                .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("missing UserProvisioningService app data")))?;
+                .ok_or_else(|| {
+                    AppError::InternalError(anyhow::anyhow!(
+                        "missing UserProvisioningService app data"
+                    ))
+                })?;
 
-            let claims = validate_auth0_token(token, jwks_client.as_ref().as_ref(), auth0_config.get_ref()).await?;
+            let claims =
+                validate_auth0_token(token, jwks_client.as_ref().as_ref(), auth0_config.get_ref())
+                    .await?;
             let user_context = provisioning_service.provision_user(&claims).await?;
             Ok(Auth0AuthenticatedUser(user_context))
         })

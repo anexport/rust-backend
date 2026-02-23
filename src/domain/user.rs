@@ -43,9 +43,6 @@ pub struct RenterProfile {
 #[sqlx(type_name = "auth_provider", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum AuthProvider {
-    Email,
-    Google,
-    GitHub,
     Auth0,
 }
 
@@ -57,22 +54,6 @@ pub struct AuthIdentity {
     pub provider_id: Option<String>,
     pub password_hash: Option<String>,
     pub verified: bool,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct UserSession {
-    pub id: Uuid,
-    pub user_id: Uuid,
-    pub family_id: Uuid,
-    pub refresh_token_hash: String,
-    pub expires_at: DateTime<Utc>,
-    pub revoked_at: Option<DateTime<Utc>>,
-    pub replaced_by: Option<Uuid>,
-    pub revoked_reason: Option<String>,
-    pub created_ip: Option<String>,
-    pub last_seen_at: Option<DateTime<Utc>>,
-    pub device_info: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -116,33 +97,13 @@ mod tests {
     #[test]
     fn auth_provider_serializes_to_lowercase() {
         assert_eq!(
-            serde_json::to_string(&AuthProvider::Email).unwrap(),
-            "\"email\""
-        );
-        assert_eq!(
-            serde_json::to_string(&AuthProvider::Google).unwrap(),
-            "\"google\""
-        );
-        assert_eq!(
-            serde_json::to_string(&AuthProvider::GitHub).unwrap(),
-            "\"github\""
+            serde_json::to_string(&AuthProvider::Auth0).unwrap(),
+            "\"auth0\""
         );
     }
 
     #[test]
     fn auth_provider_deserializes_from_lowercase() {
-        assert_eq!(
-            serde_json::from_str::<AuthProvider>("\"email\"").unwrap(),
-            AuthProvider::Email
-        );
-        assert_eq!(
-            serde_json::from_str::<AuthProvider>("\"google\"").unwrap(),
-            AuthProvider::Google
-        );
-        assert_eq!(
-            serde_json::from_str::<AuthProvider>("\"github\"").unwrap(),
-            AuthProvider::GitHub
-        );
         assert_eq!(
             serde_json::from_str::<AuthProvider>("\"auth0\"").unwrap(),
             AuthProvider::Auth0

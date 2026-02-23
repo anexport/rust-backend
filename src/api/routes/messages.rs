@@ -28,7 +28,10 @@ async fn list_conversations(
     state: web::Data<AppState>,
     auth: Auth0AuthenticatedUser,
 ) -> AppResult<HttpResponse> {
-    let result = state.message_service.list_conversations(auth.0.user_id).await?;
+    let result = state
+        .message_service
+        .list_conversations(auth.0.user_id)
+        .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 

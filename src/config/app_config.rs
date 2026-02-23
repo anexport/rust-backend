@@ -18,7 +18,6 @@ pub struct AppConfig {
     pub auth: AuthConfig,
     pub auth0: Auth0Config,
     pub security: SecurityConfig,
-    pub oauth: OAuthConfig,
     pub logging: LoggingConfig,
 }
 
@@ -68,8 +67,20 @@ pub struct Auth0Config {
 }
 
 impl Auth0Config {
+    fn non_empty(value: Option<&str>) -> Option<&str> {
+        value.and_then(|v| {
+            let trimmed = v.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+    }
+
     pub fn is_enabled(&self) -> bool {
-        self.auth0_domain.is_some() || self.auth0_audience.is_some()
+        Self::non_empty(self.auth0_domain.as_deref()).is_some()
+            || Self::non_empty(self.auth0_audience.as_deref()).is_some()
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -77,13 +88,13 @@ impl Auth0Config {
             return Ok(());
         }
 
-        if self.auth0_domain.is_none() {
+        if Self::non_empty(self.auth0_domain.as_deref()).is_none() {
             return Err(ConfigError::Auth0Config(
                 "AUTH0_DOMAIN is required when Auth0 is enabled".to_string(),
             ));
         }
 
-        if self.auth0_audience.is_none() {
+        if Self::non_empty(self.auth0_audience.as_deref()).is_none() {
             return Err(ConfigError::Auth0Config(
                 "AUTH0_AUDIENCE is required when Auth0 is enabled".to_string(),
             ));
@@ -93,9 +104,9 @@ impl Auth0Config {
     }
 
     pub fn issuer(&self) -> Option<String> {
-        if let Some(ref issuer) = self.auth0_issuer {
-            Some(issuer.clone())
-        } else if let Some(ref domain) = self.auth0_domain {
+        if let Some(issuer) = Self::non_empty(self.auth0_issuer.as_deref()) {
+            Some(issuer.to_string())
+        } else if let Some(domain) = Self::non_empty(self.auth0_domain.as_deref()) {
             Some(format!("https://{}/", domain))
         } else {
             None
@@ -105,14 +116,6 @@ impl Auth0Config {
 
 fn default_jwks_cache_ttl_secs() -> u64 {
     3600
-}
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct OAuthConfig {
-    pub google_client_id: String,
-    pub google_client_secret: String,
-    pub github_client_id: String,
-    pub github_client_secret: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -139,7 +142,7 @@ pub struct LoggingConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<figment::Error>> {
-        Figment::new()
+        let mut config: Self = Figment::new()
             .merge(Toml::file("config/default.toml"))
             .merge(Toml::file("config/development.toml").nested())
             .merge(Env::prefixed("APP_").split("__"))
@@ -147,55 +150,47 @@ impl AppConfig {
             .merge(Env::prefixed("AUTH_").split("__"))
             .merge(Env::prefixed("AUTH0_").split("__"))
             .merge(Env::prefixed("SECURITY_").split("__"))
-            .merge(Env::prefixed("OAUTH_").split("__"))
             .merge(Env::prefixed("LOGGING_").split("__"))
             .merge(
                 Env::raw()
-                    .only(&["database.url"])
-                    .map(|_| "DATABASE_URL".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth.jwt_secret"])
-                    .map(|_| "JWT_SECRET".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_domain"])
-                    .map(|_| "AUTH0_DOMAIN".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_audience"])
-                    .map(|_| "AUTH0_AUDIENCE".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_issuer"])
-                    .map(|_| "AUTH0_ISSUER".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.jwks_cache_ttl_secs"])
-                    .map(|_| "AUTH0_JWKS_CACHE_TTL_SECS".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_client_id"])
-                    .map(|_| "AUTH0_CLIENT_ID".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_connection"])
-                    .map(|_| "AUTH0_CONNECTION".into()),
-            )
-            .merge(
-                Env::raw()
-                    .only(&["auth0.auth0_client_secret"])
-                    .map(|_| "AUTH0_CLIENT_SECRET".into()),
+                    .only(&[
+                        "DATABASE_URL",
+                        "JWT_SECRET",
+                        "AUTH0_DOMAIN",
+                        "AUTH0_AUDIENCE",
+                        "AUTH0_ISSUER",
+                        "AUTH0_JWKS_CACHE_TTL_SECS",
+                        "AUTH0_CLIENT_ID",
+                        "AUTH0_CONNECTION",
+                        "AUTH0_CLIENT_SECRET",
+                    ])
+                    .map(|key| match key.as_str() {
+                        "DATABASE_URL" => "database.url".into(),
+                        "JWT_SECRET" => "auth.jwt_secret".into(),
+                        "AUTH0_DOMAIN" => "auth0.auth0_domain".into(),
+                        "AUTH0_AUDIENCE" => "auth0.auth0_audience".into(),
+                        "AUTH0_ISSUER" => "auth0.auth0_issuer".into(),
+                        "AUTH0_JWKS_CACHE_TTL_SECS" => "auth0.jwks_cache_ttl_secs".into(),
+                        "AUTH0_CLIENT_ID" => "auth0.auth0_client_id".into(),
+                        "AUTH0_CONNECTION" => "auth0.auth0_connection".into(),
+                        "AUTH0_CLIENT_SECRET" => "auth0.auth0_client_secret".into(),
+                        _ => key.into(),
+                    }),
             )
             .extract()
-            .map_err(Box::new)
+            .map_err(Box::new)?;
+
+        config.auth0.auth0_domain = normalize_optional_string(config.auth0.auth0_domain);
+        config.auth0.auth0_audience = normalize_optional_string(config.auth0.auth0_audience);
+        config.auth0.auth0_issuer = normalize_optional_string(config.auth0.auth0_issuer);
+        config.auth0.auth0_client_id = normalize_optional_string(config.auth0.auth0_client_id);
+        config.auth0.auth0_client_secret =
+            normalize_optional_string(config.auth0.auth0_client_secret);
+        if config.auth0.auth0_connection.trim().is_empty() {
+            config.auth0.auth0_connection = default_auth0_connection();
+        }
+
+        Ok(config)
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -233,6 +228,17 @@ fn default_environment() -> String {
 
 fn default_auth0_connection() -> String {
     "Username-Password-Authentication".to_string()
+}
+
+fn normalize_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(|v| {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
 }
 
 #[cfg(test)]
@@ -335,5 +341,43 @@ mod tests {
             Some("https://tenant.auth0.com/".to_string())
         );
         assert_eq!(no_issuer_or_domain.issuer(), None);
+    }
+
+    #[test]
+    fn empty_auth0_strings_are_treated_as_disabled() {
+        let config = Auth0Config {
+            auth0_domain: Some(String::new()),
+            auth0_audience: Some(String::new()),
+            auth0_issuer: Some(String::new()),
+            ..Default::default()
+        };
+
+        assert!(!config.is_enabled());
+        assert_eq!(config.issuer(), None);
+    }
+
+    #[test]
+    fn validate_fails_when_domain_or_audience_are_blank() {
+        let missing_domain = Auth0Config {
+            auth0_domain: Some("   ".to_string()),
+            auth0_audience: Some("api://audience".to_string()),
+            ..Default::default()
+        };
+        let missing_audience = Auth0Config {
+            auth0_domain: Some("tenant.auth0.com".to_string()),
+            auth0_audience: Some(String::new()),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            missing_domain.validate(),
+            Err(ConfigError::Auth0Config(msg))
+            if msg == "AUTH0_DOMAIN is required when Auth0 is enabled"
+        ));
+        assert!(matches!(
+            missing_audience.validate(),
+            Err(ConfigError::Auth0Config(msg))
+            if msg == "AUTH0_AUDIENCE is required when Auth0 is enabled"
+        ));
     }
 }

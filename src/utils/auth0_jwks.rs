@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use jsonwebtoken::{
-    decode, decode_header, Algorithm, DecodingKey, Validation,
-};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use moka::future::Cache;
 use reqwest::Client;
 use serde::Deserialize;
@@ -44,10 +42,9 @@ pub struct Auth0JwksClient {
 
 impl Auth0JwksClient {
     pub fn new(config: &Auth0Config) -> AppResult<Self> {
-        let domain = config
-            .auth0_domain
-            .as_ref()
-            .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("Auth0 domain not configured")))?;
+        let domain = config.auth0_domain.as_ref().ok_or_else(|| {
+            AppError::InternalError(anyhow::anyhow!("Auth0 domain not configured"))
+        })?;
 
         let jwks_url = format!("https://{}/.well-known/jwks.json", domain);
 
@@ -70,42 +67,35 @@ impl Auth0JwksClient {
 
         let jwks = self.fetch_jwks().await?;
 
-        let jwk = jwks
-            .keys
-            .iter()
-            .find(|k| k.kid == kid)
-            .ok_or_else(|| {
-                warn!(
-                    kid = %kid,
-                    available_kids = ?jwks.keys.iter().map(|k| &k.kid).collect::<Vec<_>>(),
-                    auth_failure_category = "unknown_kid",
-                    "Auth0 token validation failed: unknown key ID"
-                );
-                AppError::Unauthorized
-            })?;
+        let jwk = jwks.keys.iter().find(|k| k.kid == kid).ok_or_else(|| {
+            warn!(
+                kid = %kid,
+                available_kids = ?jwks.keys.iter().map(|k| &k.kid).collect::<Vec<_>>(),
+                auth_failure_category = "unknown_kid",
+                "Auth0 token validation failed: unknown key ID"
+            );
+            AppError::Unauthorized
+        })?;
 
         let modulus_bytes = self.jwk_to_modulus(jwk)?;
 
-        self.cache.insert(kid.to_string(), modulus_bytes.clone()).await;
+        self.cache
+            .insert(kid.to_string(), modulus_bytes.clone())
+            .await;
 
         Ok(modulus_bytes)
     }
 
     async fn fetch_jwks(&self) -> AppResult<Jwks> {
-        let response = self
-            .client
-            .get(&self.jwks_url)
-            .send()
-            .await
-            .map_err(|e| {
-                error!(
-                    error = %e,
-                    url = %self.jwks_url,
-                    auth_failure_category = "jwks_fetch_failed",
-                    "Failed to fetch JWKS from Auth0"
-                );
-                AppError::InternalError(anyhow::anyhow!("Failed to fetch JWKS: {}", e))
-            })?;
+        let response = self.client.get(&self.jwks_url).send().await.map_err(|e| {
+            error!(
+                error = %e,
+                url = %self.jwks_url,
+                auth_failure_category = "jwks_fetch_failed",
+                "Failed to fetch JWKS from Auth0"
+            );
+            AppError::InternalError(anyhow::anyhow!("Failed to fetch JWKS: {}", e))
+        })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -134,16 +124,14 @@ impl Auth0JwksClient {
     }
 
     fn jwk_to_modulus(&self, jwk: &Jwk) -> AppResult<Vec<u8>> {
-        let n_bytes = URL_SAFE_NO_PAD
-            .decode(&jwk.n)
-            .map_err(|e| {
-                error!(
-                    error = %e,
-                    kid = %jwk.kid,
-                    "Failed to decode JWK modulus"
-                );
-                AppError::InternalError(anyhow::anyhow!("Invalid JWK modulus: {}", e))
-            })?;
+        let n_bytes = URL_SAFE_NO_PAD.decode(&jwk.n).map_err(|e| {
+            error!(
+                error = %e,
+                kid = %jwk.kid,
+                "Failed to decode JWK modulus"
+            );
+            AppError::InternalError(anyhow::anyhow!("Invalid JWK modulus: {}", e))
+        })?;
 
         Ok(n_bytes)
     }
@@ -158,16 +146,14 @@ impl Auth0JwksClient {
             .find(|k| k.kid == kid)
             .ok_or(AppError::Unauthorized)?;
 
-        let e_bytes = URL_SAFE_NO_PAD
-            .decode(&jwk.e)
-            .map_err(|e| {
-                error!(
-                    error = %e,
-                    kid = %kid,
-                    "Failed to decode JWK exponent"
-                );
-                AppError::InternalError(anyhow::anyhow!("Invalid JWK exponent: {}", e))
-            })?;
+        let e_bytes = URL_SAFE_NO_PAD.decode(&jwk.e).map_err(|e| {
+            error!(
+                error = %e,
+                kid = %kid,
+                "Failed to decode JWK exponent"
+            );
+            AppError::InternalError(anyhow::anyhow!("Invalid JWK exponent: {}", e))
+        })?;
 
         DecodingKey::from_rsa_components(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&modulus_bytes),
@@ -213,13 +199,14 @@ pub async fn validate_auth0_token(
         AppError::Unauthorized
     })?;
 
-    let decoding_key = client.get_decoding_key(&kid).await.map_err(|_| {
-        AppError::Unauthorized
-    })?;
+    let decoding_key = client
+        .get_decoding_key(&kid)
+        .await
+        .map_err(|_| AppError::Unauthorized)?;
 
-    let expected_issuer = config.issuer().ok_or_else(|| {
-        AppError::InternalError(anyhow::anyhow!("Auth0 issuer not configured"))
-    })?;
+    let expected_issuer = config
+        .issuer()
+        .ok_or_else(|| AppError::InternalError(anyhow::anyhow!("Auth0 issuer not configured")))?;
 
     let expected_audience = config
         .auth0_audience
@@ -234,10 +221,7 @@ pub async fn validate_auth0_token(
         let kind = e.kind();
         match kind {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                warn!(
-                    auth_failure_category = "expired",
-                    "Auth0 token has expired"
-                );
+                warn!(auth_failure_category = "expired", "Auth0 token has expired");
                 AppError::TokenExpired
             }
             jsonwebtoken::errors::ErrorKind::ImmatureSignature => {
@@ -286,10 +270,18 @@ pub async fn validate_auth0_token(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
     use crate::utils::auth0_claims::Audience;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    const TEST_PRIVATE_KEY_PEM: &str = include_str!("../../tests/test_private_key.pem");
+    const TEST_PUBLIC_KEY_PEM: &str = include_str!("../../tests/test_public_key.pem");
 
     struct CountingJwksProvider {
         calls: AtomicUsize,
@@ -301,6 +293,90 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Err(AppError::Unauthorized)
         }
+    }
+
+    struct StaticJwksProvider {
+        key: DecodingKey,
+    }
+
+    #[async_trait]
+    impl JwksProvider for StaticJwksProvider {
+        async fn get_decoding_key(&self, _kid: &str) -> AppResult<DecodingKey> {
+            Ok(self.key.clone())
+        }
+    }
+
+    fn test_claims(issuer: &str, audience: &str, exp: i64) -> Auth0Claims {
+        Auth0Claims {
+            iss: issuer.to_string(),
+            sub: "auth0|test-user".to_string(),
+            aud: Audience::Single(audience.to_string()),
+            exp: exp as u64,
+            iat: (Utc::now() - Duration::minutes(1)).timestamp() as u64,
+            email: Some("test@example.com".to_string()),
+            email_verified: Some(true),
+            name: Some("Test User".to_string()),
+            picture: None,
+            custom_claims: HashMap::new(),
+        }
+    }
+
+    fn create_hs256_token(kid: Option<&str>) -> String {
+        let mut header = Header::new(Algorithm::HS256);
+        header.kid = kid.map(str::to_string);
+        encode(
+            &header,
+            &test_claims(
+                "https://test.auth0.com/",
+                "test-api",
+                (Utc::now() + Duration::minutes(5)).timestamp(),
+            ),
+            &EncodingKey::from_secret(b"unused"),
+        )
+        .expect("failed to encode HS256 token")
+    }
+
+    fn create_rs256_token(issuer: &str, audience: &str, exp: i64, kid: &str) -> String {
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some(kid.to_string());
+        encode(
+            &header,
+            &test_claims(issuer, audience, exp),
+            &EncodingKey::from_rsa_pem(TEST_PRIVATE_KEY_PEM.as_bytes())
+                .expect("private key should parse"),
+        )
+        .expect("failed to encode RS256 token")
+    }
+
+    fn tamper_signature(token: &str) -> String {
+        let mut parts: Vec<String> = token.split('.').map(str::to_string).collect();
+        assert_eq!(parts.len(), 3, "token should have 3 sections");
+        let mut signature = URL_SAFE_NO_PAD
+            .decode(&parts[2])
+            .expect("signature should be valid base64url");
+        if let Some(first) = signature.first_mut() {
+            *first ^= 0x01;
+        }
+        parts[2] = URL_SAFE_NO_PAD.encode(signature);
+        parts.join(".")
+    }
+
+    fn spawn_one_shot_jwks_server(body: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener should bind");
+        let addr = listener.local_addr().expect("listener should expose addr");
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut request_buffer = [0_u8; 2048];
+                let _ = stream.read(&mut request_buffer);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        format!("http://{addr}")
     }
 
     #[test]
@@ -366,7 +442,10 @@ mod tests {
             auth0_client_secret: None,
             auth0_connection: Default::default(),
         };
-        assert_eq!(config.issuer(), Some("https://example.auth0.com/".to_string()));
+        assert_eq!(
+            config.issuer(),
+            Some("https://example.auth0.com/".to_string())
+        );
     }
 
     #[test]
@@ -422,5 +501,178 @@ mod tests {
 
         assert!(matches!(result, Err(AppError::Unauthorized)));
         assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_rejects_token_without_kid_header() {
+        let provider = CountingJwksProvider {
+            calls: AtomicUsize::new(0),
+        };
+
+        let token = create_hs256_token(None);
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_maps_key_resolution_failures_to_unauthorized() {
+        let provider = CountingJwksProvider {
+            calls: AtomicUsize::new(0),
+        };
+        let token = create_hs256_token(Some("missing-key"));
+
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_fails_when_issuer_is_not_configured() {
+        let mut config = test_config();
+        config.auth0_domain = None;
+        config.auth0_issuer = None;
+        let token = create_hs256_token(Some("test-kid"));
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_secret(b"unused"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &config).await;
+
+        assert!(matches!(result, Err(AppError::InternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_fails_when_audience_is_not_configured() {
+        let mut config = test_config();
+        config.auth0_audience = None;
+        let token = create_hs256_token(Some("test-kid"));
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_secret(b"unused"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &config).await;
+
+        assert!(matches!(result, Err(AppError::InternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn get_signing_key_returns_cached_value_on_cache_hit() {
+        let config = test_config();
+        let client = Auth0JwksClient::new(&config).expect("client should build");
+        let cached = vec![1_u8, 2, 3, 4];
+        client
+            .cache
+            .insert("cached-kid".to_string(), cached.clone())
+            .await;
+
+        let result = client.get_signing_key("cached-kid").await;
+
+        assert_eq!(result.expect("cache hit should succeed"), cached);
+    }
+
+    #[test]
+    fn jwk_to_modulus_returns_error_for_invalid_base64_modulus() {
+        let client = Auth0JwksClient::new(&test_config()).expect("client should build");
+        let invalid = Jwk {
+            kid: "invalid-modulus".to_string(),
+            n: "%%%".to_string(),
+            e: "AQAB".to_string(),
+            kty: "RSA".to_string(),
+            alg: None,
+            use_: None,
+        };
+
+        let result = client.jwk_to_modulus(&invalid);
+        assert!(matches!(result, Err(AppError::InternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn get_decoding_key_returns_error_for_invalid_base64_exponent() {
+        let config = test_config();
+        let mut client = Auth0JwksClient::new(&config).expect("client should build");
+        client
+            .cache
+            .insert("bad-exponent-kid".to_string(), vec![1_u8, 2, 3, 4])
+            .await;
+
+        client.jwks_url = spawn_one_shot_jwks_server(
+            r#"{"keys":[{"kid":"bad-exponent-kid","n":"AQAB","e":"%%invalid","kty":"RSA"}]}"#
+                .to_string(),
+        );
+
+        let result = client.get_decoding_key("bad-exponent-kid").await;
+        assert!(matches!(result, Err(AppError::InternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_maps_expired_signature_to_token_expired() {
+        let token = create_rs256_token(
+            "https://test.auth0.com/",
+            "test-api",
+            (Utc::now() - Duration::minutes(10)).timestamp(),
+            "test-kid",
+        );
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes())
+                .expect("public key should parse"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+        assert!(matches!(result, Err(AppError::TokenExpired)));
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_maps_invalid_issuer_to_unauthorized() {
+        let token = create_rs256_token(
+            "https://wrong-issuer.example/",
+            "test-api",
+            (Utc::now() + Duration::minutes(5)).timestamp(),
+            "test-kid",
+        );
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes())
+                .expect("public key should parse"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_maps_invalid_audience_to_unauthorized() {
+        let token = create_rs256_token(
+            "https://test.auth0.com/",
+            "wrong-audience",
+            (Utc::now() + Duration::minutes(5)).timestamp(),
+            "test-kid",
+        );
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes())
+                .expect("public key should parse"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+    }
+
+    #[tokio::test]
+    async fn validate_auth0_token_maps_invalid_signature_to_unauthorized() {
+        let valid = create_rs256_token(
+            "https://test.auth0.com/",
+            "test-api",
+            (Utc::now() + Duration::minutes(5)).timestamp(),
+            "test-kid",
+        );
+        let token = tamper_signature(&valid);
+        let provider = StaticJwksProvider {
+            key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes())
+                .expect("public key should parse"),
+        };
+
+        let result = validate_auth0_token(&token, &provider, &test_config()).await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
     }
 }

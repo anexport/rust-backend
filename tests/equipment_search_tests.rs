@@ -6,11 +6,13 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
 use rust_backend::api::routes::{self, AppState};
-use rust_backend::application::{AuthService, CategoryService, EquipmentService, MessageService, UserService};
+use rust_backend::application::{
+    AuthService, CategoryService, EquipmentService, MessageService, UserService,
+};
 use rust_backend::config::{Auth0Config, AuthConfig, SecurityConfig};
 use rust_backend::domain::{
-    AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, Role, User,
-    UserSession,
+    AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, Role,
+    User,
 };
 use rust_backend::infrastructure::auth0_api::{Auth0SignupResponse, Auth0TokenResponse};
 use rust_backend::infrastructure::repositories::{
@@ -18,10 +20,10 @@ use rust_backend::infrastructure::repositories::{
     MessageRepository, UserRepository,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
-use rust_backend::utils::auth0_claims::Auth0UserContext;
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::{cors_middleware, security_headers};
-use rust_backend::utils::auth0_claims::{Auth0Claims, Audience};
+use rust_backend::utils::auth0_claims::Auth0UserContext;
+use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
 use rust_backend::utils::auth0_jwks::JwksProvider;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -135,53 +137,6 @@ impl AuthRepository for MockAuthRepo {
     ) -> rust_backend::error::AppResult<AuthIdentity> {
         Ok(identity.clone())
     }
-
-    async fn verify_email(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn create_session(
-        &self,
-        session: &UserSession,
-    ) -> rust_backend::error::AppResult<UserSession> {
-        Ok(session.clone())
-    }
-
-    async fn find_session_by_token_hash(
-        &self,
-        _token_hash: &str,
-    ) -> rust_backend::error::AppResult<Option<UserSession>> {
-        Ok(None)
-    }
-
-    async fn revoke_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_session_with_replacement(
-        &self,
-        _id: Uuid,
-        _replaced_by: Option<Uuid>,
-        _reason: Option<&str>,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_all_sessions(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_family(&self, _family_id: Uuid, _reason: &str) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn touch_session(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-
-    async fn has_active_session(&self, _user_id: Uuid) -> rust_backend::error::AppResult<bool> {
-        Ok(true)
-    }
 }
 
 #[derive(Default)]
@@ -199,7 +154,10 @@ impl MockEquipmentRepo {
     }
 
     fn push_photo(&self, photo: EquipmentPhoto) {
-        self.photos.lock().expect("photos mutex poisoned").push(photo);
+        self.photos
+            .lock()
+            .expect("photos mutex poisoned")
+            .push(photo);
     }
 }
 
@@ -454,8 +412,8 @@ impl rust_backend::infrastructure::auth0_api::Auth0ApiClient for MockAuth0ApiCli
             username: _username.map(|s| s.to_string()),
             picture: None,
             name: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            created_at: Some(Utc::now().to_rfc3339()),
+            updated_at: Some(Utc::now().to_rfc3339()),
         })
     }
 
@@ -520,13 +478,19 @@ struct MockJitUserProvisioningService {
 
 impl MockJitUserProvisioningService {
     fn new(user_repo: Arc<MockUserRepo>, auth_repo: Arc<MockAuthRepo>) -> Self {
-        Self { user_repo, auth_repo }
+        Self {
+            user_repo,
+            auth_repo,
+        }
     }
 }
 
 #[async_trait]
 impl UserProvisioningService for MockJitUserProvisioningService {
-    async fn provision_user(&self, claims: &Auth0Claims) -> rust_backend::error::AppResult<Auth0UserContext> {
+    async fn provision_user(
+        &self,
+        claims: &Auth0Claims,
+    ) -> rust_backend::error::AppResult<Auth0UserContext> {
         let sub_user_id = claims
             .sub
             .split('|')
@@ -556,7 +520,10 @@ impl UserProvisioningService for MockJitUserProvisioningService {
             // Create new user if not found
             let user = User {
                 id: sub_user_id.unwrap_or_else(Uuid::new_v4),
-                email: claims.email.clone().unwrap_or_else(|| format!("{}@placeholder.test", claims.sub)),
+                email: claims
+                    .email
+                    .clone()
+                    .unwrap_or_else(|| format!("{}@placeholder.test", claims.sub)),
                 role,
                 username: None,
                 full_name: claims.name.clone(),
@@ -684,15 +651,21 @@ fn create_auth0_token_with_role(
     header.kid = Some(key_id.to_string());
 
     let private_key_pem = include_str!("test_private_key.pem");
-    let encoding_key =
-        EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).expect("Failed to load test private key");
+    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+        .expect("Failed to load test private key");
 
     encode(&header, &claims, &encoding_key).expect("Failed to encode test token")
 }
 
 fn create_auth0_token(user_id: Uuid, role: &str) -> String {
     let exp = (Utc::now() + Duration::hours(1)).timestamp();
-    create_auth0_token_with_role(&format!("auth0|{}", user_id), None, role, exp, "test-key-id")
+    create_auth0_token_with_role(
+        &format!("auth0|{}", user_id),
+        None,
+        role,
+        exp,
+        "test-key-id",
+    )
 }
 
 fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo>) -> AppState {
@@ -719,7 +692,9 @@ fn app_state_with_provisioning(
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: security_config(),
-        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&security_config())),
+        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
+            &security_config(),
+        )),
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: None,
@@ -748,7 +723,8 @@ fn app_with_auth0_data(
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(MockJwksClient::new());
     let auth0_jwks_client = web::Data::new(jwks_provider.clone());
     let auth0_config_data = web::Data::new(auth0_config());
-    let provisioning_service_data = web::Data::new(provisioning_service.clone() as Arc<dyn UserProvisioningService>);
+    let provisioning_service_data =
+        web::Data::new(provisioning_service.clone() as Arc<dyn UserProvisioningService>);
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(
@@ -761,7 +737,9 @@ fn app_with_auth0_data(
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: security_config(),
-        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&security_config())),
+        login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
+            &security_config(),
+        )),
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: None,
@@ -769,7 +747,12 @@ fn app_with_auth0_data(
         auth0_api_client,
     };
 
-    (web::Data::new(state), auth0_config_data, auth0_jwks_client, provisioning_service_data)
+    (
+        web::Data::new(state),
+        auth0_config_data,
+        auth0_jwks_client,
+        provisioning_service_data,
+    )
 }
 
 fn create_equipment(
@@ -922,8 +905,7 @@ async fn geographic_search_returns_equipment_within_radius() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 2);
     assert_eq!(get_total(&body), 2);
@@ -1027,8 +1009,7 @@ async fn geographic_search_results_sorted_by_distance() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 4);
 
@@ -1039,8 +1020,8 @@ async fn geographic_search_results_sorted_by_distance() {
     // Items should be sorted by distance - closest first
     assert_eq!(titles[0], "Union Square Item"); // 0km
     assert_eq!(titles[1], "Washington Square Kit"); // ~0.5km
-    assert_eq!(titles[2], "Flatiron Gear");     // ~0.95km
-    assert_eq!(titles[3], "Empire Equipment");  // ~1.8km
+    assert_eq!(titles[2], "Flatiron Gear"); // ~0.95km
+    assert_eq!(titles[3], "Empire Equipment"); // ~1.8km
 }
 
 #[test]
@@ -1107,8 +1088,7 @@ async fn geographic_search_excludes_equipment_without_coordinates() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -1179,8 +1159,7 @@ async fn geographic_search_with_radius_zero_returns_only_exact_matches() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     // Should include both due to floating point proximity
     assert!(items.len() >= 1);
@@ -1269,8 +1248,7 @@ async fn search_combines_category_and_price_filters() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -1383,8 +1361,7 @@ async fn search_combines_all_filters_category_price_location_availability() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -1465,8 +1442,7 @@ async fn search_filters_by_availability_only() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 2);
 
@@ -1551,8 +1527,7 @@ async fn search_with_min_price_only_includes_price_at_or_above_threshold() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 2);
 
@@ -1637,8 +1612,7 @@ async fn search_with_max_price_only_includes_price_at_or_below_threshold() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 2);
 
@@ -1706,8 +1680,7 @@ async fn pagination_respects_page_parameter() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_page(&body), 1);
     assert_eq!(get_limit(&body), 2);
     assert_eq!(get_items_array(&body).len(), 2);
@@ -1761,8 +1734,7 @@ async fn pagination_page_defaults_to_one() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_page(&body), 1);
 }
 
@@ -1814,8 +1786,7 @@ async fn pagination_limit_defaults_to_twenty() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_limit(&body), 20);
 }
 
@@ -1867,8 +1838,7 @@ async fn pagination_limit_is_clamped_to_maximum_of_100() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_limit(&body), 100);
 }
 
@@ -1920,8 +1890,7 @@ async fn pagination_minimum_limit_is_one() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_limit(&body), 1);
 }
 
@@ -1973,8 +1942,7 @@ async fn pagination_negative_page_defaults_to_one() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_page(&body), 1);
 }
 
@@ -1986,7 +1954,8 @@ async fn pagination_negative_page_defaults_to_one() {
 async fn owner_can_add_photo_to_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let equipment_id = Uuid::new_v4();
@@ -2049,14 +2018,18 @@ async fn owner_can_add_photo_to_equipment() {
         body.get("is_primary").and_then(serde_json::Value::as_bool),
         Some(true)
     );
-    assert_eq!(body.get("order_index").and_then(serde_json::Value::as_i64), Some(0));
+    assert_eq!(
+        body.get("order_index").and_then(serde_json::Value::as_i64),
+        Some(0)
+    );
 }
 
 #[test]
 async fn owner_can_delete_photo_from_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let equipment_id = Uuid::new_v4();
@@ -2124,7 +2097,8 @@ async fn owner_can_delete_photo_from_equipment() {
 async fn non_owner_cannot_add_photo_to_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
@@ -2194,7 +2168,8 @@ async fn non_owner_cannot_add_photo_to_equipment() {
 async fn admin_can_add_photo_to_other_users_equipment() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let admin_id = Uuid::new_v4();
@@ -2264,7 +2239,8 @@ async fn admin_can_add_photo_to_other_users_equipment() {
 async fn photo_order_index_increments_with_each_addition() {
     let user_repo = Arc::new(MockUserRepo::default());
     let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) = app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let (state, auth0_config_data, auth0_jwks_client, provisioning_service) =
+        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
 
     let owner_id = Uuid::new_v4();
     let equipment_id = Uuid::new_v4();
@@ -2320,7 +2296,10 @@ async fn photo_order_index_increments_with_each_addition() {
     assert_eq!(response1.status(), StatusCode::CREATED);
 
     let body1: serde_json::Value = actix_test::read_body_json(response1).await;
-    assert_eq!(body1.get("order_index").and_then(serde_json::Value::as_i64), Some(0));
+    assert_eq!(
+        body1.get("order_index").and_then(serde_json::Value::as_i64),
+        Some(0)
+    );
 
     // Add second photo
     let request2 = actix_test::TestRequest::post()
@@ -2335,7 +2314,10 @@ async fn photo_order_index_increments_with_each_addition() {
     assert_eq!(response2.status(), StatusCode::CREATED);
 
     let body2: serde_json::Value = actix_test::read_body_json(response2).await;
-    assert_eq!(body2.get("order_index").and_then(serde_json::Value::as_i64), Some(1));
+    assert_eq!(
+        body2.get("order_index").and_then(serde_json::Value::as_i64),
+        Some(1)
+    );
 
     // Add third photo
     let request3 = actix_test::TestRequest::post()
@@ -2350,7 +2332,10 @@ async fn photo_order_index_increments_with_each_addition() {
     assert_eq!(response3.status(), StatusCode::CREATED);
 
     let body3: serde_json::Value = actix_test::read_body_json(response3).await;
-    assert_eq!(body3.get("order_index").and_then(serde_json::Value::as_i64), Some(2));
+    assert_eq!(
+        body3.get("order_index").and_then(serde_json::Value::as_i64),
+        Some(2)
+    );
 }
 
 // =============================================================================
@@ -2418,7 +2403,8 @@ async fn owner_can_toggle_equipment_availability() {
 
     let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(
-        body.get("is_available").and_then(serde_json::Value::as_bool),
+        body.get("is_available")
+            .and_then(serde_json::Value::as_bool),
         Some(false)
     );
 
@@ -2435,7 +2421,9 @@ async fn owner_can_toggle_equipment_availability() {
 
     let body2: serde_json::Value = actix_test::read_body_json(response2).await;
     assert_eq!(
-        body2.get("is_available").and_then(serde_json::Value::as_bool),
+        body2
+            .get("is_available")
+            .and_then(serde_json::Value::as_bool),
         Some(true)
     );
 }
@@ -2493,10 +2481,58 @@ async fn search_with_invalid_coordinates_returns_empty_results() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 0);
+}
+
+#[test]
+async fn search_ignores_undefined_optional_filters_in_query_string() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let owner_id = Uuid::new_v4();
+    let category_id = Uuid::new_v4();
+    user_repo.push(User {
+        id: owner_id,
+        email: "owner@example.com".to_string(),
+        role: Role::Owner,
+        username: Some("owner".to_string()),
+        full_name: Some("Owner".to_string()),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    });
+    equipment_repo.push(create_equipment(
+        Uuid::new_v4(),
+        owner_id,
+        category_id,
+        "Item 1",
+        5000,
+        rust_backend::domain::Condition::Good,
+        Some("NYC"),
+        Some(40.7128),
+        Some(-74.0060),
+        true,
+    ));
+
+    let app = actix_test::init_service(
+        App::new()
+            .wrap(cors_middleware(&security_config()))
+            .wrap(security_headers())
+            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(state))
+            .configure(routes::configure),
+    )
+    .await;
+
+    let request = actix_test::TestRequest::get()
+        .uri("/api/equipment?lat=undefined&lng=undefined&is_available=undefined")
+        .to_request();
+    let response = actix_test::call_service(&app, request).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[test]
@@ -2560,8 +2596,7 @@ async fn search_with_partial_geo_params_returns_all_items() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     // Without all geo params, search should not filter by location
     assert!(items.len() >= 2);
@@ -2620,8 +2655,7 @@ async fn search_returns_empty_when_no_matching_results() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 0);
     assert_eq!(get_total(&body), 0);
@@ -2677,8 +2711,7 @@ async fn search_without_filters_returns_all_equipment() {
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body: serde_json::Value =
-        actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     assert_eq!(items.len(), 5);
     assert_eq!(get_total(&body), 5);

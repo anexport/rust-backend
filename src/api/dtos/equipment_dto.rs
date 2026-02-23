@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -72,17 +72,57 @@ pub struct UpdateEquipmentRequest {
 
 #[derive(Debug, Deserialize, Validate)]
 pub struct EquipmentQueryParams {
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub category_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub min_price: Option<Decimal>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub max_price: Option<Decimal>,
-    #[serde(alias = "latitude")]
+    #[serde(
+        default,
+        alias = "latitude",
+        deserialize_with = "deserialize_optional_query_value"
+    )]
     pub lat: Option<f64>,
-    #[serde(alias = "longitude")]
+    #[serde(
+        default,
+        alias = "longitude",
+        deserialize_with = "deserialize_optional_query_value"
+    )]
     pub lng: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub radius_km: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub is_available: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub page: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub limit: Option<i64>,
+}
+
+fn deserialize_optional_query_value<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    let raw = Option::<String>::deserialize(deserializer)?;
+    let Some(value) = raw else {
+        return Ok(None);
+    };
+
+    let normalized = value.trim();
+    if normalized.is_empty()
+        || normalized.eq_ignore_ascii_case("undefined")
+        || normalized.eq_ignore_ascii_case("null")
+    {
+        return Ok(None);
+    }
+
+    normalized
+        .parse::<T>()
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Serialize)]

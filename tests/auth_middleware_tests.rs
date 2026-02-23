@@ -1,18 +1,19 @@
 use std::sync::{Arc, Mutex};
 
 use actix_rt::test;
+use actix_web::{dev::Payload, http::header::AUTHORIZATION, test as actix_test, web, FromRequest};
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use rust_backend::domain::{AuthProvider, AuthIdentity, Role, User};
+use rust_backend::domain::{AuthIdentity, AuthProvider, Role, User};
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::repositories::{AuthRepository, UserRepository};
 use rust_backend::middleware::auth::{
-    JitUserProvisioningService, UserProvisioningService,
+    Auth0AuthenticatedUser, JitUserProvisioningService, UserProvisioningService,
 };
-use rust_backend::utils::auth0_claims::{Auth0Claims, Audience};
-use rust_backend::utils::auth0_jwks::{Jwk, Jwks};
+use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
+use rust_backend::utils::auth0_jwks::{Jwk, Jwks, JwksProvider};
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -110,8 +111,8 @@ impl AuthRepository for MockAuthRepo {
             .iter()
             .find(|identity| {
                 identity.user_id == user_id
-                    && identity.provider == AuthProvider::Email
-                    && provider == "email"
+                    && identity.provider == AuthProvider::Auth0
+                    && provider == "auth0"
             })
             .cloned())
     }
@@ -141,56 +142,6 @@ impl AuthRepository for MockAuthRepo {
             .push(identity.clone());
         Ok(identity.clone())
     }
-
-    async fn verify_email(&self, user_id: Uuid) -> AppResult<()> {
-        let mut identities = self.identities.lock().expect("identities mutex poisoned");
-        for identity in identities.iter_mut() {
-            if identity.user_id == user_id {
-                identity.verified = true;
-            }
-        }
-        Ok(())
-    }
-
-    async fn create_session(&self, session: &rust_backend::domain::UserSession) -> AppResult<rust_backend::domain::UserSession> {
-        Ok(session.clone())
-    }
-
-    async fn find_session_by_token_hash(
-        &self,
-        _token_hash: &str,
-    ) -> AppResult<Option<rust_backend::domain::UserSession>> {
-        Ok(None)
-    }
-
-    async fn revoke_session(&self, _id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_all_sessions(&self, _user_id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_session_with_replacement(
-        &self,
-        _id: Uuid,
-        _replaced_by: Option<Uuid>,
-        _reason: Option<&str>,
-    ) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn revoke_family(&self, _family_id: Uuid, _reason: &str) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn touch_session(&self, _id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn has_active_session(&self, _user_id: Uuid) -> AppResult<bool> {
-        Ok(false)
-    }
 }
 
 // Mock JWKS client for testing
@@ -201,16 +152,17 @@ struct MockJwksClient {
 impl MockJwksClient {
     fn new() -> Self {
         // Create test RSA keys (simplified for testing)
-        let test_modulus = vec![
-            0x00u8; 256
-        ]; // 2048-bit modulus (simplified)
+        let test_modulus = vec![0x00u8; 256]; // 2048-bit modulus (simplified)
         Self {
             test_keys: Mutex::new(vec![("test-key-id".to_string(), test_modulus.clone())]),
         }
     }
 
     fn add_key(&self, kid: String, modulus: Vec<u8>) {
-        self.test_keys.lock().expect("test_keys mutex poisoned").push((kid, modulus));
+        self.test_keys
+            .lock()
+            .expect("test_keys mutex poisoned")
+            .push((kid, modulus));
     }
 
     pub fn get_signing_key(&self, kid: &str) -> AppResult<Vec<u8>> {
@@ -257,17 +209,14 @@ impl MockJwksClient {
             &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&modulus_bytes),
             &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&e_bytes),
         )
-        .map_err(|e| AppError::InternalError(anyhow::anyhow!("Failed to create decoding key: {}", e)))
+        .map_err(|e| {
+            AppError::InternalError(anyhow::anyhow!("Failed to create decoding key: {}", e))
+        })
     }
 }
 
 // Helper to create a valid Auth0 token
-fn create_valid_auth0_token(
-    sub: &str,
-    email: Option<String>,
-    exp: i64,
-    key_id: &str,
-) -> String {
+fn create_valid_auth0_token(sub: &str, email: Option<String>, exp: i64, key_id: &str) -> String {
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
         sub: sub.to_string(),
@@ -292,6 +241,97 @@ fn create_valid_auth0_token(
         &EncodingKey::from_secret("test-secret".as_bytes()),
     )
     .expect("Failed to encode test token")
+}
+
+fn test_auth0_config() -> rust_backend::config::Auth0Config {
+    rust_backend::config::Auth0Config {
+        auth0_domain: Some("test-tenant.auth0.com".to_string()),
+        auth0_audience: Some("rust-backend-test".to_string()),
+        auth0_issuer: Some("https://test-tenant.auth0.com/".to_string()),
+        jwks_cache_ttl_secs: 3600,
+        auth0_client_id: Some("test-client-id".to_string()),
+        auth0_client_secret: Some("test-client-secret".to_string()),
+        auth0_connection: "Username-Password-Authentication".to_string(),
+    }
+}
+
+fn create_valid_rs256_auth0_token(sub: &str) -> String {
+    let claims = Auth0Claims {
+        iss: "https://test-tenant.auth0.com/".to_string(),
+        sub: sub.to_string(),
+        aud: Audience::Single("rust-backend-test".to_string()),
+        exp: (Utc::now() + Duration::hours(1)).timestamp() as u64,
+        iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
+        email: Some("extractor@example.com".to_string()),
+        email_verified: Some(true),
+        name: Some("Extractor User".to_string()),
+        picture: None,
+        custom_claims: std::collections::HashMap::new(),
+    };
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some("test-key-id".to_string());
+
+    let private_key_pem = include_str!("test_private_key.pem");
+    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+        .expect("failed to load test private key");
+
+    encode(&header, &claims, &encoding_key).expect("failed to encode RS256 test token")
+}
+
+struct StaticJwksProvider {
+    key: jsonwebtoken::DecodingKey,
+}
+
+impl StaticJwksProvider {
+    fn new() -> Self {
+        let public_key_pem = include_str!("test_public_key.pem");
+        let key = jsonwebtoken::DecodingKey::from_rsa_pem(public_key_pem.as_bytes())
+            .expect("failed to load test public key");
+        Self { key }
+    }
+}
+
+#[async_trait]
+impl JwksProvider for StaticJwksProvider {
+    async fn get_decoding_key(&self, kid: &str) -> AppResult<jsonwebtoken::DecodingKey> {
+        if kid == "test-key-id" {
+            Ok(self.key.clone())
+        } else {
+            Err(AppError::Unauthorized)
+        }
+    }
+}
+
+struct FailingProvisioningService;
+
+#[async_trait]
+impl UserProvisioningService for FailingProvisioningService {
+    async fn provision_user(
+        &self,
+        _claims: &Auth0Claims,
+    ) -> AppResult<rust_backend::utils::auth0_claims::Auth0UserContext> {
+        Err(AppError::Forbidden("provisioning failed".to_string()))
+    }
+}
+
+struct SuccessProvisioningService {
+    user_id: Uuid,
+}
+
+#[async_trait]
+impl UserProvisioningService for SuccessProvisioningService {
+    async fn provision_user(
+        &self,
+        claims: &Auth0Claims,
+    ) -> AppResult<rust_backend::utils::auth0_claims::Auth0UserContext> {
+        Ok(rust_backend::utils::auth0_claims::Auth0UserContext {
+            user_id: self.user_id,
+            auth0_sub: claims.sub.clone(),
+            role: "owner".to_string(),
+            email: claims.email.clone(),
+        })
+    }
 }
 
 // ============================================================================
@@ -413,7 +453,10 @@ async fn user_provisioning_with_existing_email_creates_new_identity() {
         .lock()
         .expect("identities mutex poisoned");
     assert_eq!(identities.len(), 1);
-    assert_eq!(identities[0].provider_id, Some("auth0|new-identity".to_string()));
+    assert_eq!(
+        identities[0].provider_id,
+        Some("auth0|new-identity".to_string())
+    );
 }
 
 #[test]
@@ -455,7 +498,10 @@ async fn user_provisioning_creates_new_user_when_none_exist() {
     assert_eq!(users[0].email, "brandnew@example.com");
     assert_eq!(users[0].role, Role::Renter);
     assert_eq!(users[0].full_name, Some("Brand New User".to_string()));
-    assert_eq!(users[0].avatar_url, Some("https://example.com/avatar.jpg".to_string()));
+    assert_eq!(
+        users[0].avatar_url,
+        Some("https://example.com/avatar.jpg".to_string())
+    );
 
     // Verify the new identity was created
     let identities = auth_repo
@@ -464,7 +510,10 @@ async fn user_provisioning_creates_new_user_when_none_exist() {
         .expect("identities mutex poisoned");
     assert_eq!(identities.len(), 1);
     assert_eq!(identities[0].provider, AuthProvider::Auth0);
-    assert_eq!(identities[0].provider_id, Some("auth0|brand-new".to_string()));
+    assert_eq!(
+        identities[0].provider_id,
+        Some("auth0|brand-new".to_string())
+    );
     assert!(identities[0].verified);
 }
 
@@ -561,10 +610,7 @@ async fn user_provisioning_with_non_namespaced_role_maps_correctly() {
         ));
 
     let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert(
-        "roles".to_string(),
-        serde_json::json!(["admin"]),
-    );
+    custom_claims.insert("roles".to_string(), serde_json::json!(["admin"]));
 
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
@@ -644,10 +690,7 @@ async fn token_with_multiple_audiences_can_be_constructed() {
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
         sub: "auth0|multi-aud".to_string(),
-        aud: Audience::Multiple(vec![
-            "test-api".to_string(),
-            "other-api".to_string(),
-        ]),
+        aud: Audience::Multiple(vec!["test-api".to_string(), "other-api".to_string()]),
         exp: (Utc::now() + Duration::hours(1)).timestamp() as u64,
         iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
         email: Some("multiaud@example.com".to_string()),
@@ -719,8 +762,7 @@ async fn mock_jwks_client_fetch_returns_all_keys() {
 async fn mock_jwks_client_get_decoding_key_for_known_key() {
     let client = MockJwksClient::new();
 
-    let decoding_key: AppResult<jsonwebtoken::DecodingKey> =
-        client.get_decoding_key("test-key-id");
+    let decoding_key: AppResult<jsonwebtoken::DecodingKey> = client.get_decoding_key("test-key-id");
     assert!(decoding_key.is_ok());
 }
 
@@ -728,8 +770,7 @@ async fn mock_jwks_client_get_decoding_key_for_known_key() {
 async fn mock_jwks_client_get_decoding_key_for_unknown_key() {
     let client = MockJwksClient::new();
 
-    let decoding_key: AppResult<jsonwebtoken::DecodingKey> =
-        client.get_decoding_key("unknown-key");
+    let decoding_key: AppResult<jsonwebtoken::DecodingKey> = client.get_decoding_key("unknown-key");
     assert!(decoding_key.is_err());
 }
 
@@ -1168,7 +1209,10 @@ async fn user_provisioning_with_non_standard_custom_claim() {
         ));
 
     let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert("https://test-app.com/roles".to_string(), serde_json::json!("renter"));
+    custom_claims.insert(
+        "https://test-app.com/roles".to_string(),
+        serde_json::json!("renter"),
+    );
 
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
@@ -1209,7 +1253,10 @@ async fn user_provisioning_with_role_as_single_string() {
         ));
 
     let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert("https://test-app.com/role".to_string(), serde_json::json!("admin"));
+    custom_claims.insert(
+        "https://test-app.com/role".to_string(),
+        serde_json::json!("admin"),
+    );
 
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
@@ -1266,4 +1313,86 @@ async fn user_provisioning_with_non_namespaced_role_as_single_string() {
         .expect("Should handle non-namespaced single role");
 
     assert_eq!(user_context.role, "owner");
+}
+
+// ============================================================================
+// TEST: Auth0AuthenticatedUser extractor branches
+// ============================================================================
+
+#[test]
+async fn auth0_authenticated_user_rejects_malformed_or_non_bearer_authorization() {
+    let requests = vec![
+        actix_test::TestRequest::default()
+            .insert_header((AUTHORIZATION, "Basic token"))
+            .to_http_request(),
+        actix_test::TestRequest::default()
+            .insert_header((AUTHORIZATION, "Bearer "))
+            .to_http_request(),
+    ];
+
+    for request in requests {
+        let mut payload = Payload::None;
+        let result = Auth0AuthenticatedUser::from_request(&request, &mut payload).await;
+        assert!(matches!(result, Err(AppError::Unauthorized)));
+    }
+}
+
+#[test]
+async fn auth0_authenticated_user_returns_internal_error_when_app_data_missing() {
+    let request = actix_test::TestRequest::default()
+        .insert_header((AUTHORIZATION, "Bearer any-token"))
+        .to_http_request();
+
+    let mut payload = Payload::None;
+    let result = Auth0AuthenticatedUser::from_request(&request, &mut payload).await;
+    assert!(matches!(result, Err(AppError::InternalError(_))));
+}
+
+#[test]
+async fn auth0_authenticated_user_propagates_provisioning_failure() {
+    let token = create_valid_rs256_auth0_token("auth0|provision-fail");
+    let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider::new());
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(FailingProvisioningService);
+
+    let request = actix_test::TestRequest::default()
+        .insert_header((AUTHORIZATION, format!("Bearer {token}")))
+        .app_data(web::Data::new(jwks_provider))
+        .app_data(web::Data::new(test_auth0_config()))
+        .app_data(web::Data::new(provisioning_service))
+        .to_http_request();
+
+    let mut payload = Payload::None;
+    let result = Auth0AuthenticatedUser::from_request(&request, &mut payload).await;
+    assert!(
+        matches!(result, Err(AppError::Forbidden(message)) if message == "provisioning failed")
+    );
+}
+
+#[test]
+async fn auth0_authenticated_user_valid_flow_returns_user_context() {
+    let token = create_valid_rs256_auth0_token("auth0|valid-flow");
+    let expected_user_id = Uuid::new_v4();
+
+    let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider::new());
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(SuccessProvisioningService {
+            user_id: expected_user_id,
+        });
+
+    let request = actix_test::TestRequest::default()
+        .insert_header((AUTHORIZATION, format!("Bearer {token}")))
+        .app_data(web::Data::new(jwks_provider))
+        .app_data(web::Data::new(test_auth0_config()))
+        .app_data(web::Data::new(provisioning_service))
+        .to_http_request();
+
+    let mut payload = Payload::None;
+    let extracted = Auth0AuthenticatedUser::from_request(&request, &mut payload)
+        .await
+        .expect("extractor should succeed");
+
+    assert_eq!(extracted.0.user_id, expected_user_id);
+    assert_eq!(extracted.0.auth0_sub, "auth0|valid-flow");
+    assert_eq!(extracted.0.role, "owner");
 }

@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use actix_rt::test;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use rust_backend::application::MessageService;
 use rust_backend::api::dtos::{CreateConversationRequest, SendMessageRequest};
+use rust_backend::application::MessageService;
 use rust_backend::domain::{Conversation, Message, Role, User};
 use rust_backend::error::AppError;
 use rust_backend::infrastructure::repositories::{MessageRepository, UserRepository};
@@ -108,7 +108,10 @@ impl MessageRepository for MockMessageRepo {
         &self,
         user_id: Uuid,
     ) -> rust_backend::error::AppResult<Vec<Conversation>> {
-        let participants = self.participants.lock().expect("participants mutex poisoned");
+        let participants = self
+            .participants
+            .lock()
+            .expect("participants mutex poisoned");
         let conversation_ids: Vec<Uuid> = participants
             .iter()
             .filter(|(_, uid)| *uid == user_id)
@@ -144,12 +147,18 @@ impl MessageRepository for MockMessageRepo {
             updated_at: Utc::now(),
         };
 
-        let mut participants = self.participants.lock().expect("participants mutex poisoned");
+        let mut participants = self
+            .participants
+            .lock()
+            .expect("participants mutex poisoned");
         for participant_id in participant_ids {
             participants.push((conversation.id, participant_id));
         }
 
-        let mut conversations = self.conversations.lock().expect("conversations mutex poisoned");
+        let mut conversations = self
+            .conversations
+            .lock()
+            .expect("conversations mutex poisoned");
         conversations.push(conversation.clone());
 
         Ok(conversation)
@@ -221,7 +230,9 @@ fn test_user(id: Uuid, role: Role) -> User {
     }
 }
 
-fn service_with_limit(participant_limit: usize) -> (Arc<MockUserRepo>, Arc<MockMessageRepo>, MessageService) {
+fn service_with_limit(
+    participant_limit: usize,
+) -> (Arc<MockUserRepo>, Arc<MockMessageRepo>, MessageService) {
     let user_repo = Arc::new(MockUserRepo::default());
     let message_repo = Arc::new(MockMessageRepo::default());
     message_repo.with_limit(participant_limit);
@@ -284,9 +295,7 @@ async fn create_conversation_enforces_participant_limit() {
         participant_ids: participants.clone(),
     };
 
-    let result = service
-        .create_conversation(creator_id, request)
-        .await;
+    let result = service.create_conversation(creator_id, request).await;
 
     assert!(result.is_err());
 }
@@ -325,14 +334,21 @@ async fn send_message_rejects_non_participant() {
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let request = SendMessageRequest {
@@ -351,14 +367,21 @@ async fn send_message_allows_participant() {
 
     let user_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, user_id);
 
     let request = SendMessageRequest {
@@ -393,7 +416,11 @@ async fn send_message_allows_admin_non_participant() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let request = SendMessageRequest {
@@ -412,14 +439,21 @@ async fn list_messages_returns_ordered_by_creation_time() {
     let (user_repo, message_repo, service) = service();
 
     let user_id = Uuid::new_v4();
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, user_id);
 
     let now = Utc::now();
@@ -465,19 +499,24 @@ async fn list_messages_rejects_non_participant() {
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
-    let result = service
-        .list_messages(user_id, conversation.id, 10, 0)
-        .await;
+    let result = service.list_messages(user_id, conversation.id, 10, 0).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -498,7 +537,11 @@ async fn list_messages_allows_admin_non_participant() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service
@@ -515,14 +558,21 @@ async fn get_conversation_rejects_non_participant() {
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service.get_conversation(user_id, conversation.id).await;
@@ -534,14 +584,21 @@ async fn get_conversation_allows_participant() {
     let (user_repo, message_repo, service) = service();
 
     let user_id = Uuid::new_v4();
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, user_id);
 
     let result = service
@@ -569,12 +626,14 @@ async fn get_conversation_allows_admin_non_participant() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
-    let result = service
-        .get_conversation(admin_id, conversation.id)
-        .await;
+    let result = service.get_conversation(admin_id, conversation.id).await;
 
     assert!(result.is_ok());
 }
@@ -585,7 +644,10 @@ async fn list_conversations_returns_only_user_conversations() {
 
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conv1 = Conversation {
         id: Uuid::new_v4(),
@@ -603,9 +665,21 @@ async fn list_conversations_returns_only_user_conversations() {
         updated_at: Utc::now(),
     };
 
-    message_repo.conversations.lock().unwrap().push(conv1.clone());
-    message_repo.conversations.lock().unwrap().push(conv2.clone());
-    message_repo.conversations.lock().unwrap().push(conv3.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conv1.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conv2.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conv3.clone());
 
     message_repo.add_participant(conv1.id, user_id);
     message_repo.add_participant(conv2.id, user_id);
@@ -627,14 +701,21 @@ async fn mark_as_read_allows_participant() {
     let (user_repo, message_repo, service) = service();
 
     let user_id = Uuid::new_v4();
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, user_id);
 
     let result = service.mark_as_read(user_id, conversation.id).await;
@@ -648,14 +729,21 @@ async fn mark_as_read_rejects_non_participant() {
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service.mark_as_read(user_id, conversation.id).await;
@@ -679,7 +767,11 @@ async fn mark_as_read_allows_admin_non_participant() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service.mark_as_read(admin_id, conversation.id).await;
@@ -691,14 +783,21 @@ async fn participant_ids_allows_participant() {
     let (user_repo, message_repo, service) = service();
 
     let user_id = Uuid::new_v4();
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, user_id);
 
     let result = service
@@ -716,14 +815,21 @@ async fn participant_ids_rejects_non_participant() {
     let user_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
 
-    user_repo.create(&test_user(user_id, Role::Renter)).await.unwrap();
+    user_repo
+        .create(&test_user(user_id, Role::Renter))
+        .await
+        .unwrap();
 
     let conversation = Conversation {
         id: Uuid::new_v4(),
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service.participant_ids(user_id, conversation.id).await;
@@ -747,7 +853,11 @@ async fn participant_ids_allows_admin_non_participant() {
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    message_repo.conversations.lock().unwrap().push(conversation.clone());
+    message_repo
+        .conversations
+        .lock()
+        .unwrap()
+        .push(conversation.clone());
     message_repo.add_participant(conversation.id, other_id);
 
     let result = service.participant_ids(admin_id, conversation.id).await;

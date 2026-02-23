@@ -8,9 +8,10 @@ use rust_backend::application::{
     AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use rust_backend::config::AppConfig;
+use rust_backend::infrastructure::auth0_api::{
+    Auth0ApiClient, DisabledAuth0ApiClient, HttpAuth0ApiClient,
+};
 use rust_backend::infrastructure::db::{migrations::run_migrations, pool::create_pool};
-use rust_backend::infrastructure::auth0_api::{Auth0ApiClient, DisabledAuth0ApiClient, HttpAuth0ApiClient};
-use rust_backend::infrastructure::oauth::HttpOAuthClient;
 use rust_backend::infrastructure::repositories::{
     AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
     UserRepositoryImpl,
@@ -24,6 +25,39 @@ use tracing::info;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
+
+fn build_auth0_api_client(
+    auth0_config: &rust_backend::config::Auth0Config,
+) -> Arc<dyn Auth0ApiClient> {
+    if auth0_config.is_enabled() {
+        match HttpAuth0ApiClient::new(auth0_config.clone()) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                info!(
+                    "Auth0 is enabled but client creation failed: {}. Using disabled client.",
+                    e
+                );
+                Arc::new(DisabledAuth0ApiClient)
+            }
+        }
+    } else {
+        info!("Auth0 is not configured. Using disabled client.");
+        Arc::new(DisabledAuth0ApiClient)
+    }
+}
+
+fn build_jwks_provider(auth0_config: &rust_backend::config::Auth0Config) -> Arc<dyn JwksProvider> {
+    if auth0_config.is_enabled() {
+        match Auth0JwksClient::new(auth0_config) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                panic!("Failed to create Auth0 JWKS client: {}", e);
+            }
+        }
+    } else {
+        panic!("Auth0 must be configured for authentication");
+    }
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -55,36 +89,11 @@ async fn main() -> std::io::Result<()> {
     let message_repo = Arc::new(MessageRepositoryImpl::new(pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(pool.clone()));
 
-    let oauth_client = Arc::new(HttpOAuthClient::new(config.oauth.clone()));
-
     // Create Auth0 API client if configured
-    let auth0_api_client: Arc<dyn Auth0ApiClient> = if config.auth0.is_enabled() {
-        match HttpAuth0ApiClient::new(config.auth0.clone()) {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                info!(
-                    "Auth0 is enabled but client creation failed: {}. Using disabled client.",
-                    e
-                );
-                Arc::new(DisabledAuth0ApiClient)
-            }
-        }
-    } else {
-        info!("Auth0 is not configured. Using disabled client.");
-        Arc::new(DisabledAuth0ApiClient)
-    };
+    let auth0_api_client = build_auth0_api_client(&config.auth0);
 
     // Create Auth0 JWKS client for token validation
-    let jwks_client: Arc<dyn JwksProvider> = if config.auth0.is_enabled() {
-        match Auth0JwksClient::new(&config.auth0) {
-            Ok(client) => Arc::new(client),
-            Err(e) => {
-                panic!("Failed to create Auth0 JWKS client: {}", e);
-            }
-        }
-    } else {
-        panic!("Auth0 must be configured for authentication");
-    };
+    let jwks_client = build_jwks_provider(&config.auth0);
 
     // Create user provisioning service for JIT user creation
     let user_repo_for_provisioning = user_repo.clone();
@@ -94,13 +103,13 @@ async fn main() -> std::io::Result<()> {
         Arc::new(JitUserProvisioningService::new(
             user_repo_for_provisioning,
             auth_repo_for_provisioning,
-            auth0_namespace,
+            auth0_namespace.clone(),
         ));
 
     let state = AppState {
         auth_service: Arc::new(
             AuthService::new(user_repo.clone(), auth_repo, config.auth.clone())
-                .with_oauth_client(oauth_client),
+                .with_auth0_namespace(auth0_namespace),
         ),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
@@ -181,4 +190,116 @@ async fn main() -> std::io::Result<()> {
     .bind((bind_host, bind_port))?
     .run()
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_auth0_api_client, build_jwks_provider};
+    use rust_backend::config::Auth0Config;
+    use rust_backend::error::AppError;
+
+    fn panic_message(err: Box<dyn std::any::Any + Send>) -> String {
+        match err.downcast::<String>() {
+            Ok(message) => *message,
+            Err(err) => match err.downcast::<&'static str>() {
+                Ok(message) => (*message).to_string(),
+                Err(_) => "unknown panic payload".to_string(),
+            },
+        }
+    }
+
+    #[actix_web::test]
+    async fn build_auth0_api_client_enabled_success_uses_http_client() {
+        let config = Auth0Config {
+            auth0_domain: Some("tenant.example.com".to_string()),
+            auth0_audience: Some("api://test".to_string()),
+            auth0_client_id: None,
+            ..Default::default()
+        };
+
+        let client = build_auth0_api_client(&config);
+        let signup_result = client.signup("a@example.com", "Password123!", None).await;
+
+        assert!(matches!(
+            signup_result,
+            Err(AppError::ServiceUnavailable { message, .. })
+                if message == "AUTH0_CLIENT_ID is not configured"
+        ));
+    }
+
+    #[actix_web::test]
+    async fn build_auth0_api_client_enabled_failure_falls_back_to_disabled_client() {
+        let config = Auth0Config {
+            auth0_domain: None,
+            auth0_audience: Some("api://test".to_string()),
+            ..Default::default()
+        };
+
+        let client = build_auth0_api_client(&config);
+        let signup_result = client.signup("a@example.com", "Password123!", None).await;
+
+        assert!(matches!(
+            signup_result,
+            Err(AppError::ServiceUnavailable { message, .. })
+                if message == "Auth0 is not configured. Please set AUTH0_DOMAIN and AUTH0_AUDIENCE."
+        ));
+    }
+
+    #[actix_web::test]
+    async fn build_auth0_api_client_disabled_uses_disabled_client() {
+        let config = Auth0Config::default();
+
+        let client = build_auth0_api_client(&config);
+        let signup_result = client.signup("a@example.com", "Password123!", None).await;
+
+        assert!(matches!(
+            signup_result,
+            Err(AppError::ServiceUnavailable { message, .. })
+                if message == "Auth0 is not configured. Please set AUTH0_DOMAIN and AUTH0_AUDIENCE."
+        ));
+    }
+
+    #[test]
+    fn build_jwks_provider_enabled_success_builds_client() {
+        let config = Auth0Config {
+            auth0_domain: Some("tenant.example.com".to_string()),
+            auth0_audience: Some("api://test".to_string()),
+            ..Default::default()
+        };
+
+        let result = std::panic::catch_unwind(|| build_jwks_provider(&config));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn build_jwks_provider_enabled_failure_panics_when_client_creation_fails() {
+        let config = Auth0Config {
+            auth0_domain: None,
+            auth0_audience: Some("api://test".to_string()),
+            ..Default::default()
+        };
+
+        let result = std::panic::catch_unwind(|| build_jwks_provider(&config));
+        assert!(result.is_err());
+        let panic_payload = match result {
+            Ok(_) => panic!("expected panic"),
+            Err(payload) => payload,
+        };
+        let panic_text = panic_message(panic_payload);
+        assert!(panic_text.contains("Failed to create Auth0 JWKS client"));
+    }
+
+    #[test]
+    fn build_jwks_provider_disabled_panics() {
+        let config = Auth0Config::default();
+
+        let result = std::panic::catch_unwind(|| build_jwks_provider(&config));
+        assert!(result.is_err());
+        let panic_payload = match result {
+            Ok(_) => panic!("expected panic"),
+            Err(payload) => payload,
+        };
+        let panic_text = panic_message(panic_payload);
+        assert!(panic_text.contains("Auth0 must be configured for authentication"));
+    }
 }

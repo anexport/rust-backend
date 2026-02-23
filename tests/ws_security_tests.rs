@@ -11,7 +11,7 @@
 use serde_json::json;
 
 use rust_backend::api::routes::ws::{
-    WsConnectionHub, WsClientEnvelope, WsSendMessagePayload, WsTypingPayload, WsReadPayload,
+    WsClientEnvelope, WsConnectionHub, WsReadPayload, WsSendMessagePayload, WsTypingPayload,
 };
 
 // ============================================================================
@@ -21,6 +21,7 @@ use rust_backend::api::routes::ws::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::sync::mpsc::error::TryRecvError;
 
     // ============================================================================
     // Message Input Validation Tests
@@ -76,7 +77,10 @@ mod tests {
             "content": "test"
         });
         let result = serde_json::from_value::<WsSendMessagePayload>(missing_conversation);
-        assert!(result.is_err(), "Missing conversation_id should fail validation");
+        assert!(
+            result.is_err(),
+            "Missing conversation_id should fail validation"
+        );
 
         // Test invalid field types
         let invalid_uuid = json!({
@@ -140,7 +144,10 @@ mod tests {
             "extra_field": "should be ignored"
         });
         let result = serde_json::from_value::<WsReadPayload>(read_with_extra);
-        assert!(result.is_ok(), "Extra fields should be ignored during deserialization");
+        assert!(
+            result.is_ok(),
+            "Extra fields should be ignored during deserialization"
+        );
         let parsed = result.unwrap();
         assert_eq!(parsed.conversation_id, test_conversation_id);
     }
@@ -202,7 +209,10 @@ mod tests {
         // Simulate JSON serialization
         let serialized = serde_json::to_string(&payload).unwrap();
         // The SQL content should be properly JSON-escaped
-        assert!(serialized.contains("DROP TABLE"), "Content should be preserved");
+        assert!(
+            serialized.contains("DROP TABLE"),
+            "Content should be preserved"
+        );
     }
 
     // ============================================================================
@@ -238,7 +248,8 @@ mod tests {
                 assert!(
                     curr_time > prev_time,
                     "Message {} should be created after message {}",
-                    i, i - 1
+                    i,
+                    i - 1
                 );
             }
         }
@@ -286,7 +297,10 @@ mod tests {
         // User B is only in conversation B (by definition of the test scenario)
         // This test verifies that messages are properly scoped to conversations
         assert_eq!(msg_b.conversation_id, conversation_b_id);
-        assert_ne!(conversation_a_id, conversation_b_id, "Conversations should be different");
+        assert_ne!(
+            conversation_a_id, conversation_b_id,
+            "Conversations should be different"
+        );
     }
 
     // ============================================================================
@@ -333,6 +347,44 @@ mod tests {
 
         // The broadcast function should work without panicking
         // (We can't easily verify that messages were received without spawning threads)
+    }
+
+    #[test]
+    fn ws_connection_hub_broadcasts_only_to_target_participants() {
+        let hub = WsConnectionHub::default();
+        let user_a = uuid::Uuid::new_v4();
+        let user_b = uuid::Uuid::new_v4();
+        let user_c = uuid::Uuid::new_v4();
+
+        let mut rx_a = hub.register(user_a);
+        let mut rx_b = hub.register(user_b);
+        let mut rx_c = hub.register(user_c);
+
+        hub.broadcast_to_users(&[user_a, user_b], "participant-message");
+
+        assert_eq!(rx_a.try_recv(), Ok("participant-message".to_string()));
+        assert_eq!(rx_b.try_recv(), Ok("participant-message".to_string()));
+        assert_eq!(rx_c.try_recv(), Err(TryRecvError::Empty));
+    }
+
+    #[test]
+    fn ws_connection_hub_prunes_closed_connections_during_broadcast() {
+        let hub = WsConnectionHub::default();
+        let user_id = uuid::Uuid::new_v4();
+
+        let mut rx_open = hub.register(user_id);
+        let rx_closed = hub.register(user_id);
+        drop(rx_closed);
+
+        hub.broadcast_to_users(&[user_id], "first");
+        assert_eq!(rx_open.try_recv(), Ok("first".to_string()));
+
+        drop(rx_open);
+        hub.prune_user(user_id);
+
+        let mut rx_new = hub.register(user_id);
+        hub.broadcast_to_users(&[user_id], "second");
+        assert_eq!(rx_new.try_recv(), Ok("second".to_string()));
     }
 
     #[test]
