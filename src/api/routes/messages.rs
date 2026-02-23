@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::api::dtos::{CreateConversationRequest, SendMessageRequest};
 use crate::api::routes::AppState;
 use crate::error::AppResult;
-use crate::middleware::auth::AuthenticatedUser;
+use crate::middleware::auth::Auth0AuthenticatedUser;
 
 #[derive(Debug, Deserialize)]
 struct MessageQuery {
@@ -26,39 +26,39 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 async fn list_conversations(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
 ) -> AppResult<HttpResponse> {
-    let result = state.message_service.list_conversations(auth.0.sub).await?;
+    let result = state.message_service.list_conversations(auth.0.user_id).await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
 async fn create_conversation(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
     payload: web::Json<CreateConversationRequest>,
 ) -> AppResult<HttpResponse> {
     let result = state
         .message_service
-        .create_conversation(auth.0.sub, payload.into_inner())
+        .create_conversation(auth.0.user_id, payload.into_inner())
         .await?;
     Ok(HttpResponse::Created().json(result))
 }
 
 async fn get_conversation(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
     path: web::Path<Uuid>,
 ) -> AppResult<HttpResponse> {
     let result = state
         .message_service
-        .get_conversation(auth.0.sub, path.into_inner())
+        .get_conversation(auth.0.user_id, path.into_inner())
         .await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
 async fn list_messages(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
     path: web::Path<Uuid>,
     query: web::Query<MessageQuery>,
 ) -> AppResult<HttpResponse> {
@@ -66,7 +66,7 @@ async fn list_messages(
     let result = state
         .message_service
         .list_messages(
-            auth.0.sub,
+            auth.0.user_id,
             path.into_inner(),
             q.limit.unwrap_or(50),
             q.offset.unwrap_or(0),
@@ -77,13 +77,13 @@ async fn list_messages(
 
 async fn send_message(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
     path: web::Path<Uuid>,
     payload: web::Json<SendMessageRequest>,
 ) -> AppResult<HttpResponse> {
     let result = state
         .message_service
-        .send_message(auth.0.sub, path.into_inner(), payload.into_inner())
+        .send_message(auth.0.user_id, path.into_inner(), payload.into_inner())
         .await?;
     Ok(HttpResponse::Created().json(result))
 }

@@ -1,13 +1,22 @@
 use std::env;
 
 use chrono::Utc;
+use once_cell::sync::Lazy;
 use rust_backend::config::AuthConfig;
 use rust_backend::infrastructure::db::migrations::run_migrations;
-use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::postgres::{PgConnection, PgPool, PgPoolOptions};
+use sqlx::Connection;
+use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
+
+pub mod fixtures;
+
+static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub struct TestDb {
     pool: PgPool,
+    _db_lock_conn: PgConnection,
+    _lock: MutexGuard<'static, ()>,
 }
 
 impl TestDb {
@@ -16,6 +25,16 @@ impl TestDb {
         let url = env::var("TEST_DATABASE_URL")
             .ok()
             .or_else(|| env::var("DATABASE_URL").ok())?;
+
+        let lock = Lazy::force(&TEST_DB_MUTEX).lock().await;
+
+        // Cross-process lock to serialize DB reset/migration among different test binaries.
+        let mut db_lock_conn = PgConnection::connect(&url).await.ok()?;
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(42_i64)
+            .execute(&mut db_lock_conn)
+            .await
+            .ok()?;
 
         let pool = PgPoolOptions::new()
             .max_connections(5)
@@ -26,7 +45,11 @@ impl TestDb {
         run_migrations(&pool).await.ok()?;
         reset_database(&pool).await.ok()?;
 
-        Some(Self { pool })
+        Some(Self {
+            pool,
+            _db_lock_conn: db_lock_conn,
+            _lock: lock,
+        })
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -34,6 +57,7 @@ impl TestDb {
     }
 }
 
+#[allow(dead_code)]
 pub fn test_auth_config() -> AuthConfig {
     AuthConfig {
         jwt_secret: "integration-secret".to_string(),
@@ -47,6 +71,7 @@ pub fn test_auth_config() -> AuthConfig {
     }
 }
 
+#[allow(dead_code)]
 pub async fn insert_owner_user(pool: &PgPool, email: &str) -> Result<Uuid, sqlx::Error> {
     let user_id = Uuid::new_v4();
     let now = Utc::now();
@@ -69,6 +94,7 @@ pub async fn insert_owner_user(pool: &PgPool, email: &str) -> Result<Uuid, sqlx:
     Ok(user_id)
 }
 
+#[allow(dead_code)]
 pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Error> {
     let category_id = Uuid::new_v4();
     sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")

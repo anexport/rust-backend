@@ -74,7 +74,7 @@ impl UserService {
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
                 return Err(AppError::Forbidden(
-                    "cannot modify another user".to_string(),
+                    "You can only modify your own profile".to_string(),
                 ));
             }
             info!(

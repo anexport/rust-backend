@@ -128,6 +128,21 @@ impl AuthRepository for MockAuthRepo {
             .cloned())
     }
 
+    async fn upsert_identity(
+        &self,
+        identity: &AuthIdentity,
+    ) -> rust_backend::error::AppResult<AuthIdentity> {
+        let mut identities = self.identities.lock().unwrap();
+        if let Some(existing) = identities.iter_mut().find(|i| {
+            i.provider == identity.provider && i.provider_id == identity.provider_id
+        }) {
+            *existing = identity.clone();
+            return Ok(identity.clone());
+        }
+        identities.push(identity.clone());
+        Ok(identity.clone())
+    }
+
     async fn verify_email(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
         Ok(())
     }

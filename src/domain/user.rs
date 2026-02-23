@@ -46,6 +46,7 @@ pub enum AuthProvider {
     Email,
     Google,
     GitHub,
+    Auth0,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -141,6 +142,10 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<AuthProvider>("\"github\"").unwrap(),
             AuthProvider::GitHub
+        );
+        assert_eq!(
+            serde_json::from_str::<AuthProvider>("\"auth0\"").unwrap(),
+            AuthProvider::Auth0
         );
     }
 }

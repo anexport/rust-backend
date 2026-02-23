@@ -1,0 +1,3 @@
+-- Remove auth0 from auth_provider enum
+-- Note: PostgreSQL doesn't support dropping enum values
+-- This is a limitation - the enum cannot be fully rolled back

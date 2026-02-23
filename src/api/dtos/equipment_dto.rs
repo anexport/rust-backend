@@ -29,7 +29,7 @@ pub struct CreateEquipmentRequest {
     ))]
     pub location: String,
 
-    #[validate]
+    #[validate(nested)]
     pub coordinates: Option<Coordinates>,
 }
 
@@ -64,7 +64,7 @@ pub struct UpdateEquipmentRequest {
     ))]
     pub location: Option<String>,
 
-    #[validate]
+    #[validate(nested)]
     pub coordinates: Option<Coordinates>,
 
     pub is_available: Option<bool>,

@@ -47,6 +47,9 @@ pub enum AppError {
 
     #[error("Too many requests")]
     RateLimited,
+
+    #[error("Service unavailable: {service}")]
+    ServiceUnavailable { service: String, message: String },
 }
 
 impl ResponseError for AppError {
@@ -80,6 +83,7 @@ impl ResponseError for AppError {
             AppError::TokenExpired => StatusCode::UNAUTHORIZED,
             AppError::InvalidToken => StatusCode::UNAUTHORIZED,
             AppError::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            AppError::ServiceUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             AppError::DatabaseError(_) | AppError::InternalError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -101,6 +105,7 @@ impl AppError {
             AppError::TokenExpired => "TOKEN_EXPIRED",
             AppError::InvalidToken => "INVALID_TOKEN",
             AppError::RateLimited => "RATE_LIMITED",
+            AppError::ServiceUnavailable { .. } => "SERVICE_UNAVAILABLE",
         }
     }
 
@@ -123,6 +128,7 @@ impl AppError {
             AppError::TokenExpired => "Token expired",
             AppError::InvalidToken => "Invalid token",
             AppError::RateLimited => "Too many requests",
+            AppError::ServiceUnavailable { .. } => "Service unavailable",
         }
     }
 
@@ -140,6 +146,7 @@ impl AppError {
             AppError::TokenExpired => "Token expired".to_string(),
             AppError::InvalidToken => "Invalid token".to_string(),
             AppError::RateLimited => "Too many requests".to_string(),
+            AppError::ServiceUnavailable { message, .. } => message.clone(),
         }
     }
 
@@ -147,6 +154,17 @@ impl AppError {
         match self {
             AppError::ValidationError { issues, .. } if !issues.is_empty() => Some(issues),
             _ => None,
+        }
+    }
+}
+
+impl From<crate::domain::DomainError> for AppError {
+    fn from(err: crate::domain::DomainError) -> Self {
+        match err {
+            crate::domain::DomainError::NotFound(msg) => AppError::NotFound(msg),
+            crate::domain::DomainError::ValidationError(msg) => AppError::validation_error(msg),
+            crate::domain::DomainError::BusinessRuleViolation(msg) => AppError::BadRequest(msg),
+            crate::domain::DomainError::Conflict(msg) => AppError::Conflict(msg),
         }
     }
 }
@@ -160,6 +178,18 @@ impl From<anyhow::Error> for AppError {
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
         match err {
+            sqlx::Error::Io(_) => AppError::ServiceUnavailable {
+                service: "database".to_string(),
+                message: "Unable to connect to database. Please try again later.".to_string(),
+            },
+            sqlx::Error::PoolTimedOut => AppError::ServiceUnavailable {
+                service: "database".to_string(),
+                message: "Service temporarily unavailable. Please try again later.".to_string(),
+            },
+            sqlx::Error::PoolClosed => AppError::ServiceUnavailable {
+                service: "database".to_string(),
+                message: "Service temporarily unavailable. Please try again later.".to_string(),
+            },
             sqlx::Error::Database(database_error) => {
                 if let Some(mapped) = map_database_error(
                     database_error.code().as_deref(),
@@ -253,6 +283,22 @@ fn map_database_error(
             "request violates validation rules",
         )),
         Some("22P02") => Some(AppError::validation_error("invalid input format")),
+        Some("08001") | Some("08006") => Some(AppError::ServiceUnavailable {
+            service: "database".to_string(),
+            message: "Unable to connect to database. Please try again later.".to_string(),
+        }),
+        Some("53300") => Some(AppError::ServiceUnavailable {
+            service: "database".to_string(),
+            message: "Service temporarily unavailable. Please try again later.".to_string(),
+        }),
+        Some("55P03") => Some(AppError::Conflict(
+            "Resource is currently locked. Please try again.".to_string(),
+        )),
+        Some("P0001") => {
+            let error_msg =
+                extract_raise_exception_message(message).unwrap_or("Database validation error");
+            Some(AppError::validation_error(error_msg))
+        }
         _ => None,
     }
 }
@@ -263,18 +309,52 @@ fn conflict_message_from_constraint(constraint: Option<&str>) -> &'static str {
         Some("profiles_username_key") => "username already taken",
         Some("uq_auth_identities_provider_id") => "identity already linked",
         Some("auth_identities_user_id_provider_key") => "auth identity already exists",
+        Some("conversation_participants_conversation_id_profile_id_key") => {
+            "user is already a participant in this conversation"
+        }
+        Some("user_favorites_user_id_equipment_id_key") => "equipment already favorited",
+        Some("availability_calendar_equipment_id_date_key") => "date is already booked",
+        Some("unique_booking_inspection_type") => "inspection already exists for this booking",
+        Some("unique_booking_request") => "booking already exists",
+        Some("payments_stripe_payment_intent_id_key") => "payment already processed",
+        Some("notification_preferences_user_unique") => "notification preferences already exist",
+        Some("renter_profiles_profile_id_unique") => "renter profile already exists",
+        Some("owner_profiles_profile_id_unique") => "owner profile already exists",
+        Some("content_translations_content_type_content_id_field_name_tar_key") => {
+            "translation already exists for this content"
+        }
+        Some("users_phone_key") => "phone number already registered",
+        Some("identities_provider_id_provider_unique") => {
+            "identity already linked to another account"
+        }
         _ => "resource already exists",
     }
 }
 
 fn required_field_message_from_db(message: &str) -> Option<String> {
-    // Common PostgreSQL format: null value in column "field" violates not-null constraint
     let marker = "column \"";
     let start = message.find(marker)?;
     let rest = &message[start + marker.len()..];
     let end = rest.find('"')?;
     let field = &rest[..end];
     Some(format!("{field} is required"))
+}
+
+fn extract_raise_exception_message(message: &str) -> Option<&str> {
+    if message.contains("RAISE EXCEPTION") || message.starts_with("ERROR:") {
+        if let Some(colon_pos) = message.find(':') {
+            let msg = message[colon_pos + 1..].trim();
+            if !msg.is_empty() {
+                return Some(msg);
+            }
+        }
+    }
+    let msg = message.trim();
+    if msg.is_empty() {
+        None
+    } else {
+        Some(msg)
+    }
 }
 
 impl From<jsonwebtoken::errors::Error> for AppError {
@@ -367,5 +447,92 @@ mod tests {
             mapped,
             Some(AppError::ValidationError { message, .. }) if message == "password_hash is required"
         ));
+    }
+
+    #[test]
+    fn maps_connection_error_to_service_unavailable() {
+        let mapped = map_database_error(Some("08001"), None, "connection failed");
+        assert!(matches!(
+            mapped,
+            Some(AppError::ServiceUnavailable { service, message, .. })
+                if service == "database" && message == "Unable to connect to database. Please try again later."
+        ));
+
+        let mapped = map_database_error(Some("08006"), None, "connection failed");
+        assert!(matches!(
+            mapped,
+            Some(AppError::ServiceUnavailable { service, message, .. })
+                if service == "database" && message == "Unable to connect to database. Please try again later."
+        ));
+    }
+
+    #[test]
+    fn maps_too_many_connections_to_service_unavailable() {
+        let mapped = map_database_error(Some("53300"), None, "too many connections");
+        assert!(matches!(
+            mapped,
+            Some(AppError::ServiceUnavailable { service, message, .. })
+                if service == "database" && message == "Service temporarily unavailable. Please try again later."
+        ));
+    }
+
+    #[test]
+    fn maps_lock_not_available_to_conflict() {
+        let mapped = map_database_error(Some("55P03"), None, "lock not available");
+        assert!(matches!(
+            mapped,
+            Some(AppError::Conflict(message)) if message == "Resource is currently locked. Please try again."
+        ));
+    }
+
+    #[test]
+    fn maps_raise_exception_to_validation_error() {
+        let mapped = map_database_error(
+            Some("P0001"),
+            None,
+            "Booking date range exceeds maximum allowed period of 30 days",
+        );
+        assert!(matches!(
+            mapped,
+            Some(AppError::ValidationError { message, .. })
+                if message == "Booking date range exceeds maximum allowed period of 30 days"
+        ));
+    }
+
+    #[test]
+    fn maps_conversation_participant_constraint() {
+        let mapped = map_database_error(
+            Some("23505"),
+            Some("conversation_participants_conversation_id_profile_id_key"),
+            "duplicate",
+        );
+        assert!(matches!(
+            mapped,
+            Some(AppError::Conflict(message))
+                if message == "user is already a participant in this conversation"
+        ));
+    }
+
+    #[test]
+    fn maps_user_favorites_constraint() {
+        let mapped = map_database_error(
+            Some("23505"),
+            Some("user_favorites_user_id_equipment_id_key"),
+            "duplicate",
+        );
+        assert!(matches!(
+            mapped,
+            Some(AppError::Conflict(message)) if message == "equipment already favorited"
+        ));
+    }
+
+    #[test]
+    fn service_unavailable_returns_503_status() {
+        let error = AppError::ServiceUnavailable {
+            service: "database".to_string(),
+            message: "Unable to connect to database.".to_string(),
+        };
+        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.error_code(), "SERVICE_UNAVAILABLE");
     }
 }

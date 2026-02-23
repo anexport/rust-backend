@@ -125,14 +125,14 @@ impl MessageRepository for MessageRepositoryImpl {
     }
 
     async fn is_participant(&self, conversation_id: Uuid, user_id: Uuid) -> AppResult<bool> {
-        let result: Option<(i64,)> = sqlx::query_as(
+        let exists: Option<i32> = sqlx::query_scalar(
             "SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND profile_id = $2"
         )
         .bind(conversation_id)
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(result.is_some())
+        Ok(exists.is_some())
     }
 
     async fn mark_as_read(&self, conversation_id: Uuid, user_id: Uuid) -> AppResult<()> {

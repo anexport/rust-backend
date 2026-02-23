@@ -7,6 +7,7 @@ use crate::application::{
 };
 use crate::config::SecurityConfig;
 use crate::error::{AppError, AppResult};
+use crate::infrastructure::auth0_api::Auth0ApiClient;
 use crate::observability::AppMetrics;
 use crate::security::LoginThrottle;
 
@@ -29,6 +30,7 @@ pub struct AppState {
     pub metrics: Arc<AppMetrics>,
     pub db_pool: Option<sqlx::PgPool>,
     pub ws_hub: ws::WsConnectionHub,
+    pub auth0_api_client: Arc<dyn Auth0ApiClient>,
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

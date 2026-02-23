@@ -159,6 +159,28 @@ impl AuthRepository for AuthRepositoryImpl {
         Ok(identity)
     }
 
+    async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
+        let created = sqlx::query_as::<_, AuthIdentity>(
+            r#"
+            INSERT INTO auth_identities (id, user_id, provider, provider_id, password_hash, verified, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (provider, provider_id) WHERE provider_id IS NOT NULL
+            DO UPDATE SET verified = EXCLUDED.verified
+            RETURNING id, user_id, provider, provider_id, password_hash, verified, created_at
+            "#
+        )
+        .bind(identity.id)
+        .bind(identity.user_id)
+        .bind(identity.provider)
+        .bind(&identity.provider_id)
+        .bind(&identity.password_hash)
+        .bind(identity.verified)
+        .bind(identity.created_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(created)
+    }
+
     async fn verify_email(&self, user_id: Uuid) -> AppResult<()> {
         sqlx::query(
             "UPDATE auth_identities SET verified = true WHERE user_id = $1 AND provider = 'email'",

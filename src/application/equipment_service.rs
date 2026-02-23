@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::Utc;
+use rust_decimal::Decimal;
 use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
@@ -127,6 +128,10 @@ impl EquipmentService {
     ) -> AppResult<EquipmentResponse> {
         request.validate()?;
 
+        if request.daily_rate <= Decimal::ZERO {
+            return Err(AppError::validation_error("Daily rate must be greater than zero"));
+        }
+
         let condition = parse_condition(&request.condition)?;
         let now = Utc::now();
         let mut equipment = Equipment {
@@ -187,7 +192,7 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("not equipment owner".to_string()));
+                return Err(AppError::Forbidden("You can only modify your own equipment listings".to_string()));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -203,6 +208,9 @@ impl EquipmentService {
             existing.description = Some(description);
         }
         if let Some(daily_rate) = request.daily_rate {
+            if daily_rate <= Decimal::ZERO {
+                return Err(AppError::validation_error("Daily rate must be greater than zero"));
+            }
             existing.daily_rate = daily_rate;
         }
         if let Some(condition) = request.condition {
@@ -249,7 +257,7 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("not equipment owner".to_string()));
+                return Err(AppError::Forbidden("You can only delete your own equipment listings".to_string()));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -282,7 +290,7 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("not equipment owner".to_string()));
+                return Err(AppError::Forbidden("You can only add photos to your own equipment listings".to_string()));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -329,7 +337,7 @@ impl EquipmentService {
                 .await?
                 .ok_or(AppError::Unauthorized)?;
             if actor.role != Role::Admin {
-                return Err(AppError::Forbidden("not equipment owner".to_string()));
+                return Err(AppError::Forbidden("You can only delete photos from your own equipment listings".to_string()));
             }
             info!(
                 actor_user_id = %actor_user_id,
@@ -349,7 +357,9 @@ fn parse_condition(raw: &str) -> AppResult<Condition> {
         "excellent" => Ok(Condition::Excellent),
         "good" => Ok(Condition::Good),
         "fair" => Ok(Condition::Fair),
-        _ => Err(AppError::validation_error("invalid condition")),
+        _ => Err(AppError::validation_error(
+            "Condition must be one of: new, excellent, good, fair",
+        )),
     }
 }
 

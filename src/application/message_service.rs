@@ -76,7 +76,7 @@ impl MessageService {
         id: Uuid,
     ) -> AppResult<ConversationResponse> {
         if !self.can_access_conversation(user_id, id).await? {
-            return Err(AppError::Forbidden("not a participant".to_string()));
+            return Err(AppError::Forbidden("You are not a participant in this conversation".to_string()));
         }
 
         let conversation = self
@@ -105,7 +105,7 @@ impl MessageService {
             .can_access_conversation(user_id, conversation_id)
             .await?
         {
-            return Err(AppError::Forbidden("not a participant".to_string()));
+            return Err(AppError::Forbidden("You are not a participant in this conversation".to_string()));
         }
 
         let messages = self
@@ -138,7 +138,7 @@ impl MessageService {
             .can_access_conversation(user_id, conversation_id)
             .await?
         {
-            return Err(AppError::Forbidden("not a participant".to_string()));
+            return Err(AppError::Forbidden("You are not a participant in this conversation".to_string()));
         }
 
         let message = Message {
@@ -165,7 +165,7 @@ impl MessageService {
             .can_access_conversation(user_id, conversation_id)
             .await?
         {
-            return Err(AppError::Forbidden("not a participant".to_string()));
+            return Err(AppError::Forbidden("You are not a participant in this conversation".to_string()));
         }
 
         self.message_repo
@@ -182,7 +182,7 @@ impl MessageService {
             .can_access_conversation(user_id, conversation_id)
             .await?
         {
-            return Err(AppError::Forbidden("not a participant".to_string()));
+            return Err(AppError::Forbidden("You are not a participant in this conversation".to_string()));
         }
 
         self.message_repo

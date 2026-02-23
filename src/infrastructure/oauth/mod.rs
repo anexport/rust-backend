@@ -1,12 +1,20 @@
+pub mod auth0_api_client;
+
 use async_trait::async_trait;
-use oauth2::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-use oauth2::http::{HeaderValue, Method};
-use oauth2::reqwest::async_http_client;
-use oauth2::{HttpRequest, HttpResponse};
+use reqwest::{Client, header::{ACCEPT, CONTENT_TYPE, USER_AGENT}};
 use serde::Deserialize;
 
 use crate::config::OAuthConfig;
 use crate::error::{AppError, AppResult};
+
+// Re-export Auth0 API client types
+pub use auth0_api_client::{
+    Auth0ApiClient,
+    SignupRequest,
+    SignupResponse,
+    PasswordGrantRequest,
+    PasswordGrantResponse,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OAuthProviderKind {
@@ -42,18 +50,22 @@ impl OAuthClient for DisabledOAuthClient {
         _code: &str,
     ) -> AppResult<OAuthUserInfo> {
         Err(AppError::BadRequest(
-            "oauth client is not configured".to_string(),
+            "Social login is not available. Please use email and password instead.".to_string(),
         ))
     }
 }
 
 pub struct HttpOAuthClient {
     config: OAuthConfig,
+    client: Client,
 }
 
 impl HttpOAuthClient {
     pub fn new(config: OAuthConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            client: Client::new(),
+        }
     }
 }
 
@@ -103,7 +115,8 @@ impl OAuthClient for HttpOAuthClient {
 impl HttpOAuthClient {
     async fn exchange_google(&self, code: &str) -> AppResult<OAuthUserInfo> {
         let token: OAuthTokenResponse = http_json(
-            Method::POST,
+            &self.client,
+            reqwest::Method::POST,
             "https://oauth2.googleapis.com/token",
             None,
             Some(serde_json::json!({
@@ -118,7 +131,8 @@ impl HttpOAuthClient {
         .await?;
 
         let profile: GoogleUserInfo = http_json(
-            Method::GET,
+            &self.client,
+            reqwest::Method::GET,
             "https://www.googleapis.com/oauth2/v3/userinfo",
             Some(&token.access_token),
             None,
@@ -137,7 +151,8 @@ impl HttpOAuthClient {
 
     async fn exchange_github(&self, code: &str) -> AppResult<OAuthUserInfo> {
         let token: OAuthTokenResponse = http_json(
-            Method::POST,
+            &self.client,
+            reqwest::Method::POST,
             "https://github.com/login/oauth/access_token",
             None,
             Some(serde_json::json!({
@@ -150,7 +165,8 @@ impl HttpOAuthClient {
         .await?;
 
         let user: GithubUser = http_json(
-            Method::GET,
+            &self.client,
+            reqwest::Method::GET,
             "https://api.github.com/user",
             Some(&token.access_token),
             None,
@@ -162,7 +178,8 @@ impl HttpOAuthClient {
             Some((email, true))
         } else {
             let mut emails: Vec<GithubEmail> = http_json(
-                Method::GET,
+                &self.client,
+                reqwest::Method::GET,
                 "https://api.github.com/user/emails",
                 Some(&token.access_token),
                 None,
@@ -179,7 +196,7 @@ impl HttpOAuthClient {
 
         let Some((email, email_verified)) = email else {
             return Err(AppError::BadRequest(
-                "github account did not provide an email".to_string(),
+                "Your GitHub account does not have a public email. Please add an email to your GitHub profile or use a different sign-in method.".to_string(),
             ));
         };
 
@@ -194,54 +211,80 @@ impl HttpOAuthClient {
 }
 
 async fn http_json<T: for<'de> Deserialize<'de>>(
-    method: Method,
+    client: &Client,
+    method: reqwest::Method,
     url: &str,
     bearer_token: Option<&str>,
     body: Option<serde_json::Value>,
     github_compat: bool,
 ) -> AppResult<T> {
-    let mut request = HttpRequest {
-        url: url
-            .parse()
-            .map_err(|_| AppError::BadRequest(format!("invalid url: {url}")))?,
-        method,
-        headers: oauth2::http::HeaderMap::new(),
-        body: body
-            .map(|payload| payload.to_string().into_bytes())
-            .unwrap_or_default(),
-    };
+    let mut request = client.request(method, url);
 
-    request
-        .headers
-        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    request
-        .headers
-        .insert(ACCEPT, HeaderValue::from_static("application/json"));
+    request = request.header(CONTENT_TYPE, "application/json");
+    request = request.header(ACCEPT, "application/json");
+
     if github_compat {
-        request
-            .headers
-            .insert(USER_AGENT, HeaderValue::from_static("rust-backend-oauth"));
+        request = request.header(USER_AGENT, "rust-backend-oauth");
     }
+
     if let Some(token) = bearer_token {
-        let value = format!("Bearer {token}");
-        request.headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&value)
-                .map_err(|_| AppError::BadRequest("invalid auth header value".to_string()))?,
-        );
+        request = request.bearer_auth(token);
     }
 
-    let response: HttpResponse = async_http_client(request)
+    if let Some(payload) = body {
+        request = request.json(&payload);
+    }
+
+    let response = request
+        .send()
         .await
-        .map_err(|error| AppError::BadRequest(format!("oauth provider request failed: {error}")))?;
+        .map_err(|_| AppError::BadRequest("Unable to connect to sign-in provider. Please try again later.".to_string()))?;
 
-    if !response.status_code.is_success() {
-        return Err(AppError::BadRequest(format!(
-            "oauth provider request rejected with status {}",
-            response.status_code
-        )));
+    if !response.status().is_success() {
+        return Err(AppError::BadRequest(
+            "Sign-in was rejected by the provider. Please try again or use a different sign-in method.".to_string(),
+        ));
     }
 
-    serde_json::from_slice(&response.body)
-        .map_err(|_| AppError::BadRequest("invalid oauth provider response".to_string()))
+    response
+        .json()
+        .await
+        .map_err(|_| AppError::BadRequest("Received an invalid response from the sign-in provider. Please try again later.".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DisabledOAuthClient, OAuthClient, OAuthProviderKind};
+    use crate::error::AppError;
+
+    const DISABLED_OAUTH_MESSAGE: &str =
+        "Social login is not available. Please use email and password instead.";
+
+    #[tokio::test]
+    async fn disabled_oauth_client_rejects_google_exchange_code() {
+        let client = DisabledOAuthClient;
+
+        let result = client
+            .exchange_code(OAuthProviderKind::Google, "test-code")
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest(message)) if message == DISABLED_OAUTH_MESSAGE
+        ));
+    }
+
+    #[tokio::test]
+    async fn disabled_oauth_client_rejects_github_exchange_code() {
+        let client = DisabledOAuthClient;
+
+        let result = client
+            .exchange_code(OAuthProviderKind::GitHub, "test-code")
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest(message)) if message == DISABLED_OAUTH_MESSAGE
+        ));
+    }
 }

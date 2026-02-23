@@ -15,6 +15,52 @@ pub enum DomainError {
     Conflict(String),
 }
 
+impl DomainError {
+    pub fn not_found(resource: impl Into<String>) -> Self {
+        DomainError::NotFound(resource.into())
+    }
+
+    pub fn validation(message: impl Into<String>) -> Self {
+        DomainError::ValidationError(message.into())
+    }
+
+    pub fn conflict(message: impl Into<String>) -> Self {
+        DomainError::Conflict(message.into())
+    }
+
+    pub fn cannot_delete_active_rental() -> Self {
+        DomainError::BusinessRuleViolation("Cannot delete rental while it is active".to_string())
+    }
+
+    pub fn equipment_not_available() -> Self {
+        DomainError::BusinessRuleViolation(
+            "Equipment is not available for the requested period".to_string(),
+        )
+    }
+
+    pub fn cannot_modify_completed_rental() -> Self {
+        DomainError::BusinessRuleViolation("Cannot modify a completed rental".to_string())
+    }
+
+    pub fn insufficient_inventory(item: impl Into<String>) -> Self {
+        DomainError::BusinessRuleViolation(format!("Insufficient inventory for {}", item.into()))
+    }
+
+    pub fn user_already_has_active_rental() -> Self {
+        DomainError::BusinessRuleViolation("User already has an active rental".to_string())
+    }
+
+    pub fn rental_cannot_be_cancelled() -> Self {
+        DomainError::BusinessRuleViolation("Rental cannot be cancelled at this stage".to_string())
+    }
+
+    pub fn payment_required_for_action() -> Self {
+        DomainError::BusinessRuleViolation(
+            "Payment is required before this action can be performed".to_string(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

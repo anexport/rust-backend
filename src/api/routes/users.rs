@@ -4,7 +4,7 @@ use uuid::Uuid;
 use crate::api::dtos::UpdateUserRequest;
 use crate::api::routes::AppState;
 use crate::error::AppResult;
-use crate::middleware::auth::AuthenticatedUser;
+use crate::middleware::auth::Auth0AuthenticatedUser;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
@@ -28,11 +28,11 @@ async fn get_user_profile(
 
 async fn update_user_profile(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
     path: web::Path<Uuid>,
     payload: web::Json<UpdateUserRequest>,
 ) -> AppResult<HttpResponse> {
-    let actor = auth.0.sub;
+    let actor = auth.0.user_id;
     let target = path.into_inner();
     let result = state
         .user_service
@@ -43,8 +43,8 @@ async fn update_user_profile(
 
 async fn my_equipment(
     state: web::Data<AppState>,
-    auth: AuthenticatedUser,
+    auth: Auth0AuthenticatedUser,
 ) -> AppResult<HttpResponse> {
-    let result = state.user_service.my_equipment(auth.0.sub).await?;
+    let result = state.user_service.my_equipment(auth.0.user_id).await?;
     Ok(HttpResponse::Ok().json(result))
 }

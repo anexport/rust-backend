@@ -11,6 +11,7 @@ tokio = { version = "1", features = ["full"] }
 actix-cors = "0.7"
 actix-governor = "0.5"
 actix-http = "=3.7.0"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 # Time (pinned for rustc 1.87)
 time = "=0.3.47"
@@ -22,8 +23,8 @@ sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio
 # Auth & Security
 jsonwebtoken = "9"
 argon2 = "0.5"
-oauth2 = "4"
 rand = "0.8"
+moka = { version = "0.12", features = ["future"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -56,6 +57,8 @@ anyhow = "1"
 rust_decimal = { version = "1", features = ["serde"] }
 sha2 = "0.10"
 futures-util = "0.3"
+base64 = "0.22"
+oauth2 = "5.0.0"
 
 [dev-dependencies]
 actix-rt = "2"

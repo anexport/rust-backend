@@ -9,14 +9,17 @@ use rust_backend::application::{
 };
 use rust_backend::config::AppConfig;
 use rust_backend::infrastructure::db::{migrations::run_migrations, pool::create_pool};
+use rust_backend::infrastructure::auth0_api::{Auth0ApiClient, DisabledAuth0ApiClient, HttpAuth0ApiClient};
 use rust_backend::infrastructure::oauth::HttpOAuthClient;
 use rust_backend::infrastructure::repositories::{
     AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
     UserRepositoryImpl,
 };
+use rust_backend::middleware::auth::JitUserProvisioningService;
 use rust_backend::observability::error_tracking::capture_unexpected_5xx;
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::{cors_middleware, security_headers, LoginThrottle};
+use rust_backend::utils::auth0_jwks::{Auth0JwksClient, JwksProvider};
 use tracing::info;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -53,6 +56,47 @@ async fn main() -> std::io::Result<()> {
     let category_repo = Arc::new(CategoryRepositoryImpl::new(pool.clone()));
 
     let oauth_client = Arc::new(HttpOAuthClient::new(config.oauth.clone()));
+
+    // Create Auth0 API client if configured
+    let auth0_api_client: Arc<dyn Auth0ApiClient> = if config.auth0.is_enabled() {
+        match HttpAuth0ApiClient::new(config.auth0.clone()) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                info!(
+                    "Auth0 is enabled but client creation failed: {}. Using disabled client.",
+                    e
+                );
+                Arc::new(DisabledAuth0ApiClient)
+            }
+        }
+    } else {
+        info!("Auth0 is not configured. Using disabled client.");
+        Arc::new(DisabledAuth0ApiClient)
+    };
+
+    // Create Auth0 JWKS client for token validation
+    let jwks_client: Arc<dyn JwksProvider> = if config.auth0.is_enabled() {
+        match Auth0JwksClient::new(&config.auth0) {
+            Ok(client) => Arc::new(client),
+            Err(e) => {
+                panic!("Failed to create Auth0 JWKS client: {}", e);
+            }
+        }
+    } else {
+        panic!("Auth0 must be configured for authentication");
+    };
+
+    // Create user provisioning service for JIT user creation
+    let user_repo_for_provisioning = user_repo.clone();
+    let auth_repo_for_provisioning = Arc::new(AuthRepositoryImpl::new(pool.clone()));
+    let auth0_namespace = config.auth0.auth0_domain.clone().unwrap_or_default();
+    let provisioning_service: Arc<dyn rust_backend::middleware::auth::UserProvisioningService> =
+        Arc::new(JitUserProvisioningService::new(
+            user_repo_for_provisioning,
+            auth_repo_for_provisioning,
+            auth0_namespace,
+        ));
+
     let state = AppState {
         auth_service: Arc::new(
             AuthService::new(user_repo.clone(), auth_repo, config.auth.clone())
@@ -68,12 +112,14 @@ async fn main() -> std::io::Result<()> {
         metrics: Arc::new(AppMetrics::default()),
         db_pool: Some(pool.clone()),
         ws_hub: routes::ws::WsConnectionHub::default(),
+        auth0_api_client,
     };
 
     let bind_host = config.app.host.clone();
     let bind_port = config.app.port;
     let security_config = config.security.clone();
     let auth_config = config.auth.clone();
+    let auth0_config = config.auth0.clone();
     let metrics = state.metrics.clone();
 
     HttpServer::new(move || {
@@ -127,6 +173,9 @@ async fn main() -> std::io::Result<()> {
             .wrap(security_headers())
             .app_data(web::Data::new(state.clone()))
             .app_data(web::Data::new(auth_config.clone()))
+            .app_data(web::Data::new(auth0_config.clone()))
+            .app_data(web::Data::new(jwks_client.clone()))
+            .app_data(web::Data::new(provisioning_service.clone()))
             .configure(routes::configure)
     })
     .bind((bind_host, bind_port))?

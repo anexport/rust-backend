@@ -1,0 +1,389 @@
+use actix_web::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
+use actix_web::{web, HttpRequest, HttpResponse};
+use serde::Deserialize;
+
+use crate::api::dtos::{LoginRequest, OAuthCallbackRequest, RegisterRequest, SessionAuthResponse, UserResponse};
+use crate::api::routes::AppState;
+use crate::error::{AppError, AppResult};
+use crate::infrastructure::oauth::OAuthProviderKind;
+use crate::infrastructure::auth0_api::{Auth0ApiClient, Auth0SignupResponse, Auth0TokenResponse};
+use crate::middleware::auth::Auth0AuthenticatedUser;
+
+pub fn configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/auth")
+            .route("/register", web::post().to(register))
+            .route("/login", web::post().to(login))
+            .route("/refresh", web::post().to(refresh))
+            .route("/logout", web::post().to(logout))
+            .route("/oauth/google", web::post().to(oauth_google))
+            .route("/oauth/github", web::post().to(oauth_github))
+            .route("/auth0/signup", web::post().to(auth0_signup))
+            .route("/auth0/login", web::post().to(auth0_login))
+            .route("/me", web::get().to(me)),
+    );
+}
+
+#[derive(Debug, Deserialize)]
+struct OptionalRefreshRequest {
+    refresh_token: Option<String>,
+}
+
+async fn register(
+    state: web::Data<AppState>,
+    payload: web::Json<RegisterRequest>,
+) -> AppResult<HttpResponse> {
+    let result = state.auth_service.register(payload.into_inner()).await?;
+    Ok(HttpResponse::Created().json(result))
+}
+
+async fn login(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<LoginRequest>,
+) -> AppResult<HttpResponse> {
+    let data = payload.into_inner();
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key(&data.email, ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    let issued = match state
+        .auth_service
+        .issue_session_tokens(&data.email, &data.password, ip.clone())
+        .await
+    {
+        Ok(tokens) => {
+            state.login_throttle.record_success(&throttle_key);
+            tokens
+        }
+        Err(AppError::Unauthorized) => return Err(state.login_throttle.record_failure(&throttle_key)),
+        Err(error) => return Err(error),
+    };
+
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
+
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie(&issued.refresh_token))
+        .cookie(csrf_cookie(&csrf_token))
+        .json(response))
+}
+
+async fn refresh(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OptionalRefreshRequest>,
+) -> AppResult<HttpResponse> {
+    let body_refresh = payload.into_inner().refresh_token;
+
+    let cookie_refresh = request
+        .cookie("refresh_token")
+        .map(|cookie| cookie.value().to_string());
+    let refresh_token = body_refresh
+        .or(cookie_refresh)
+        .ok_or(AppError::Unauthorized)?;
+
+    if request.cookie("refresh_token").is_some() {
+        let csrf_cookie = request
+            .cookie("csrf_token")
+            .map(|cookie| cookie.value().to_string())
+            .ok_or(AppError::Unauthorized)?;
+        let csrf_header = request
+            .headers()
+            .get("x-csrf-token")
+            .and_then(|value| value.to_str().ok())
+            .ok_or(AppError::Unauthorized)?;
+        if csrf_cookie != csrf_header {
+            return Err(AppError::Unauthorized);
+        }
+    }
+
+    let issued = state
+        .auth_service
+        .refresh_session_tokens(&refresh_token, client_ip(&request))
+        .await?;
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
+
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie(&issued.refresh_token))
+        .cookie(csrf_cookie(&csrf_token))
+        .json(response))
+}
+
+async fn logout(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OptionalRefreshRequest>,
+) -> AppResult<HttpResponse> {
+    let body_refresh = payload.into_inner().refresh_token;
+    let refresh_token = body_refresh
+        .or_else(|| request.cookie("refresh_token").map(|cookie| cookie.value().to_string()))
+        .ok_or(AppError::Unauthorized)?;
+
+    state.auth_service.logout(&refresh_token).await?;
+    Ok(HttpResponse::NoContent()
+        .cookie(clear_cookie("refresh_token", true))
+        .cookie(clear_cookie("csrf_token", false))
+        .finish())
+}
+
+async fn oauth_google(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+) -> AppResult<HttpResponse> {
+    oauth_callback(state, request, payload, OAuthProviderKind::Google).await
+}
+
+async fn oauth_github(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+) -> AppResult<HttpResponse> {
+    oauth_callback(state, request, payload, OAuthProviderKind::GitHub).await
+}
+
+async fn oauth_callback(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<OAuthCallbackRequest>,
+    provider: OAuthProviderKind,
+) -> AppResult<HttpResponse> {
+    let data = payload.into_inner();
+    if data.state.as_deref().is_none() {
+        return Err(AppError::Unauthorized);
+    }
+
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key("oauth", ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    let issued = match state.auth_service.oauth_login(provider, &data.code, ip).await {
+        Ok(tokens) => {
+            state.login_throttle.record_success(&throttle_key);
+            tokens
+        }
+        Err(_) => return Err(state.login_throttle.record_failure(&throttle_key)),
+    };
+
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    let response = SessionAuthResponse {
+        access_token: issued.access_token,
+        refresh_token: issued.refresh_token.clone(),
+        user: issued.user,
+    };
+    Ok(HttpResponse::Ok()
+        .cookie(refresh_cookie(&issued.refresh_token))
+        .cookie(csrf_cookie(&csrf_token))
+        .json(response))
+}
+
+async fn me(state: web::Data<AppState>, auth: Auth0AuthenticatedUser) -> AppResult<HttpResponse> {
+    let result = state.auth_service.me(auth.0.user_id).await?;
+    Ok(HttpResponse::Ok().json(result))
+}
+
+/// Auth0 Database Connection Signup
+///
+/// This endpoint creates a user in Auth0 using a Database Connection.
+/// The user can then authenticate using /auth/auth0/login.
+#[derive(Debug, Deserialize)]
+struct Auth0SignupRequestDto {
+    #[serde(alias = "email")]
+    email: String,
+    #[serde(alias = "password")]
+    password: String,
+    #[serde(alias = "username")]
+    username: Option<String>,
+    #[serde(alias = "full_name")]
+    full_name: Option<String>,
+}
+
+async fn auth0_signup(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<Auth0SignupRequestDto>,
+) -> AppResult<HttpResponse> {
+    let auth0_client = state.auth0_api_client.as_ref()
+        .unwrap_or_else(|| AppError::ServiceUnavailable {
+            service: "auth0".to_string(),
+            message: "Auth0 is not configured".to_string(),
+        })?;
+
+    // Validate email format (basic check)
+    let email = &payload.email;
+    if email.is_empty() || !email.contains('@') || !email.contains('.') {
+        return Err(AppError::BadRequest("Invalid email format".to_string()));
+    }
+
+    // Validate password
+    if payload.password.len() < 12 {
+        return Err(AppError::BadRequest("Password must be at least 12 characters".to_string()));
+    }
+
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key("auth0_signup", ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    // Split full_name into given_name and family_name
+    let (given_name, family_name) = payload.full_name.as_ref()
+        .and_then(|name| name.split_once(' '))
+        .map(|(first, rest)| (Some(first.to_string()), Some(rest.to_string())))
+        .unwrap_or_else(|| (payload.full_name.clone(), None));
+
+    // Call Auth0 to create user (pass username directly to trait method)
+    let auth0_response = auth0_client.signup(
+        &payload.email,
+        &payload.password,
+        payload.username.as_deref(),
+    ).await
+        .map_err(|e| match e {
+            AppError::Conflict(_) => {
+                state.login_throttle.record_failure(&throttle_key);
+                AppError::Conflict("Email already registered".to_string())
+            }
+            _ => {
+                state.login_throttle.record_failure(&throttle_key);
+                e
+            }
+        })?;
+
+    state.login_throttle.record_success(&throttle_key);
+
+    // Create local user and identity using the Auth0 user ID
+    // The JIT provisioning will handle this on first API call, but we create it now
+    // to ensure that user record exists before they make any API calls.
+    let claims = crate::utils::auth0_claims::Auth0Claims {
+        iss: "https://dev-r6elgiuf266abffs.us.auth0.com/".to_string(),
+        sub: auth0_response.id.clone(),
+        aud: crate::utils::auth0_claims::Audience::Single("https://api.your-app.example".to_string()),
+        exp: u64::MAX,
+        iat: chrono::Utc::now().timestamp() as u64,
+        email: Some(auth0_response.email.clone()),
+        email_verified: Some(auth0_response.email_verified),
+        name: auth0_response.name.clone(),
+        picture: auth0_response.picture.clone(),
+        custom_claims: std::collections::HashMap::new(),
+    };
+
+    // Use the auth service to provision the user from Auth0
+    // This will create local user and auth_identity records
+    state.auth_service.upsert_user_from_auth0(&claims).await?;
+
+    // Return minimal success response
+    Ok(HttpResponse::Created().json(serde_json::json!({
+        "id": auth0_response.id,
+        "email": auth0_response.email,
+        "email_verified": auth0_response.email_verified,
+    })))
+}
+
+/// Auth0 Database Connection Login (Password Grant)
+///
+/// This endpoint authenticates a user using Auth0 Password Grant flow.
+/// Returns Auth0 access token and ID token which can be used with the API.
+#[derive(Debug, Deserialize)]
+struct Auth0LoginRequestDto {
+    #[serde(alias = "email")]
+    email: String,
+    #[serde(alias = "password")]
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct Auth0LoginResponse {
+    access_token: String,
+    id_token: String,
+    refresh_token: Option<String>,
+    expires_in: u64,
+    token_type: String,
+}
+
+async fn auth0_login(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    payload: web::Json<Auth0LoginRequestDto>,
+) -> AppResult<HttpResponse> {
+    let auth0_client = state.auth0_api_client.as_ref()
+        .unwrap_or_else(|| AppError::ServiceUnavailable {
+            service: "auth0".to_string(),
+            message: "Auth0 is not configured".to_string(),
+        })?;
+
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key(&payload.email, ip.as_deref());
+    state.login_throttle.ensure_allowed(&throttle_key)?;
+
+    // Call Auth0 to authenticate (pass email and password directly to trait method)
+    let auth0_response = auth0_client.password_grant(
+        &payload.email,
+        &payload.password,
+    ).await
+        .map_err(|e| match e {
+            AppError::Unauthorized => {
+                return Err(state.login_throttle.record_failure(&throttle_key));
+            }
+            _ => {
+                state.login_throttle.record_failure(&throttle_key);
+                return Err(e);
+            }
+        })?;
+
+    state.login_throttle.record_success(&throttle_key);
+
+    let response = Auth0LoginResponse {
+        access_token: auth0_response.access_token.clone(),
+        id_token: auth0_response.id_token.clone(),
+        refresh_token: auth0_response.refresh_token.clone(),
+        expires_in: auth0_response.expires_in,
+        token_type: auth0_response.token_type,
+    };
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+fn refresh_cookie(value: &str) -> Cookie<'static> {
+    Cookie::build("refresh_token", value.to_string())
+        .path("/")
+        .http_only(true)
+        .secure(true)
+        .same_site(SameSite::Lax)
+        .finish()
+}
+
+fn csrf_cookie(value: &str) -> Cookie<'static> {
+    Cookie::build("csrf_token", value.to_string())
+        .path("/")
+        .secure(true)
+        .same_site(SameSite::Lax)
+        .finish()
+}
+
+fn clear_cookie(name: &str, http_only: bool) -> Cookie<'static> {
+    let mut builder = Cookie::build(name.to_string(), String::new());
+    builder = builder
+        .path("/")
+        .max_age(CookieDuration::seconds(0))
+        .secure(true)
+        .same_site(SameSite::Lax);
+    if http_only {
+        builder = builder.http_only(true);
+    }
+    builder.finish()
+}
+
+fn client_ip(request: &HttpRequest) -> Option<String> {
+    request
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string)
+}

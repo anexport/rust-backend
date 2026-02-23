@@ -116,6 +116,17 @@ impl AuthRepository for MockAuthRepo {
         Ok(None)
     }
 
+    async fn upsert_identity(
+        &self,
+        identity: &AuthIdentity,
+    ) -> rust_backend::error::AppResult<AuthIdentity> {
+        self.identities
+            .lock()
+            .expect("identities mutex poisoned")
+            .push(identity.clone());
+        Ok(identity.clone())
+    }
+
     async fn verify_email(&self, _user_id: Uuid) -> rust_backend::error::AppResult<()> {
         Ok(())
     }

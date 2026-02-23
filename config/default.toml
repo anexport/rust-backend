@@ -8,6 +8,12 @@ url = "postgres://postgres:postgres@localhost:5432/rust_backend"
 max_connections = 10
 min_connections = 1
 
+# ============================================================
+# Local JWT Configuration (Legacy - OAuth Flow Only)
+# ============================================================
+# Note: These are only used for issuing local JWT tokens during
+# OAuth callbacks. For API authentication, all bearer tokens must
+# be Auth0 access tokens.
 [auth]
 jwt_secret = "change-me-in-production"
 jwt_kid = "v1"
@@ -18,6 +24,33 @@ refresh_token_expiration_days = 7
 issuer = "rust-backend"
 audience = "rust-backend-users"
 
+# ============================================================
+# Auth0 Configuration (Required for all authentication)
+# ============================================================
+# All authentication (email/password, Google, GitHub) now goes
+# through Auth0. The backend validates Auth0 access tokens and
+# does not generate its own JWTs for API authentication.
+[auth0]
+# Auth0 tenant domain (e.g., your-tenant.us.auth0.com)
+# Required when Auth0 is enabled
+auth0_domain = ""
+# API audience configured in Auth0 (e.g., https://api.your-app.example)
+# Required when Auth0 is enabled
+auth0_audience = ""
+# Issuer URL (optional, derived from auth0_domain if not set)
+auth0_issuer = ""
+# JWKS cache TTL in seconds (optional, default: 3600)
+jwks_cache_ttl_secs = 3600
+# Auth0 Client ID for Database Connection signup/login
+# Required for email/password authentication flow
+auth0_client_id = ""
+# Auth0 Client Secret for password grant flow
+# Required for email/password authentication flow
+auth0_client_secret = ""
+# Auth0 connection name for email/password authentication
+# Default: "Username-Password-Authentication"
+auth0_connection = "Username-Password-Authentication"
+
 [security]
 cors_allowed_origins = ["http://localhost:3000"]
 metrics_allow_private_only = true
@@ -26,6 +59,12 @@ login_max_failures = 5
 login_lockout_seconds = 300
 login_backoff_base_ms = 200
 
+# ============================================================
+# OAuth Configuration (Legacy - Direct to Auth0)
+# ============================================================
+# Note: Google and GitHub OAuth is now handled directly through Auth0,
+# not via local OAuth implementation. These values are only kept for
+# reference and may be removed in future versions.
 [oauth]
 google_client_id = ""
 google_client_secret = ""

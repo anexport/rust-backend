@@ -40,6 +40,7 @@ pub trait AuthRepository: Send + Sync {
         provider: &str,
         provider_id: &str,
     ) -> AppResult<Option<AuthIdentity>>;
+    async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity>;
     async fn verify_email(&self, user_id: Uuid) -> AppResult<()>;
 
     async fn create_session(&self, session: &UserSession) -> AppResult<UserSession>;
