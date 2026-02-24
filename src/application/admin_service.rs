@@ -212,11 +212,18 @@ impl AdminService {
 
     pub async fn create_category(
         &self,
+        actor_id: Uuid,
         payload: AdminCategoryRequest,
     ) -> AppResult<AdminCategoryResponse> {
         payload.validate()?;
         self.validate_category_parent(None, payload.parent_id)
             .await?;
+        info!(
+            actor = %actor_id,
+            action = "admin.create_category",
+            name = %payload.name,
+            parent_id = ?payload.parent_id
+        );
         let category = Category {
             id: Uuid::new_v4(),
             name: payload.name,
@@ -229,6 +236,7 @@ impl AdminService {
 
     pub async fn update_category(
         &self,
+        actor_id: Uuid,
         id: Uuid,
         payload: AdminCategoryRequest,
     ) -> AppResult<AdminCategoryResponse> {
@@ -242,6 +250,13 @@ impl AdminService {
         self.validate_category_parent(Some(id), payload.parent_id)
             .await?;
 
+        info!(
+            actor = %actor_id,
+            action = "admin.update_category",
+            target = %id,
+            name = %payload.name,
+            parent_id = ?payload.parent_id
+        );
         let updated = self
             .category_repo
             .update(&Category {

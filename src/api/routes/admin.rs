@@ -154,10 +154,10 @@ async fn create_category(
     auth: Auth0AuthenticatedUser,
     payload: web::Json<AdminCategoryRequest>,
 ) -> AppResult<HttpResponse> {
-    let _ = require_admin(&auth)?;
+    let actor_id = require_admin(&auth)?;
     let result = state
         .admin_service
-        .create_category(payload.into_inner())
+        .create_category(actor_id, payload.into_inner())
         .await?;
     Ok(HttpResponse::Created().json(result))
 }
@@ -168,10 +168,10 @@ async fn update_category(
     path: web::Path<Uuid>,
     payload: web::Json<AdminCategoryRequest>,
 ) -> AppResult<HttpResponse> {
-    let _ = require_admin(&auth)?;
+    let actor_id = require_admin(&auth)?;
     let result = state
         .admin_service
-        .update_category(path.into_inner(), payload.into_inner())
+        .update_category(actor_id, path.into_inner(), payload.into_inner())
         .await?;
     Ok(HttpResponse::Ok().json(result))
 }

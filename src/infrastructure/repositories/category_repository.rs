@@ -86,8 +86,7 @@ impl CategoryRepository for CategoryRepositoryImpl {
         .bind(&category.name)
         .bind(category.parent_id)
         .fetch_optional(&self.pool)
-        .await
-        .map_err(map_unique_violation)?;
+        .await?;
         updated.ok_or_else(|| AppError::NotFound("category not found".to_string()))
     }
 
