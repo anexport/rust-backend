@@ -408,12 +408,13 @@ async fn test_profile_viewing_excludes_sensitive_data() {
     // Should have: id, username, avatar_url
     assert!(profile.get("id").is_some());
     // username and avatar_url are optional fields - they may be null or missing
-    let has_username = profile.get("username").is_some();
-    let has_avatar_url = profile.get("avatar_url").is_some();
-    // At least one of username or avatar_url should be present
+    // Check for non-null values, not just key existence
+    let username = profile.get("username").and_then(|v| v.as_str());
+    let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str());
+    // At least one of username or avatar_url should be present with a non-null value
     assert!(
-        has_username || has_avatar_url,
-        "Profile should have at least username or avatar_url"
+        username.is_some() || avatar_url.is_some(),
+        "Profile should have at least username or avatar_url with a non-null value"
     );
 
     // Should NOT have: email, role, created_at (if using PublicProfileResponse)
