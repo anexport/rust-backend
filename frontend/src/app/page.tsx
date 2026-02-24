@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 export default function Home() {
   return (
-    <main className="container mx-auto py-10 px-4 md:px-6 max-w-5xl">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
       <div className="flex flex-col items-center justify-center space-y-4 text-center">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl/none">
@@ -21,7 +21,7 @@ export default function Home() {
         </div>
       </div>
       
-      <div className="mx-auto grid max-w-5xl items-center gap-6 py-12 lg:grid-cols-2 lg:gap-12">
+      <div className="mx-auto grid max-w-7xl items-center gap-6 py-12 lg:grid-cols-2 lg:gap-12">
         <Card>
           <CardHeader>
             <CardTitle>List Equipment</CardTitle>

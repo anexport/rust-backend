@@ -20,6 +20,22 @@ export default function AdminCategoriesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const trimmedName = name.trim();
+
+  const getErrorMessage = async (res: Response, fallback: string) => {
+    try {
+      const body = (await res.json()) as { error?: unknown; message?: unknown };
+      if (typeof body.error === 'string' && body.error.trim().length > 0) {
+        return body.error;
+      }
+      if (typeof body.message === 'string' && body.message.trim().length > 0) {
+        return body.message;
+      }
+      return fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -41,7 +57,11 @@ export default function AdminCategoriesPage() {
 
   const createCategory = async (event: FormEvent) => {
     event.preventDefault();
-    if (!name.trim() || isSubmitting) {
+    if (isSubmitting) {
+      return;
+    }
+    if (!trimmedName) {
+      toast.error('Name is required');
       return;
     }
 
@@ -49,11 +69,12 @@ export default function AdminCategoriesPage() {
     try {
       const res = await fetchClient('/api/admin/categories', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name: trimmedName }),
       });
 
       if (!res.ok) {
-        toast.error('Unable to create category');
+        const message = await getErrorMessage(res, 'Unable to create category');
+        toast.error(message);
         return;
       }
 
@@ -187,7 +208,7 @@ export default function AdminCategoriesPage() {
           placeholder="New category name"
           disabled={isSubmitting}
         />
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || !trimmedName}>
           {isSubmitting ? 'Adding...' : 'Add Category'}
         </Button>
       </form>

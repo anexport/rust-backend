@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import * as z from 'zod';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 
 export type AdminUser = {
   id: string;

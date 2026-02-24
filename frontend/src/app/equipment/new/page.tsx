@@ -102,11 +102,12 @@ export default function NewEquipmentPage() {
   }
 
   return (
-    <main className="container mx-auto py-10 px-4 max-w-2xl">
-      <h1 className="text-3xl font-bold mb-6">List Equipment</h1>
-      
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6">List Equipment</h1>
+        
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <FormField
             control={form.control}
             name="title"
@@ -221,6 +222,7 @@ export default function NewEquipmentPage() {
           </Button>
         </form>
       </Form>
+      </div>
     </main>
   );
 }

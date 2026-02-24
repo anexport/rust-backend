@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { Card, CardContent } from '@/components/ui/card';
 import Link from 'next/link';
 
@@ -40,7 +40,7 @@ export default async function MessagesPage() {
   }
 
   return (
-    <main className="container mx-auto py-10 px-4 max-w-4xl">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
       <h1 className="text-3xl font-bold mb-6">Messages</h1>
       <div className="space-y-4">
         {conversations.length === 0 ? (

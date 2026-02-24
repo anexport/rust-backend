@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { ProfileForm } from './ProfileForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { redirect } from 'next/navigation';
@@ -17,16 +17,18 @@ export default async function ProfilePage() {
   const user = await res.json();
 
   return (
-    <div className="container mx-auto py-10 px-4 max-w-2xl">
-      <Card>
-        <CardHeader>
-          <CardTitle>Your Profile</CardTitle>
-          <CardDescription>Update your personal information.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProfileForm user={user} />
-        </CardContent>
-      </Card>
-    </div>
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
+      <div className="max-w-2xl mx-auto">
+        <Card>
+          <CardHeader>
+            <CardTitle>Your Profile</CardTitle>
+            <CardDescription>Update your personal information.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProfileForm user={user} />
+          </CardContent>
+        </Card>
+      </div>
+    </main>
   );
 }
