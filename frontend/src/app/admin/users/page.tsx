@@ -154,7 +154,7 @@ export default function AdminUsersPage() {
             description={`Delete ${user.email}? This action cannot be undone.`}
             triggerLabel="Delete"
             confirmLabel="Delete"
-            onConfirm={() => deleteUser(user.id)}
+            onConfirm={() => void deleteUser(user.id)}
           />
         </div>,
       ]),
