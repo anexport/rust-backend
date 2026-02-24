@@ -1,6 +1,6 @@
 'use server';
 
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { revalidatePath } from 'next/cache';
 
 export async function updateProfile(userId: string, formData: FormData) {

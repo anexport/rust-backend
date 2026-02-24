@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 
@@ -26,7 +26,7 @@ export default async function EquipmentPage({ searchParams }: { searchParams: Pr
   const equipmentData = equipmentRes.ok ? await equipmentRes.json() : { items: [] as EquipmentItem[] };
 
   return (
-    <main className="container mx-auto py-10 px-4">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
       <div className="flex flex-col md:flex-row gap-8">
         <aside className="w-full md:w-64 space-y-4">
           <h2 className="text-xl font-bold">Categories</h2>

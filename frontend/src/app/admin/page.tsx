@@ -1,6 +1,6 @@
 import { Users, Wrench, PackageCheck, Tags } from 'lucide-react';
 import Link from 'next/link';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { StatCard } from '@/components/admin/StatCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -71,9 +71,9 @@ export default async function AdminOverviewPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {users.users.map((user) => (
-              <div key={user.id} className="flex items-center justify-between rounded border px-3 py-2">
-                <span>{user.email}</span>
-                <span className="text-muted-foreground">{user.role}</span>
+              <div key={user.id} className="flex items-center justify-between gap-4 rounded border px-3 py-2">
+                <span className="truncate" title={user.email}>{user.email}</span>
+                <span className="shrink-0 text-muted-foreground">{user.role}</span>
               </div>
             ))}
             {users.users.length === 0 ? <p className="text-muted-foreground">No users found.</p> : null}
@@ -86,9 +86,11 @@ export default async function AdminOverviewPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {equipment.equipment.map((item) => (
-              <div key={item.id} className="flex items-center justify-between rounded border px-3 py-2">
-                <span>{item.title}</span>
-                <span className="text-muted-foreground">{item.owner_email}</span>
+              <div key={item.id} className="flex items-center justify-between gap-4 rounded border px-3 py-2">
+                <span className="truncate" title={item.title}>{item.title}</span>
+                <span className="shrink-0 text-muted-foreground truncate max-w-[150px]" title={item.owner_email}>
+                  {item.owner_email}
+                </span>
               </div>
             ))}
             {equipment.equipment.length === 0 ? <p className="text-muted-foreground">No equipment found.</p> : null}

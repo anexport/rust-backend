@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -24,7 +24,7 @@ export default async function EquipmentDetailsPage({ params }: { params: Promise
   const item: EquipmentItem = await res.json();
 
   return (
-    <main className="container mx-auto py-10 px-4 max-w-4xl">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">
       <div className="mb-6">
         <Link href="/equipment" className="text-sm text-muted-foreground hover:underline">
           &larr; Back to Listings

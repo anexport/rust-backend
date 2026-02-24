@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { fetchServer } from '@/lib/api';
+import { fetchServer } from '@/lib/server';
 import { redirect } from 'next/navigation';
 import ChatClient from './ChatClient';
 
@@ -83,7 +83,7 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   const normalizedMessages = messageItems.filter(isMessage);
 
   return (
-    <main className="container mx-auto py-10 px-4 max-w-4xl h-[calc(100vh-64px)] flex flex-col">
+    <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl h-[calc(100vh-64px)] flex flex-col">
       <h1 className="text-2xl font-bold mb-4">Chat</h1>
       <ChatClient
         conversationId={id}

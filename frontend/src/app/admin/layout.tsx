@@ -16,7 +16,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   const user = await requireAdmin();
 
   return (
-    <main className="container mx-auto px-4 py-8">
+    <main className="container mx-auto px-4 md:px-6 py-8 max-w-7xl">
       <div className="grid grid-cols-1 gap-6 md:grid-cols-[220px_1fr]">
         <aside className="rounded-lg border p-3">
           <div className="mb-4 flex items-center gap-2 px-2 text-sm font-semibold">
@@ -39,7 +39,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             })}
           </nav>
           <div className="text-muted-foreground mt-4 border-t px-2 pt-3 text-xs">
-            Signed in as {user.email ?? 'unknown'}
+            <div className="flex flex-col gap-0.5 overflow-hidden">
+              <span className="shrink-0">Signed in as:</span>
+              <span className="truncate font-medium" title={user.email ?? 'unknown'}>
+                {user.email ?? 'unknown'}
+              </span>
+            </div>
           </div>
         </aside>
         <section>
