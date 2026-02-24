@@ -34,6 +34,12 @@ services:
       - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
       - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}
       - RUST_LOG=debug
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +55,8 @@ services:
     environment:
       # Frontend needs to know the backend URL (from the browser's perspective)
       - NEXT_PUBLIC_API_URL=http://localhost:8080
+      # Server-side URL for Docker network communication
+      - API_URL=http://backend:8080
       # These will be populated from the .env file
       - AUTH0_SECRET=${AUTH0_SECRET}
       - AUTH0_BASE_URL=http://localhost:3000
@@ -57,7 +65,8 @@ services:
       - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}
       - AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:

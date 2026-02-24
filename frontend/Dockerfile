@@ -48,7 +48,7 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT 3000
-# set hostname to localhost
+# set hostname to 0.0.0.0 to listen on all interfaces inside the container
 ENV HOSTNAME "0.0.0.0"
 
 # server.js is created by next build from the standalone output
