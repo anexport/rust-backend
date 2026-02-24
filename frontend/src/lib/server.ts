@@ -1,6 +1,6 @@
 import { auth0 } from './auth0';
 
-const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
 
 export async function fetchServer(path: string, options: RequestInit = {}): Promise<Response> {
   let token: string | null = null;

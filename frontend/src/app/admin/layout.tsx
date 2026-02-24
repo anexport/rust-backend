@@ -41,14 +41,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           <div className="text-muted-foreground mt-4 border-t px-2 pt-3 text-xs">
             <div className="flex flex-col gap-0.5 overflow-hidden">
               <span className="shrink-0">Signed in as:</span>
-              <button
-                className="truncate text-left font-medium hover:underline"
+              <span
+                className="truncate font-medium"
                 title={user.email ?? 'unknown'}
-                type="button"
-                aria-label={`Email: ${user.email ?? 'unknown'}`}
               >
                 {user.email ?? 'unknown'}
-              </button>
+              </span>
             </div>
           </div>
         </aside>
