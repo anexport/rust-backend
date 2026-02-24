@@ -37,3 +37,4 @@
 ## Security & Configuration Tips
 - Copy `.env.example` to `.env` for local setup; never commit real secrets.
 - Auth is Auth0-first in this codebase; validate `AUTH0_*` and `SECURITY__*` settings before testing protected endpoints.
+- Equipment creation requires Auth0 role claims (`owner` or `admin`) in the access token; see `docs/auth0-role-requirements.md`.
