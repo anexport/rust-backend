@@ -119,7 +119,7 @@ export default function AdminEquipmentPage() {
 
   return (
     <div className="space-y-4">
-      <SearchInput value={search} onSearch={setSearch} placeholder="Search title or owner" />
+      <SearchInput value={search} onSearch={(value) => { setPage(1); setSearch(value); }} placeholder="Search title or owner" />
 
       <DataTable
         headers={['Title', 'Owner', 'Category', 'Rate', 'Availability', 'Actions']}
