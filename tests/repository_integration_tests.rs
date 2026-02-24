@@ -569,6 +569,63 @@ async fn equipment_repository_hard_delete() {
 }
 
 #[tokio::test]
+async fn equipment_repository_set_availability_atomic_updates_state() {
+    let db = TestDb::new().await.expect("Failed to create test database");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
+
+    let user = fixtures::test_owner();
+    let created_user = user_repo.create(&user).await.unwrap();
+
+    let category = fixtures::test_category();
+    let created_category = create_category(&db, &category).await.unwrap();
+
+    let mut equipment = fixtures::test_equipment(created_user.id, created_category.id);
+    equipment.is_available = true;
+    let created = equipment_repo.create(&equipment).await.unwrap();
+
+    let updated = equipment_repo
+        .set_availability_atomic(created.id, false)
+        .await
+        .unwrap();
+    assert!(!updated);
+
+    let found = equipment_repo
+        .find_by_id(created.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!found.is_available);
+}
+
+#[tokio::test]
+async fn equipment_repository_count_by_owners_groups_counts() {
+    let db = TestDb::new().await.expect("Failed to create test database");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
+
+    let owner_one = user_repo.create(&fixtures::test_owner()).await.unwrap();
+    let owner_two = user_repo.create(&fixtures::test_owner()).await.unwrap();
+    let category = create_category(&db, &fixtures::test_category())
+        .await
+        .unwrap();
+
+    for _ in 0..2 {
+        let equipment = fixtures::test_equipment(owner_one.id, category.id);
+        equipment_repo.create(&equipment).await.unwrap();
+    }
+    let equipment = fixtures::test_equipment(owner_two.id, category.id);
+    equipment_repo.create(&equipment).await.unwrap();
+
+    let counts = equipment_repo
+        .count_by_owners(&[owner_one.id, owner_two.id])
+        .await
+        .unwrap();
+    assert_eq!(counts.get(&owner_one.id), Some(&2));
+    assert_eq!(counts.get(&owner_two.id), Some(&1));
+}
+
+#[tokio::test]
 async fn message_repository_conversation_participant_management() {
     let db = TestDb::new().await.expect("Failed to create test database");
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
@@ -961,6 +1018,62 @@ async fn category_repository_tree_structure_validation() {
 
     let level2_children = repo.find_children(level2.id).await.unwrap();
     assert_eq!(level2_children.len(), 0);
+}
+
+#[tokio::test]
+async fn category_repository_create_duplicate_key_maps_to_conflict() {
+    let db = TestDb::new().await.expect("Failed to create test database");
+    let repo = CategoryRepositoryImpl::new(db.pool().clone());
+
+    let first = Category {
+        id: Uuid::new_v4(),
+        name: format!("Duplicate Category {}", next_id()),
+        parent_id: None,
+        created_at: Utc::now(),
+    };
+    repo.create(&first).await.unwrap();
+
+    let duplicate = Category {
+        id: first.id,
+        name: format!("Different Name {}", next_id()),
+        parent_id: None,
+        created_at: Utc::now(),
+    };
+    let result = repo.create(&duplicate).await;
+
+    assert!(matches!(
+        result,
+        Err(AppError::Conflict(message)) if message == "category already exists"
+    ));
+}
+
+#[tokio::test]
+async fn category_repository_delete_parent_with_references_maps_to_conflict() {
+    let db = TestDb::new().await.expect("Failed to create test database");
+    let repo = CategoryRepositoryImpl::new(db.pool().clone());
+
+    let parent = Category {
+        id: Uuid::new_v4(),
+        name: format!("Parent {}", next_id()),
+        parent_id: None,
+        created_at: Utc::now(),
+    };
+    let created_parent = repo.create(&parent).await.unwrap();
+
+    let child = Category {
+        id: Uuid::new_v4(),
+        name: format!("Child {}", next_id()),
+        parent_id: Some(created_parent.id),
+        created_at: Utc::now(),
+    };
+    repo.create(&child).await.unwrap();
+
+    let result = repo.delete(created_parent.id).await;
+    assert!(matches!(
+        result,
+        Err(AppError::Conflict(message))
+            if message == "category is still referenced by child categories or equipment"
+    ));
 }
 
 // Helper function to create categories directly via SQL for testing

@@ -1,6 +1,6 @@
 use super::traits::{AuthRepository, UserRepository};
-use crate::domain::{AuthIdentity, User};
-use crate::error::AppResult;
+use crate::domain::{AuthIdentity, Role, User};
+use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -95,6 +95,73 @@ impl UserRepository for UserRepositoryImpl {
             .await?;
         Ok(())
     }
+
+    async fn list_all(
+        &self,
+        limit: i64,
+        offset: i64,
+        search: Option<&str>,
+        role: Option<Role>,
+    ) -> AppResult<Vec<User>> {
+        let escaped_search = search.map(escape_like_pattern);
+        let users = sqlx::query_as::<_, User>(
+            r#"
+            SELECT id, email, role, username, full_name, avatar_url, created_at, updated_at
+            FROM profiles
+            WHERE ($3::TEXT IS NULL OR email ILIKE '%' || $3 || '%' ESCAPE '\' OR username ILIKE '%' || $3 || '%' ESCAPE '\')
+              AND ($4::role IS NULL OR role = $4)
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .bind(escaped_search.as_deref())
+        .bind(role)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(users)
+    }
+
+    async fn count_all(&self, search: Option<&str>, role: Option<Role>) -> AppResult<i64> {
+        let escaped_search = search.map(escape_like_pattern);
+        let (count,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM profiles
+            WHERE ($1::TEXT IS NULL OR email ILIKE '%' || $1 || '%' ESCAPE '\' OR username ILIKE '%' || $1 || '%' ESCAPE '\')
+              AND ($2::role IS NULL OR role = $2)
+            "#,
+        )
+        .bind(escaped_search.as_deref())
+        .bind(role)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    async fn update_role(&self, id: Uuid, role: Role) -> AppResult<User> {
+        let updated = sqlx::query_as::<_, User>(
+            r#"
+            UPDATE profiles
+            SET role = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, email, role, username, full_name, avatar_url, created_at, updated_at
+            "#,
+        )
+        .bind(id)
+        .bind(role)
+        .fetch_optional(&self.pool)
+        .await?;
+        updated.ok_or_else(|| AppError::NotFound("user not found".to_string()))
+    }
+}
+
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 pub struct AuthRepositoryImpl {

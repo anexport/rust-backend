@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_web::{web, HttpRequest, HttpResponse};
 
 use crate::application::{
-    AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use crate::config::SecurityConfig;
 use crate::error::{AppError, AppResult};
@@ -12,6 +12,7 @@ use crate::observability::AppMetrics;
 use crate::security::LoginThrottle;
 use sqlx::PgPool;
 
+pub mod admin;
 pub mod auth;
 pub mod equipment;
 pub mod messages;
@@ -21,6 +22,7 @@ pub mod ws;
 #[derive(Clone)]
 pub struct AppState {
     pub auth_service: Arc<AuthService>,
+    pub admin_service: Arc<AdminService>,
     pub user_service: Arc<UserService>,
     pub category_service: Arc<CategoryService>,
     pub equipment_service: Arc<EquipmentService>,
@@ -38,6 +40,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/api")
             .configure(auth::configure)
+            .configure(admin::configure)
             .configure(users::configure)
             .configure(equipment::configure)
             .configure(messages::configure),

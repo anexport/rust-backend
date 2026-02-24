@@ -1,8 +1,9 @@
-use super::traits::{EquipmentRepository, EquipmentSearchParams};
+use super::traits::{EquipmentRepository, EquipmentSearchParams, EquipmentWithOwner};
 use crate::domain::{Equipment, EquipmentPhoto};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use sqlx::{PgPool, Postgres, QueryBuilder};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 pub struct EquipmentRepositoryImpl {
@@ -182,6 +183,40 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         Ok(equipment)
     }
 
+    async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
+        let (count,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM equipment
+            WHERE owner_id = $1
+            "#,
+        )
+        .bind(owner_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    async fn count_by_owners(&self, owner_ids: &[Uuid]) -> AppResult<HashMap<Uuid, i64>> {
+        if owner_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let rows = sqlx::query_as::<_, (Uuid, i64)>(
+            r#"
+            SELECT owner_id, COUNT(*)::BIGINT AS count
+            FROM equipment
+            WHERE owner_id = ANY($1)
+            GROUP BY owner_id
+            "#,
+        )
+        .bind(owner_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment> {
         let created = sqlx::query_as::<_, Equipment>(
             r#"
@@ -241,6 +276,75 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    async fn set_availability_atomic(&self, id: Uuid, is_available: bool) -> AppResult<bool> {
+        let updated = sqlx::query_as::<_, (bool,)>(
+            r#"
+            UPDATE equipment
+            SET is_available = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING is_available
+            "#,
+        )
+        .bind(id)
+        .bind(is_available)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        updated
+            .map(|(value,)| value)
+            .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))
+    }
+
+    async fn count_all(&self, search: Option<&str>) -> AppResult<i64> {
+        let (count,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM equipment e
+            JOIN profiles p ON p.id = e.owner_id
+            JOIN categories c ON c.id = e.category_id
+            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' OR p.email ILIKE '%' || $1 || '%')
+            "#,
+        )
+        .bind(search)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    async fn list_all_with_owner(
+        &self,
+        limit: i64,
+        offset: i64,
+        search: Option<&str>,
+    ) -> AppResult<Vec<EquipmentWithOwner>> {
+        let rows = sqlx::query_as::<_, EquipmentWithOwner>(
+            r#"
+            SELECT
+                e.id,
+                e.owner_id,
+                e.category_id,
+                e.title,
+                e.daily_rate,
+                e.is_available,
+                e.created_at,
+                p.email AS owner_email,
+                c.name AS category_name
+            FROM equipment e
+            JOIN profiles p ON p.id = e.owner_id
+            JOIN categories c ON c.id = e.category_id
+            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' OR p.email ILIKE '%' || $3 || '%')
+            ORDER BY e.created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .bind(search)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
     }
 
     async fn add_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {

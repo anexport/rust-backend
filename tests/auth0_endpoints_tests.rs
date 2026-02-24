@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
-    AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use rust_backend::config::{AuthConfig, SecurityConfig};
 use rust_backend::domain::{
@@ -514,6 +514,11 @@ fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
 
     AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),

@@ -5,7 +5,7 @@ use actix_web::dev::Service as _;
 use actix_web::{middleware::Logger, web, App, HttpServer};
 use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
-    AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use rust_backend::config::AppConfig;
 use rust_backend::infrastructure::auth0_api::{
@@ -117,6 +117,11 @@ async fn main() -> std::io::Result<()> {
         auth_service: Arc::new(
             AuthService::new(user_repo.clone(), auth_repo).with_auth0_namespace(auth0_namespace),
         ),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
