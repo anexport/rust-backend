@@ -37,7 +37,13 @@ pub trait JwksProvider: Send + Sync {
 pub struct Auth0JwksClient {
     client: Client,
     jwks_url: String,
-    cache: Cache<String, Vec<u8>>,
+    cache: Cache<String, CachedRsaKeyMaterial>,
+}
+
+#[derive(Clone)]
+struct CachedRsaKeyMaterial {
+    modulus_bytes: Vec<u8>,
+    exponent_bytes: Vec<u8>,
 }
 
 impl Auth0JwksClient {
@@ -61,29 +67,7 @@ impl Auth0JwksClient {
     }
 
     pub async fn get_signing_key(&self, kid: &str) -> AppResult<Vec<u8>> {
-        if let Some(modulus_bytes) = self.cache.get(kid).await {
-            return Ok(modulus_bytes);
-        }
-
-        let jwks = self.fetch_jwks().await?;
-
-        let jwk = jwks.keys.iter().find(|k| k.kid == kid).ok_or_else(|| {
-            warn!(
-                kid = %kid,
-                available_kids = ?jwks.keys.iter().map(|k| &k.kid).collect::<Vec<_>>(),
-                auth_failure_category = "unknown_kid",
-                "Auth0 token validation failed: unknown key ID"
-            );
-            AppError::Unauthorized
-        })?;
-
-        let modulus_bytes = self.jwk_to_modulus(jwk)?;
-
-        self.cache
-            .insert(kid.to_string(), modulus_bytes.clone())
-            .await;
-
-        Ok(modulus_bytes)
+        Ok(self.get_key_material(kid).await?.modulus_bytes)
     }
 
     async fn fetch_jwks(&self) -> AppResult<Jwks> {
@@ -123,8 +107,8 @@ impl Auth0JwksClient {
         Ok(jwks)
     }
 
-    fn jwk_to_modulus(&self, jwk: &Jwk) -> AppResult<Vec<u8>> {
-        let n_bytes = URL_SAFE_NO_PAD.decode(&jwk.n).map_err(|e| {
+    fn jwk_to_key_material(&self, jwk: &Jwk) -> AppResult<CachedRsaKeyMaterial> {
+        let modulus_bytes = URL_SAFE_NO_PAD.decode(&jwk.n).map_err(|e| {
             error!(
                 error = %e,
                 kid = %jwk.kid,
@@ -133,31 +117,49 @@ impl Auth0JwksClient {
             AppError::InternalError(anyhow::anyhow!("Invalid JWK modulus: {}", e))
         })?;
 
-        Ok(n_bytes)
-    }
-
-    pub async fn get_decoding_key(&self, kid: &str) -> AppResult<DecodingKey> {
-        let modulus_bytes = self.get_signing_key(kid).await?;
-
-        let jwks = self.fetch_jwks().await?;
-        let jwk = jwks
-            .keys
-            .iter()
-            .find(|k| k.kid == kid)
-            .ok_or(AppError::Unauthorized)?;
-
-        let e_bytes = URL_SAFE_NO_PAD.decode(&jwk.e).map_err(|e| {
+        let exponent_bytes = URL_SAFE_NO_PAD.decode(&jwk.e).map_err(|e| {
             error!(
                 error = %e,
-                kid = %kid,
+                kid = %jwk.kid,
                 "Failed to decode JWK exponent"
             );
             AppError::InternalError(anyhow::anyhow!("Invalid JWK exponent: {}", e))
         })?;
 
+        Ok(CachedRsaKeyMaterial {
+            modulus_bytes,
+            exponent_bytes,
+        })
+    }
+
+    async fn get_key_material(&self, kid: &str) -> AppResult<CachedRsaKeyMaterial> {
+        if let Some(material) = self.cache.get(kid).await {
+            return Ok(material);
+        }
+
+        let jwks = self.fetch_jwks().await?;
+
+        let jwk = jwks.keys.iter().find(|k| k.kid == kid).ok_or_else(|| {
+            warn!(
+                kid = %kid,
+                available_kids = ?jwks.keys.iter().map(|k| &k.kid).collect::<Vec<_>>(),
+                auth_failure_category = "unknown_kid",
+                "Auth0 token validation failed: unknown key ID"
+            );
+            AppError::Unauthorized
+        })?;
+
+        let material = self.jwk_to_key_material(jwk)?;
+        self.cache.insert(kid.to_string(), material.clone()).await;
+        Ok(material)
+    }
+
+    pub async fn get_decoding_key(&self, kid: &str) -> AppResult<DecodingKey> {
+        let material = self.get_key_material(kid).await?;
+
         DecodingKey::from_rsa_components(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&modulus_bytes),
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&e_bytes),
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&material.modulus_bytes),
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&material.exponent_bytes),
         )
         .map_err(|e| {
             error!(
@@ -562,19 +564,25 @@ mod tests {
     async fn get_signing_key_returns_cached_value_on_cache_hit() {
         let config = test_config();
         let client = Auth0JwksClient::new(&config).expect("client should build");
-        let cached = vec![1_u8, 2, 3, 4];
+        let cached_modulus = vec![1_u8, 2, 3, 4];
         client
             .cache
-            .insert("cached-kid".to_string(), cached.clone())
+            .insert(
+                "cached-kid".to_string(),
+                CachedRsaKeyMaterial {
+                    modulus_bytes: cached_modulus.clone(),
+                    exponent_bytes: vec![1_u8, 0, 1],
+                },
+            )
             .await;
 
         let result = client.get_signing_key("cached-kid").await;
 
-        assert_eq!(result.expect("cache hit should succeed"), cached);
+        assert_eq!(result.expect("cache hit should succeed"), cached_modulus);
     }
 
     #[test]
-    fn jwk_to_modulus_returns_error_for_invalid_base64_modulus() {
+    fn jwk_to_key_material_returns_error_for_invalid_base64_modulus() {
         let client = Auth0JwksClient::new(&test_config()).expect("client should build");
         let invalid = Jwk {
             kid: "invalid-modulus".to_string(),
@@ -585,7 +593,7 @@ mod tests {
             use_: None,
         };
 
-        let result = client.jwk_to_modulus(&invalid);
+        let result = client.jwk_to_key_material(&invalid);
         assert!(matches!(result, Err(AppError::InternalError(_))));
     }
 
@@ -593,11 +601,6 @@ mod tests {
     async fn get_decoding_key_returns_error_for_invalid_base64_exponent() {
         let config = test_config();
         let mut client = Auth0JwksClient::new(&config).expect("client should build");
-        client
-            .cache
-            .insert("bad-exponent-kid".to_string(), vec![1_u8, 2, 3, 4])
-            .await;
-
         client.jwks_url = spawn_one_shot_jwks_server(
             r#"{"keys":[{"kid":"bad-exponent-kid","n":"AQAB","e":"%%invalid","kty":"RSA"}]}"#
                 .to_string(),
@@ -605,6 +608,24 @@ mod tests {
 
         let result = client.get_decoding_key("bad-exponent-kid").await;
         assert!(matches!(result, Err(AppError::InternalError(_))));
+    }
+
+    #[tokio::test]
+    async fn get_decoding_key_reuses_cached_material_without_refetching_jwks() {
+        let config = test_config();
+        let mut client = Auth0JwksClient::new(&config).expect("client should build");
+
+        client.jwks_url = spawn_one_shot_jwks_server(
+            r#"{"keys":[{"kid":"single-fetch-kid","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw","e":"AQAB","kty":"RSA"}]}"#
+                .to_string(),
+        );
+
+        let first = client.get_decoding_key("single-fetch-kid").await;
+        assert!(first.is_ok());
+
+        client.jwks_url = "http://127.0.0.1:9".to_string();
+        let second = client.get_decoding_key("single-fetch-kid").await;
+        assert!(second.is_ok());
     }
 
     #[tokio::test]

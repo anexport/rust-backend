@@ -21,7 +21,7 @@ use rust_backend::observability::error_tracking::capture_unexpected_5xx;
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::{cors_middleware, security_headers, LoginThrottle};
 use rust_backend::utils::auth0_jwks::{Auth0JwksClient, JwksProvider};
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
@@ -65,15 +65,22 @@ async fn main() -> std::io::Result<()> {
 
     let config = AppConfig::from_env().expect("failed to load application configuration");
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::new(config.logging.level.clone()))
-        .with(
-            fmt::layer()
-                .json()
-                .with_current_span(true)
-                .with_span_list(true),
-        )
-        .init();
+    if config.logging.json_format {
+        tracing_subscriber::registry()
+            .with(EnvFilter::new(config.logging.level.clone()))
+            .with(
+                fmt::layer()
+                    .json()
+                    .with_current_span(true)
+                    .with_span_list(true),
+            )
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(EnvFilter::new(config.logging.level.clone()))
+            .with(fmt::layer())
+            .init();
+    }
 
     let pool = create_pool(&config.database)
         .await
@@ -108,8 +115,7 @@ async fn main() -> std::io::Result<()> {
 
     let state = AppState {
         auth_service: Arc::new(
-            AuthService::new(user_repo.clone(), auth_repo, config.auth.clone())
-                .with_auth0_namespace(auth0_namespace),
+            AuthService::new(user_repo.clone(), auth_repo).with_auth0_namespace(auth0_namespace),
         ),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
@@ -119,7 +125,7 @@ async fn main() -> std::io::Result<()> {
         login_throttle: Arc::new(LoginThrottle::new(&config.security)),
         app_environment: config.app.environment.clone(),
         metrics: Arc::new(AppMetrics::default()),
-        db_pool: Some(pool.clone()),
+        db_pool: pool.clone(),
         ws_hub: routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     };
@@ -170,7 +176,18 @@ async fn main() -> std::io::Result<()> {
                             );
 
                             if status >= 500 {
-                                capture_unexpected_5xx(&path, &method, status, &request_id);
+                                if let Err(capture_error) =
+                                    capture_unexpected_5xx(&path, &method, status, &request_id)
+                                {
+                                    error!(
+                                        request_id = %request_id,
+                                        method = %method,
+                                        path = %path,
+                                        status = status,
+                                        error = %capture_error,
+                                        "failed to capture unexpected 5xx"
+                                    );
+                                }
                             }
                             Ok(response)
                         }

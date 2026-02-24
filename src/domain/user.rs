@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::fmt;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -10,6 +11,22 @@ pub enum Role {
     Renter,
     Owner,
     Admin,
+}
+
+impl Role {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Renter => "renter",
+            Self::Owner => "owner",
+            Self::Admin => "admin",
+        }
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -22,21 +39,6 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct OwnerProfile {
-    pub profile_id: Uuid,
-    pub business_info: Option<serde_json::Value>,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct RenterProfile {
-    pub profile_id: Uuid,
-    pub preferences: Option<serde_json::Value>,
-    pub experience_level: Option<String>,
-    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]

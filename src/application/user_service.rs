@@ -102,19 +102,27 @@ impl UserService {
         let equipment = self.equipment_repo.find_by_owner(user_id).await?;
         Ok(equipment
             .into_iter()
-            .map(|e| EquipmentResponse {
-                id: e.id,
-                owner_id: e.owner_id,
-                category_id: e.category_id,
-                title: e.title,
-                description: e.description.unwrap_or_default(),
-                daily_rate: e.daily_rate,
-                condition: condition_as_str(e.condition),
-                location: e.location.unwrap_or_default(),
-                coordinates: None,
-                is_available: e.is_available,
-                photos: Vec::new(),
-                created_at: e.created_at,
+            .map(|e| {
+                let coordinates = e.coordinates_tuple().map(|(latitude, longitude)| {
+                    crate::api::dtos::Coordinates {
+                        latitude,
+                        longitude,
+                    }
+                });
+                EquipmentResponse {
+                    id: e.id,
+                    owner_id: e.owner_id,
+                    category_id: e.category_id,
+                    title: e.title,
+                    description: e.description.unwrap_or_default(),
+                    daily_rate: e.daily_rate,
+                    condition: e.condition.to_string(),
+                    location: e.location.unwrap_or_default(),
+                    coordinates,
+                    is_available: e.is_available,
+                    photos: Vec::new(),
+                    created_at: e.created_at,
+                }
             })
             .collect())
     }
@@ -124,27 +132,10 @@ fn map_profile(user: User) -> UserProfileResponse {
     UserProfileResponse {
         id: user.id,
         email: user.email,
-        role: role_as_str(user.role),
+        role: user.role.to_string(),
         username: user.username,
         full_name: user.full_name,
         avatar_url: user.avatar_url,
         created_at: user.created_at,
-    }
-}
-
-fn role_as_str(role: Role) -> String {
-    match role {
-        Role::Renter => "renter".to_string(),
-        Role::Owner => "owner".to_string(),
-        Role::Admin => "admin".to_string(),
-    }
-}
-
-fn condition_as_str(condition: crate::domain::Condition) -> String {
-    match condition {
-        crate::domain::Condition::New => "new".to_string(),
-        crate::domain::Condition::Excellent => "excellent".to_string(),
-        crate::domain::Condition::Good => "good".to_string(),
-        crate::domain::Condition::Fair => "fair".to_string(),
     }
 }

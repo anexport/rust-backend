@@ -20,7 +20,9 @@ impl AppMetrics {
         }
         self.latency_total_ms
             .fetch_add(latency_ms, Ordering::Relaxed);
-        self.latency_count.fetch_add(1, Ordering::Relaxed);
+        // Release on count pairs with Acquire in render_prometheus so the
+        // corresponding total update is visible when sampling both together.
+        self.latency_count.fetch_add(1, Ordering::Release);
     }
 
     pub fn record_auth_failure(&self) {
@@ -36,8 +38,14 @@ impl AppMetrics {
     }
 
     pub fn render_prometheus(&self, db_size: u32, db_idle: usize) -> String {
-        let count = self.request_count.load(Ordering::Relaxed).max(1);
-        let avg_latency = self.latency_total_ms.load(Ordering::Relaxed) as f64 / count as f64;
+        let request_count = self.request_count.load(Ordering::Relaxed);
+        let latency_count = self.latency_count.load(Ordering::Acquire);
+        let latency_total = self.latency_total_ms.load(Ordering::Acquire);
+        let avg_latency = if latency_count == 0 {
+            0.0
+        } else {
+            latency_total as f64 / latency_count as f64
+        };
 
         format!(
             concat!(
@@ -56,7 +64,7 @@ impl AppMetrics {
                 "# TYPE db_pool_idle gauge\n",
                 "db_pool_idle {}\n",
             ),
-            self.request_count.load(Ordering::Relaxed),
+            request_count,
             self.error_count.load(Ordering::Relaxed),
             self.auth_failure_count.load(Ordering::Relaxed),
             self.ws_connections.load(Ordering::Relaxed),

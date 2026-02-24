@@ -19,6 +19,7 @@ use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::Deserialize;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 use rust_backend::api::routes::{self, AppState};
@@ -512,11 +513,7 @@ fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
     let message_repo = Arc::new(MockMessageRepo);
 
     AppState {
-        auth_service: Arc::new(AuthService::new(
-            user_repo.clone(),
-            auth_repo,
-            auth_config(),
-        )),
+        auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -525,10 +522,16 @@ fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
         login_throttle: Arc::new(LoginThrottle::new(&security_config())),
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
-        db_pool: None,
+        db_pool: test_db_pool(),
         ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     }
+}
+
+fn test_db_pool() -> sqlx::PgPool {
+    PgPoolOptions::new()
+        .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/test_db")
+        .expect("test db pool should build lazily")
 }
 
 #[derive(Debug, Deserialize)]

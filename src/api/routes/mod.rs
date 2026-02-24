@@ -10,6 +10,7 @@ use crate::error::{AppError, AppResult};
 use crate::infrastructure::auth0_api::Auth0ApiClient;
 use crate::observability::AppMetrics;
 use crate::security::LoginThrottle;
+use sqlx::PgPool;
 
 pub mod auth;
 pub mod equipment;
@@ -28,7 +29,7 @@ pub struct AppState {
     pub login_throttle: Arc<LoginThrottle>,
     pub app_environment: String,
     pub metrics: Arc<AppMetrics>,
-    pub db_pool: Option<sqlx::PgPool>,
+    pub db_pool: PgPool,
     pub ws_hub: ws::WsConnectionHub,
     pub auth0_api_client: Arc<dyn Auth0ApiClient>,
 }
@@ -52,12 +53,10 @@ async fn health() -> &'static str {
 }
 
 async fn ready(state: web::Data<AppState>) -> AppResult<HttpResponse> {
-    if let Some(pool) = &state.db_pool {
-        sqlx::query_scalar::<_, i32>("SELECT 1")
-            .fetch_one(pool)
-            .await
-            .map_err(|_| AppError::InternalError(anyhow::anyhow!("database is not ready")))?;
-    }
+    sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&state.db_pool)
+        .await
+        .map_err(|_| AppError::InternalError(anyhow::anyhow!("database is not ready")))?;
     Ok(HttpResponse::Ok().body("ready"))
 }
 
@@ -105,11 +104,7 @@ fn is_private_or_loopback(ip: std::net::IpAddr) -> bool {
 }
 
 fn pool_stats(state: &web::Data<AppState>) -> (u32, usize) {
-    if let Some(pool) = &state.db_pool {
-        (pool.size(), pool.num_idle())
-    } else {
-        (0, 0)
-    }
+    (state.db_pool.size(), state.db_pool.num_idle())
 }
 
 #[cfg(test)]

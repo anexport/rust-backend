@@ -52,16 +52,16 @@ impl EquipmentService {
         };
 
         let rows = self.equipment_repo.search(&search, limit, offset).await?;
+        let total = self.equipment_repo.count_search(&search).await?;
+        let total_pages = if total == 0 {
+            0
+        } else {
+            (total + limit - 1) / limit
+        };
         let items = rows
             .into_iter()
             .map(|item| {
-                let coordinates = item.coordinates_tuple().map(|(latitude, longitude)| {
-                    crate::api::dtos::Coordinates {
-                        latitude,
-                        longitude,
-                    }
-                });
-
+                let coordinates = map_coordinates(&item);
                 EquipmentResponse {
                     id: item.id,
                     owner_id: item.owner_id,
@@ -69,7 +69,7 @@ impl EquipmentService {
                     title: item.title,
                     description: item.description.unwrap_or_default(),
                     daily_rate: item.daily_rate,
-                    condition: condition_as_str(item.condition),
+                    condition: item.condition.to_string(),
                     location: item.location.unwrap_or_default(),
                     coordinates,
                     is_available: item.is_available,
@@ -80,11 +80,11 @@ impl EquipmentService {
             .collect::<Vec<_>>();
 
         Ok(PaginatedResponse {
-            total: items.len() as i64,
+            total,
             items,
             page,
             limit,
-            total_pages: 1,
+            total_pages,
         })
     }
 
@@ -96,6 +96,7 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         let photos = self.equipment_repo.find_photos(id).await?;
+        let coordinates = map_coordinates(&equipment);
 
         Ok(EquipmentResponse {
             id: equipment.id,
@@ -104,9 +105,9 @@ impl EquipmentService {
             title: equipment.title,
             description: equipment.description.unwrap_or_default(),
             daily_rate: equipment.daily_rate,
-            condition: condition_as_str(equipment.condition),
+            condition: equipment.condition.to_string(),
             location: equipment.location.unwrap_or_default(),
-            coordinates: None,
+            coordinates,
             is_available: equipment.is_available,
             photos: photos
                 .into_iter()
@@ -156,6 +157,7 @@ impl EquipmentService {
         }
 
         let created = self.equipment_repo.create(&equipment).await?;
+        let coordinates = map_coordinates(&created);
 
         Ok(EquipmentResponse {
             id: created.id,
@@ -164,9 +166,9 @@ impl EquipmentService {
             title: created.title,
             description: created.description.unwrap_or_default(),
             daily_rate: created.daily_rate,
-            condition: condition_as_str(created.condition),
+            condition: created.condition.to_string(),
             location: created.location.unwrap_or_default(),
-            coordinates: None,
+            coordinates,
             is_available: created.is_available,
             photos: Vec::new(),
             created_at: created.created_at,
@@ -233,6 +235,7 @@ impl EquipmentService {
         }
 
         let updated = self.equipment_repo.update(&existing).await?;
+        let coordinates = map_coordinates(&updated);
         Ok(EquipmentResponse {
             id: updated.id,
             owner_id: updated.owner_id,
@@ -240,9 +243,9 @@ impl EquipmentService {
             title: updated.title,
             description: updated.description.unwrap_or_default(),
             daily_rate: updated.daily_rate,
-            condition: condition_as_str(updated.condition),
+            condition: updated.condition.to_string(),
             location: updated.location.unwrap_or_default(),
-            coordinates: None,
+            coordinates,
             is_available: updated.is_available,
             photos: Vec::new(),
             created_at: updated.created_at,
@@ -375,11 +378,11 @@ fn parse_condition(raw: &str) -> AppResult<Condition> {
     }
 }
 
-fn condition_as_str(condition: Condition) -> String {
-    match condition {
-        Condition::New => "new".to_string(),
-        Condition::Excellent => "excellent".to_string(),
-        Condition::Good => "good".to_string(),
-        Condition::Fair => "fair".to_string(),
-    }
+fn map_coordinates(equipment: &Equipment) -> Option<crate::api::dtos::Coordinates> {
+    equipment
+        .coordinates_tuple()
+        .map(|(latitude, longitude)| crate::api::dtos::Coordinates {
+            latitude,
+            longitude,
+        })
 }

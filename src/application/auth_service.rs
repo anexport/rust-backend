@@ -4,7 +4,6 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::api::dtos::UserResponse;
-use crate::config::AuthConfig;
 use crate::domain::{AuthIdentity, AuthProvider, Role, User};
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{AuthRepository, UserRepository};
@@ -18,11 +17,7 @@ pub struct AuthService {
 }
 
 impl AuthService {
-    pub fn new(
-        user_repo: Arc<dyn UserRepository>,
-        auth_repo: Arc<dyn AuthRepository>,
-        _config: AuthConfig,
-    ) -> Self {
+    pub fn new(user_repo: Arc<dyn UserRepository>, auth_repo: Arc<dyn AuthRepository>) -> Self {
         Self {
             user_repo,
             auth_repo,
@@ -184,17 +179,9 @@ fn map_user_response(user: &User) -> UserResponse {
     UserResponse {
         id: user.id,
         email: user.email.clone(),
-        role: role_as_str(user.role),
+        role: user.role.to_string(),
         username: user.username.clone(),
         full_name: user.full_name.clone(),
         avatar_url: user.avatar_url.clone(),
-    }
-}
-
-fn role_as_str(role: Role) -> String {
-    match role {
-        Role::Renter => "renter".to_string(),
-        Role::Owner => "owner".to_string(),
-        Role::Admin => "admin".to_string(),
     }
 }

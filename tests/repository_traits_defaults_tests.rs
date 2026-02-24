@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use rust_backend::domain::{Conversation, Equipment, EquipmentPhoto, Message};
-use rust_backend::error::AppResult;
+use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::repositories::{
     EquipmentRepository, EquipmentSearchParams, MessageRepository,
 };
@@ -108,6 +108,26 @@ async fn equipment_repository_search_calls_find_all_when_all_filters_none() {
     assert!(result.is_ok());
     let calls = repository.calls.lock().expect("calls mutex poisoned");
     assert_eq!(calls.as_slice(), &[(25, 10)]);
+}
+
+#[tokio::test]
+async fn equipment_repository_search_returns_error_when_filters_are_provided() {
+    let repository = EquipmentRepositorySpy::default();
+    let params = EquipmentSearchParams {
+        is_available: Some(true),
+        ..EquipmentSearchParams::default()
+    };
+
+    let result = repository.search(&params, 25, 10).await;
+
+    match result {
+        Err(AppError::BadRequest(message)) => {
+            assert!(message.contains("not supported"));
+        }
+        other => panic!("expected bad request error, got: {other:?}"),
+    }
+    let calls = repository.calls.lock().expect("calls mutex poisoned");
+    assert!(calls.is_empty());
 }
 
 #[tokio::test]

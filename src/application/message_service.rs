@@ -136,16 +136,22 @@ impl MessageService {
         conversation_id: Uuid,
         request: SendMessageRequest,
     ) -> AppResult<MessageResponse> {
-        request.validate()?;
+        let (created, _) = self
+            .send_message_with_participants(user_id, conversation_id, request)
+            .await?;
+        Ok(created)
+    }
 
-        if !self
-            .can_access_conversation(user_id, conversation_id)
-            .await?
-        {
-            return Err(AppError::Forbidden(
-                "You are not a participant in this conversation".to_string(),
-            ));
-        }
+    pub async fn send_message_with_participants(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+        request: SendMessageRequest,
+    ) -> AppResult<(MessageResponse, Vec<Uuid>)> {
+        request.validate()?;
+        let participant_ids = self
+            .authorized_participant_ids(user_id, conversation_id)
+            .await?;
 
         let message = Message {
             id: Uuid::new_v4(),
@@ -156,14 +162,17 @@ impl MessageService {
         };
 
         let created = self.message_repo.create_message(&message).await?;
-        Ok(MessageResponse {
-            id: created.id,
-            conversation_id: created.conversation_id,
-            sender_id: created.sender_id,
-            sender_name: None,
-            content: created.content,
-            created_at: created.created_at,
-        })
+        Ok((
+            MessageResponse {
+                id: created.id,
+                conversation_id: created.conversation_id,
+                sender_id: created.sender_id,
+                sender_name: None,
+                content: created.content,
+                created_at: created.created_at,
+            },
+            participant_ids,
+        ))
     }
 
     pub async fn mark_as_read(&self, user_id: Uuid, conversation_id: Uuid) -> AppResult<()> {
@@ -186,18 +195,42 @@ impl MessageService {
         user_id: Uuid,
         conversation_id: Uuid,
     ) -> AppResult<Vec<Uuid>> {
-        if !self
-            .can_access_conversation(user_id, conversation_id)
-            .await?
-        {
-            return Err(AppError::Forbidden(
-                "You are not a participant in this conversation".to_string(),
-            ));
+        self.authorized_participant_ids(user_id, conversation_id)
+            .await
+    }
+
+    async fn authorized_participant_ids(
+        &self,
+        user_id: Uuid,
+        conversation_id: Uuid,
+    ) -> AppResult<Vec<Uuid>> {
+        let participant_ids = self
+            .message_repo
+            .find_participant_ids(conversation_id)
+            .await?;
+
+        if participant_ids.contains(&user_id) {
+            return Ok(participant_ids);
         }
 
-        self.message_repo
-            .find_participant_ids(conversation_id)
-            .await
+        let user = self
+            .user_repo
+            .find_by_id(user_id)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+
+        if user.role == Role::Admin {
+            info!(
+                actor_user_id = %user_id,
+                conversation_id = %conversation_id,
+                "admin override: conversation access"
+            );
+            return Ok(participant_ids);
+        }
+
+        Err(AppError::Forbidden(
+            "You are not a participant in this conversation".to_string(),
+        ))
     }
 
     async fn can_access_conversation(

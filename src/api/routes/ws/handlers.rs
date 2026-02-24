@@ -31,8 +31,8 @@ pub(super) async fn handle_text_message(
             let parsed = parse_send_message_payload(envelope.payload)?;
 
             // Persist first, then deliver to the socket.
-            let saved = message_service
-                .send_message(
+            let (saved, participants) = message_service
+                .send_message_with_participants(
                     user_id,
                     parsed.conversation_id,
                     SendMessageRequest {
@@ -42,9 +42,6 @@ pub(super) async fn handle_text_message(
                 .await?;
 
             let server_event = json!({ "type": "message", "payload": saved });
-            let participants = message_service
-                .participant_ids(user_id, parsed.conversation_id)
-                .await?;
             hub.broadcast_to_users(&participants, &server_event.to_string());
         }
         "typing" => {
