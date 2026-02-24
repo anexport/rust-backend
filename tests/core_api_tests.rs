@@ -797,6 +797,11 @@ fn app_with_auth0_data_and_message_repo(
             user_repo.clone(),
             auth_repo,
         )),
+        admin_service: Arc::new(rust_backend::application::AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(rust_backend::application::UserService::new(
             user_repo.clone(),
             equipment_repo.clone(),
@@ -877,6 +882,11 @@ fn app_state_with_message_repo(
         auth_service: Arc::new(rust_backend::application::AuthService::new(
             user_repo.clone(),
             auth_repo,
+        )),
+        admin_service: Arc::new(rust_backend::application::AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
         )),
         user_service: Arc::new(rust_backend::application::UserService::new(
             user_repo.clone(),

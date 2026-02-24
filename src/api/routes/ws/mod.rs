@@ -239,7 +239,7 @@ mod tests {
 
     use crate::api::routes::AppState;
     use crate::application::{
-        AuthService, CategoryService, EquipmentService, MessageService, UserService,
+        AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
     };
     use crate::config::{Auth0Config, SecurityConfig};
     use crate::domain::{
@@ -565,6 +565,11 @@ mod tests {
 
         AppState {
             auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo.clone())),
+            admin_service: Arc::new(AdminService::new(
+                user_repo.clone(),
+                equipment_repo.clone(),
+                category_repo.clone(),
+            )),
             user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
             category_service: Arc::new(CategoryService::new(category_repo)),
             equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),

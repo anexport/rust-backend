@@ -1,9 +1,11 @@
 use crate::domain::{
-    AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User,
+    AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, Role, User,
 };
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -37,6 +39,30 @@ pub trait UserRepository: Send + Sync {
     async fn create(&self, user: &User) -> AppResult<User>;
     async fn update(&self, user: &User) -> AppResult<User>;
     async fn delete(&self, id: Uuid) -> AppResult<()>;
+    async fn list_all(
+        &self,
+        limit: i64,
+        offset: i64,
+        search: Option<&str>,
+        role: Option<Role>,
+    ) -> AppResult<Vec<User>> {
+        let _ = (limit, offset, search, role);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "list_all is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn count_all(&self, search: Option<&str>, role: Option<Role>) -> AppResult<i64> {
+        let _ = (search, role);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_all is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn update_role(&self, id: Uuid, role: Role) -> AppResult<User> {
+        let _ = (id, role);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "update_role is not supported by this repository implementation".to_string(),
+        )))
+    }
 }
 
 #[async_trait]
@@ -53,6 +79,19 @@ pub trait AuthRepository: Send + Sync {
         provider_id: &str,
     ) -> AppResult<Option<AuthIdentity>>;
     async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity>;
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EquipmentWithOwner {
+    pub id: Uuid,
+    pub owner_id: Uuid,
+    pub category_id: Uuid,
+    pub title: String,
+    pub daily_rate: Decimal,
+    pub is_available: bool,
+    pub created_at: DateTime<Utc>,
+    pub owner_email: String,
+    pub category_name: String,
 }
 
 #[async_trait]
@@ -93,9 +132,46 @@ pub trait EquipmentRepository: Send + Sync {
         Ok(total)
     }
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
+    async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
+        let _ = owner_id;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_by_owner is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn count_by_owners(&self, owner_ids: &[Uuid]) -> AppResult<HashMap<Uuid, i64>> {
+        let mut counts = HashMap::with_capacity(owner_ids.len());
+        for owner_id in owner_ids {
+            counts.insert(*owner_id, self.count_by_owner(*owner_id).await?);
+        }
+        Ok(counts)
+    }
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment>;
     async fn update(&self, equipment: &Equipment) -> AppResult<Equipment>;
+    async fn set_availability_atomic(&self, id: Uuid, is_available: bool) -> AppResult<bool> {
+        let _ = (id, is_available);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "set_availability_atomic is not supported by this repository implementation"
+                .to_string(),
+        )))
+    }
     async fn delete(&self, id: Uuid) -> AppResult<()>;
+    async fn count_all(&self, search: Option<&str>) -> AppResult<i64> {
+        let _ = search;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_all is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn list_all_with_owner(
+        &self,
+        limit: i64,
+        offset: i64,
+        search: Option<&str>,
+    ) -> AppResult<Vec<EquipmentWithOwner>> {
+        let _ = (limit, offset, search);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "list_all_with_owner is not supported by this repository implementation".to_string(),
+        )))
+    }
 
     async fn add_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto>;
     async fn find_photos(&self, equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>>;
@@ -126,6 +202,29 @@ pub trait MessageRepository: Send + Sync {
 #[async_trait]
 pub trait CategoryRepository: Send + Sync {
     async fn find_all(&self) -> AppResult<Vec<Category>>;
+    async fn count_all(&self) -> AppResult<i64> {
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_all is not supported by this repository implementation".to_string(),
+        )))
+    }
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<Category>>;
     async fn find_children(&self, parent_id: Uuid) -> AppResult<Vec<Category>>;
+    async fn create(&self, category: &Category) -> AppResult<Category> {
+        let _ = category;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "create is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn update(&self, category: &Category) -> AppResult<Category> {
+        let _ = category;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "update is not supported by this repository implementation".to_string(),
+        )))
+    }
+    async fn delete(&self, id: Uuid) -> AppResult<()> {
+        let _ = id;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "delete is not supported by this repository implementation".to_string(),
+        )))
+    }
 }

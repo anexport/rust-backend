@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
 use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
-    AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use rust_backend::config::{Auth0Config, AuthConfig, SecurityConfig};
 use rust_backend::domain::{
@@ -684,6 +684,11 @@ fn app_state_with_provisioning(
 
     AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -725,6 +730,11 @@ fn app_with_auth0_data(
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),

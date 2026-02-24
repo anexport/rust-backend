@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { useUser } from '@auth0/nextjs-auth0';
+import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { fetchClient } from '@/lib/api';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
@@ -13,6 +16,35 @@ import {
 
 export function Navbar() {
   const { user, isLoading } = useUser();
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const loadRole = async () => {
+      if (!user) {
+        setRole(null);
+        return;
+      }
+      try {
+        const res = await fetchClient('/api/auth/me', { cache: 'no-store' });
+        if (!mounted || !res.ok) {
+          setRole(null);
+          return;
+        }
+        const body = (await res.json()) as { role?: string };
+        setRole(body.role ?? null);
+      } catch {
+        if (mounted) {
+          setRole(null);
+        }
+      }
+    };
+
+    void loadRole();
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -27,6 +59,12 @@ export function Navbar() {
           <Link href="/messages" className="transition-colors hover:text-foreground/80">
             Messages
           </Link>
+          {role === 'admin' ? (
+            <Link href="/admin" className="flex items-center gap-1 transition-colors hover:text-foreground/80">
+              <ShieldCheck className="h-4 w-4" />
+              Admin
+            </Link>
+          ) : null}
         </nav>
         <div className="flex items-center justify-end space-x-4">
           {!isLoading && (
