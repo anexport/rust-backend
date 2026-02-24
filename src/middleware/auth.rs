@@ -69,10 +69,11 @@ impl UserProvisioningService for JitUserProvisioningService {
                 "authenticated existing auth0 user"
             );
 
-            return Ok(Auth0UserContext::from_claims(
+            return Ok(Auth0UserContext::from_claims_with_role(
                 claims,
                 user.id,
                 &self.auth0_namespace,
+                user.role.to_string(),
             ));
         }
 

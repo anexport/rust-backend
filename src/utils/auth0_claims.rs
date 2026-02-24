@@ -110,12 +110,36 @@ impl Auth0UserContext {
             email: claims.email.clone(),
         }
     }
+
+    pub fn from_claims_with_role(
+        claims: &Auth0Claims,
+        user_id: Uuid,
+        _namespace: &str,
+        role: String,
+    ) -> Self {
+        Self {
+            user_id,
+            auth0_sub: claims.sub.clone(),
+            role,
+            email: claims.email.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Helper function to create test claims with custom claims.
+    ///
+    /// # DB-based Role System
+    /// In the new DB-based role system, Auth0 token claims are used only for
+    /// NEW users during initial account creation. Once a user exists in the
+    /// database, the role from the database is the source of truth and takes
+    /// precedence over any token claims.
+    ///
+    /// The `map_auth0_role` function is still used to map Auth0 token claims
+    /// to a role string for new user creation.
     fn test_claims_with_custom(
         custom: std::collections::HashMap<String, serde_json::Value>,
     ) -> Auth0Claims {
@@ -133,6 +157,8 @@ mod tests {
         }
     }
 
+    /// Tests that role is correctly mapped from namespaced roles array claim.
+    /// This applies to NEW users during initial account creation.
     #[test]
     fn maps_role_from_namespaced_roles_array() {
         let mut custom = std::collections::HashMap::new();
@@ -146,6 +172,8 @@ mod tests {
         assert_eq!(role, "owner");
     }
 
+    /// Tests that role is correctly mapped from namespaced roles string claim.
+    /// This applies to NEW users during initial account creation.
     #[test]
     fn maps_role_from_namespaced_roles_string() {
         let mut custom = std::collections::HashMap::new();
@@ -159,6 +187,8 @@ mod tests {
         assert_eq!(role, "renter");
     }
 
+    /// Tests that role is correctly mapped from non-namespaced roles claim.
+    /// This applies to NEW users during initial account creation.
     #[test]
     fn maps_role_from_non_namespaced_roles_claim() {
         let mut custom = std::collections::HashMap::new();
@@ -169,6 +199,8 @@ mod tests {
         assert_eq!(role, "admin");
     }
 
+    /// Tests that role is correctly mapped from namespaced single role claim.
+    /// This applies to NEW users during initial account creation.
     #[test]
     fn maps_role_from_namespaced_single_role_claim() {
         let mut custom = std::collections::HashMap::new();
@@ -182,6 +214,8 @@ mod tests {
         assert_eq!(role, "owner");
     }
 
+    /// Tests that role defaults to "renter" when no role claim is present.
+    /// This applies to NEW users during initial account creation.
     #[test]
     fn defaults_to_renter_when_no_role_claim() {
         let claims = test_claims_with_custom(std::collections::HashMap::new());
@@ -205,6 +239,12 @@ mod tests {
         assert!(!aud.contains("api3"));
     }
 
+    /// Tests that user context is correctly created from claims using
+    /// `from_claims`, which derives the role from Auth0 token claims.
+    ///
+    /// # Note
+    /// This method is primarily used for NEW users. For existing users,
+    /// `from_claims_with_role` should be used with the role from the database.
     #[test]
     fn creates_user_context_from_claims() {
         let mut custom = std::collections::HashMap::new();
@@ -221,5 +261,66 @@ mod tests {
         assert_eq!(context.auth0_sub, "auth0|abc123");
         assert_eq!(context.role, "owner");
         assert_eq!(context.email, Some("test@example.com".to_string()));
+    }
+
+    /// Tests that user context is correctly created from claims with an
+    /// explicit role using `from_claims_with_role`.
+    ///
+    /// # DB-based Role System
+    /// This method is used for EXISTING users, where the role comes from
+    /// the database instead of being derived from token claims. The database
+    /// role is the source of truth and overrides any role claims in the token.
+    #[test]
+    fn creates_user_context_from_claims_with_db_role() {
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(
+            "https://myapp.com/roles".to_string(),
+            serde_json::json!(["renter"]), // Token says "renter"
+        );
+        let claims = test_claims_with_custom(custom);
+        let user_id = Uuid::new_v4();
+
+        // Use database role "admin" which overrides token claim "renter"
+        let context = Auth0UserContext::from_claims_with_role(
+            &claims,
+            user_id,
+            "myapp.com",
+            "admin".to_string(),
+        );
+
+        assert_eq!(context.user_id, user_id);
+        assert_eq!(context.auth0_sub, "auth0|abc123");
+        assert_eq!(context.role, "admin"); // DB role, not token role
+        assert_eq!(context.email, Some("test@example.com".to_string()));
+    }
+
+    /// Tests that `from_claims` and `from_claims_with_role` produce different
+    /// results when token claims and database roles differ.
+    ///
+    /// # DB-based Role System
+    /// For NEW users: `from_claims` uses token claims
+    /// For EXISTING users: `from_claims_with_role` uses DB role (overrides token)
+    #[test]
+    fn from_claims_vs_from_claims_with_role() {
+        let mut custom = std::collections::HashMap::new();
+        custom.insert(
+            "https://myapp.com/roles".to_string(),
+            serde_json::json!(["owner"]),
+        );
+        let claims = test_claims_with_custom(custom);
+        let user_id = Uuid::new_v4();
+
+        // For NEW user - role from token claims
+        let new_user_context = Auth0UserContext::from_claims(&claims, user_id, "myapp.com");
+        assert_eq!(new_user_context.role, "owner");
+
+        // For EXISTING user - role from database (override)
+        let existing_user_context = Auth0UserContext::from_claims_with_role(
+            &claims,
+            user_id,
+            "myapp.com",
+            "renter".to_string(),
+        );
+        assert_eq!(existing_user_context.role, "renter"); // DB role overrides token
     }
 }
