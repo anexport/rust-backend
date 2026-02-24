@@ -106,8 +106,8 @@ export default function AdminEquipmentPage() {
             description={`Delete ${item.title}? This action cannot be undone.`}
             triggerLabel="Delete"
             confirmLabel="Delete"
-            onConfirm={async () => {
-              await deleteEquipment(item.id);
+            onConfirm={() => {
+              void deleteEquipment(item.id);
             }}
           />
         </div>,

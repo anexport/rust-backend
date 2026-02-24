@@ -133,7 +133,10 @@ pub trait EquipmentRepository: Send + Sync {
     }
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
     async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
-        Ok(self.find_by_owner(owner_id).await?.len() as i64)
+        let _ = owner_id;
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_by_owner is not supported by this repository implementation".to_string(),
+        )))
     }
     async fn count_by_owners(&self, owner_ids: &[Uuid]) -> AppResult<HashMap<Uuid, i64>> {
         let mut counts = HashMap::with_capacity(owner_ids.len());
@@ -145,14 +148,11 @@ pub trait EquipmentRepository: Send + Sync {
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment>;
     async fn update(&self, equipment: &Equipment) -> AppResult<Equipment>;
     async fn set_availability_atomic(&self, id: Uuid, is_available: bool) -> AppResult<bool> {
-        let mut equipment = self
-            .find_by_id(id)
-            .await?
-            .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
-        equipment.is_available = is_available;
-        equipment.updated_at = Utc::now();
-        let updated = self.update(&equipment).await?;
-        Ok(updated.is_available)
+        let _ = (id, is_available);
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "set_availability_atomic is not supported by this repository implementation"
+                .to_string(),
+        )))
     }
     async fn delete(&self, id: Uuid) -> AppResult<()>;
     async fn count_all(&self, search: Option<&str>) -> AppResult<i64> {
@@ -203,7 +203,9 @@ pub trait MessageRepository: Send + Sync {
 pub trait CategoryRepository: Send + Sync {
     async fn find_all(&self) -> AppResult<Vec<Category>>;
     async fn count_all(&self) -> AppResult<i64> {
-        Ok(self.find_all().await?.len() as i64)
+        Err(AppError::InternalError(anyhow::anyhow!(
+            "count_all is not supported by this repository implementation".to_string(),
+        )))
     }
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<Category>>;
     async fn find_children(&self, parent_id: Uuid) -> AppResult<Vec<Category>>;

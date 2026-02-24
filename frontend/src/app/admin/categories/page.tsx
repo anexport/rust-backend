@@ -168,8 +168,8 @@ export default function AdminCategoriesPage() {
             description={`Delete ${category.name}?`}
             triggerLabel="Delete"
             confirmLabel="Delete"
-            onConfirm={async () => {
-              await deleteCategory(category.id);
+            onConfirm={() => {
+              void deleteCategory(category.id);
             }}
             disabled={isSubmitting || editingId !== null}
           />
