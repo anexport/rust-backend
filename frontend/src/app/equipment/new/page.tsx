@@ -17,21 +17,51 @@ const newEquipmentSchema = z.object({
   daily_rate: z.string().min(1, 'Daily rate is required'),
   condition: z.string().min(1),
   location: z.string().min(2).max(255),
-  category_id: z.string().uuid(),
+  category_id: z
+    .string()
+    .min(1, 'Category is required')
+    .uuid('Please select a valid category'),
 });
 
 type FormValues = z.infer<typeof newEquipmentSchema>;
 
 export default function NewEquipmentPage() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [categories, setCategories] = useState<{id: string, name: string}[]>([]);
   const router = useRouter();
 
   useEffect(() => {
     fetchClient('/api/categories')
-      .then(res => res.json())
-      .then(data => setCategories(data))
-      .catch(() => toast.error('Failed to load categories'));
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error('Failed to load categories');
+        }
+        return res.json();
+      })
+      .then((data: unknown) => {
+        if (Array.isArray(data)) {
+          const normalized = data.filter(
+            (entry): entry is { id: string; name: string } =>
+              Boolean(
+                entry &&
+                  typeof entry === 'object' &&
+                  'id' in entry &&
+                  'name' in entry &&
+                  typeof (entry as { id: unknown }).id === 'string' &&
+                  typeof (entry as { name: unknown }).name === 'string',
+              ),
+          );
+          setCategories(normalized);
+          if (normalized.length === 0) {
+            toast.error('No categories are available yet. Please contact an admin.');
+          }
+          return;
+        }
+        throw new Error('Unexpected categories payload');
+      })
+      .catch(() => toast.error('Failed to load categories'))
+      .finally(() => setIsLoadingCategories(false));
   }, []);
 
   const form = useForm<FormValues>({
@@ -100,9 +130,16 @@ export default function NewEquipmentPage() {
                 <FormControl>
                   <select 
                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isLoadingCategories || categories.length === 0}
                     {...field}
                   >
-                    <option value="" disabled>Select a category</option>
+                    <option value="" disabled>
+                      {isLoadingCategories
+                        ? 'Loading categories...'
+                        : categories.length === 0
+                          ? 'No categories available'
+                          : 'Select a category'}
+                    </option>
                     {categories.map(c => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
@@ -175,7 +212,11 @@ export default function NewEquipmentPage() {
             )}
           />
 
-          <Button type="submit" disabled={isLoading} className="w-full">
+          <Button
+            type="submit"
+            disabled={isLoading || isLoadingCategories || categories.length === 0}
+            className="w-full"
+          >
             {isLoading ? 'Creating...' : 'Create Listing'}
           </Button>
         </form>
