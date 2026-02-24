@@ -1,25 +1,59 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { fetchClient } from '@/lib/api';
 
-export default function ChatClient({ 
-  conversationId, 
-  initialMessages, 
-  currentUserId 
-}: { 
-  conversationId: string; 
-  initialMessages: any[]; 
+interface Message {
+  id: string;
+  sender_id: string;
+  content: string;
+  created_at: string;
+}
+
+function parseCreatedAt(value: string): number {
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function formatCreatedAtTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleTimeString();
+}
+
+export default function ChatClient({
+  conversationId,
+  initialMessages,
+  currentUserId,
+}: {
+  conversationId: string;
+  initialMessages: Message[];
   currentUserId: string;
 }) {
   const { messages: liveMessages } = useChatWebSocket(conversationId);
   const [content, setContent] = useState('');
-  
-  const allMessages = [...initialMessages, ...liveMessages].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-  );
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const allMessages = useMemo(() => {
+    const mergedById = new Map<string, Message>();
+    [...initialMessages, ...liveMessages].forEach((message) => {
+      if (message?.id) {
+        mergedById.set(message.id, message);
+      }
+    });
+
+    return Array.from(mergedById.values()).sort(
+      (a, b) => parseCreatedAt(a.created_at) - parseCreatedAt(b.created_at),
+    );
+  }, [initialMessages, liveMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [allMessages]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,19 +73,20 @@ export default function ChatClient({
   return (
     <div className="flex-1 flex flex-col bg-card rounded-lg border shadow-sm overflow-hidden">
       <div className="flex-1 p-4 overflow-y-auto space-y-4">
-        {allMessages.map((msg, i) => {
+        {allMessages.map((msg) => {
           const isMe = msg.sender_id === currentUserId;
           return (
-            <div key={msg.id || i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[70%] rounded-lg p-3 ${isMe ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                 <p className="text-sm">{msg.content}</p>
                 <span className="text-[10px] opacity-70 mt-1 block">
-                  {new Date(msg.created_at).toLocaleTimeString()}
+                  {formatCreatedAtTime(msg.created_at)}
                 </span>
               </div>
             </div>
           );
         })}
+        <div ref={messagesEndRef} />
       </div>
       <form onSubmit={handleSend} className="p-4 bg-background border-t flex gap-2">
         <Input 

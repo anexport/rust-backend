@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useUser } from '@auth0/nextjs-auth0/client';
+import { useUser } from '@auth0/nextjs-auth0';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -46,13 +46,13 @@ export function Navbar() {
                       <Link href="/profile">Profile</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <a href="/api/auth/logout">Log out</a>
+                      <a href="/auth/logout">Log out</a>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
                 <Button asChild>
-                  <a href="/api/auth/login">Log In</a>
+                  <a href="/auth/login">Log In</a>
                 </Button>
               )}
             </>

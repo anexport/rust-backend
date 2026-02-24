@@ -9,7 +9,7 @@ export default async function ProfilePage() {
   
   if (!res.ok) {
     if (res.status === 401) {
-      redirect('/api/auth/login');
+      redirect('/auth/login');
     }
     return <div className="p-8 text-center text-red-500">Failed to load profile.</div>;
   }

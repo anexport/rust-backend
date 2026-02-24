@@ -1,24 +1,40 @@
-import { getAccessToken } from '@auth0/nextjs-auth0';
+import { auth0 } from '@/lib/auth0';
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+const PROXY_TIMEOUT_MS = 15000;
+
+function isValidPathSegment(segment: string): boolean {
+  if (segment === '.' || segment === '..') {
+    return false;
+  }
+  if (segment.includes('/') || segment.includes('\\')) {
+    return false;
+  }
+  return /^[\w.-]+$/.test(segment);
+}
 
 async function handler(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
+  if (!Array.isArray(path) || path.length === 0 || path.some((segment) => !isValidPathSegment(segment))) {
+    return NextResponse.json({ error: 'Invalid proxy path' }, { status: 400 });
+  }
+
   const pathString = `/${path.join('/')}`;
-  
+
   let token;
   const proxyRes = new NextResponse();
   try {
-    const { accessToken } = await getAccessToken(req, proxyRes);
+    const { token: accessToken } = await auth0.getAccessToken(req, proxyRes);
     token = accessToken;
   } catch (error) {
-    // Ignore error
+    console.warn('Proxy request without access token', error);
   }
 
   const headers = new Headers();
   req.headers.forEach((value, key) => {
-    if (key.toLowerCase() !== 'host') {
+    const lowerKey = key.toLowerCase();
+    if (!['host', 'content-length', 'connection'].includes(lowerKey)) {
       headers.set(key, value);
     }
   });
@@ -40,14 +56,30 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
     fetchOptions.duplex = 'half';
   }
 
-  const res = await fetch(url, fetchOptions);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+  fetchOptions.signal = controller.signal;
+
+  let res: Response;
+  try {
+    res = await fetch(url, fetchOptions);
+  } catch (error) {
+    const isAbort = error instanceof Error && error.name === 'AbortError';
+    return NextResponse.json(
+      { error: isAbort ? 'Upstream request timed out' : 'Failed to reach upstream service' },
+      { status: isAbort ? 504 : 502 },
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const responseHeaders = new Headers(res.headers);
-  responseHeaders.delete('content-encoding');
 
   // Propagate any cookies set by Auth0 (e.g., token refresh)
   proxyRes.headers.forEach((value, key) => {
-    responseHeaders.append(key, value);
+    if (key.toLowerCase() === 'set-cookie') {
+      responseHeaders.append(key, value);
+    }
   });
 
   return new NextResponse(res.body, {
