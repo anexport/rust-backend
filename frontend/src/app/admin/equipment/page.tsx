@@ -32,13 +32,18 @@ export default function AdminEquipmentPage() {
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
-    const query = new URLSearchParams({ page: String(page), per_page: String(perPage), search });
-    const res = await fetchClient(`/api/admin/equipment?${query.toString()}`, { cache: 'no-store' });
-    if (!res.ok) {
-      toast.error('Failed to load equipment');
-      return;
+    try {
+      const query = new URLSearchParams({ page: String(page), per_page: String(perPage), search });
+      const res = await fetchClient(`/api/admin/equipment?${query.toString()}`, { cache: 'no-store' });
+      if (!res.ok) {
+        toast.error('Failed to load equipment');
+        return;
+      }
+      setData((await res.json()) as EquipmentResponse);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to load equipment: ${message}`);
     }
-    setData((await res.json()) as EquipmentResponse);
   }, [page, perPage, search]);
 
   useEffect(() => {

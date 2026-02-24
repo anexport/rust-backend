@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Copy } from 'lucide-react';
 import { fetchClient } from '@/lib/api';
@@ -65,91 +65,101 @@ export default function AdminUsersPage() {
     }
   }, [data.total, page, perPage]);
 
-  const updateRole = async (id: string, role: string) => {
-    try {
-      const res = await fetchClient(`/api/admin/users/${id}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      });
-      if (!res.ok) {
-        toast.error('Unable to update role');
-        return;
+  const updateRole = useCallback(
+    async (id: string, role: string) => {
+      try {
+        const res = await fetchClient(`/api/admin/users/${id}/role`, {
+          method: 'PUT',
+          body: JSON.stringify({ role }),
+        });
+        if (!res.ok) {
+          toast.error('Unable to update role');
+          return;
+        }
+        toast.success('Role updated');
+        void load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        toast.error(`Unable to update role: ${message}`);
       }
-      toast.success('Role updated');
-      void load();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Unable to update role: ${message}`);
-    }
-  };
+    },
+    [load],
+  );
 
-  const deleteUser = async (id: string) => {
-    try {
-      const res = await fetchClient(`/api/admin/users/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        toast.error('Unable to delete user');
-        return;
+  const deleteUser = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetchClient(`/api/admin/users/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          toast.error('Unable to delete user');
+          return;
+        }
+        toast.success('User deleted');
+        void load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        toast.error(`Unable to delete user: ${message}`);
       }
-      toast.success('User deleted');
-      void load();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Unable to delete user: ${message}`);
-    }
-  };
+    },
+    [load],
+  );
 
-  const rows = data.users.map((user) => [
-    user.email,
-    <RoleBadge key={`${user.id}-badge`} role={user.role} />,
-    user.username || '-',
-    String(user.equipment_count),
-    <div key={`${user.id}-actions`} className="flex items-center gap-2">
-      <Select
-        value={user.role}
-        onValueChange={(value) => {
-          if (value === 'admin' && user.role !== 'admin') {
-            if (!window.confirm(`Promote ${user.email} to admin?`)) {
-              return;
-            }
-          }
-          void updateRole(user.id, value);
-        }}
-      >
-        <SelectTrigger size="sm">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="renter">renter</SelectItem>
-          <SelectItem value="owner">owner</SelectItem>
-          <SelectItem value="admin">admin</SelectItem>
-        </SelectContent>
-      </Select>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          void navigator.clipboard
-            .writeText(user.id)
-            .then(() => {
-              toast.success('User id copied');
-            })
-            .catch((error) => {
-              const message = error instanceof Error ? error.message : 'Unknown error';
-              toast.error(`Unable to copy user id: ${message}`);
-            });
-        }}
-      >
-        <Copy className="h-3 w-3" />
-      </Button>
-      <ConfirmDialog
-        title="Delete user"
-        description={`Delete ${user.email}? This action cannot be undone.`}
-        triggerLabel="Delete"
-        confirmLabel="Delete"
-        onConfirm={() => deleteUser(user.id)}
-      />
-    </div>,
-  ]);
+  const rows = useMemo(
+    () =>
+      data.users.map((user) => [
+        user.email,
+        <RoleBadge key={`${user.id}-badge`} role={user.role} />,
+        user.username || '-',
+        String(user.equipment_count),
+        <div key={`${user.id}-actions`} className="flex items-center gap-2">
+          <Select
+            value={user.role}
+            onValueChange={(value) => {
+              if (value === 'admin' && user.role !== 'admin') {
+                if (!window.confirm(`Promote ${user.email} to admin?`)) {
+                  return;
+                }
+              }
+              void updateRole(user.id, value);
+            }}
+          >
+            <SelectTrigger size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="renter">renter</SelectItem>
+              <SelectItem value="owner">owner</SelectItem>
+              <SelectItem value="admin">admin</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void navigator.clipboard
+                .writeText(user.id)
+                .then(() => {
+                  toast.success('User id copied');
+                })
+                .catch((error) => {
+                  const message = error instanceof Error ? error.message : 'Unknown error';
+                  toast.error(`Unable to copy user id: ${message}`);
+                });
+            }}
+          >
+            <Copy className="h-3 w-3" />
+          </Button>
+          <ConfirmDialog
+            title="Delete user"
+            description={`Delete ${user.email}? This action cannot be undone.`}
+            triggerLabel="Delete"
+            confirmLabel="Delete"
+            onConfirm={() => deleteUser(user.id)}
+          />
+        </div>,
+      ]),
+    [data.users, updateRole, deleteUser],
+  );
 
   const totalPages = Math.max(1, Math.ceil(data.total / perPage));
 
