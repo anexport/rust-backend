@@ -411,7 +411,10 @@ async fn test_profile_viewing_excludes_sensitive_data() {
     let has_username = profile.get("username").is_some();
     let has_avatar_url = profile.get("avatar_url").is_some();
     // At least one of username or avatar_url should be present
-    assert!(has_username || has_avatar_url, "Profile should have at least username or avatar_url");
+    assert!(
+        has_username || has_avatar_url,
+        "Profile should have at least username or avatar_url"
+    );
 
     // Should NOT have: email, role, created_at (if using PublicProfileResponse)
     assert!(profile.get("email").is_none());
