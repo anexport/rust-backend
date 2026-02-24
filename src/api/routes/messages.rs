@@ -91,7 +91,7 @@ async fn send_message(
 
     let ws_payload = serde_json::json!({
         "type": "new_message",
-        "data": result
+        "data": result.clone()
     })
     .to_string();
     state

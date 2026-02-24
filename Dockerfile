@@ -16,7 +16,7 @@ RUN cargo build --release
 # Runtime stage
 FROM debian:bookworm-slim AS runtime
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/rust-backend /app/rust-backend
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/config /app/config
