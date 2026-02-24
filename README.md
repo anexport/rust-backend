@@ -50,6 +50,78 @@ If you prefer to run services manually (without Docker):
 
 ---
 
+## 🐳 Docker Services
+
+When running `docker-compose up`, all three services run in Docker:
+
+| Service | Description | Port | Access URL |
+|---------|-------------|-------|------------|
+| `postgres` | PostgreSQL database | 5432 | `localhost:5432` |
+| `backend` | Rust API (Axum) | 8080 | http://localhost:8080 |
+| `frontend` | Next.js app | 3000 | http://localhost:3000 |
+
+**Important:** The backend runs in Docker when using `docker-compose up`. Do **not** also run `cargo run` locally, as both would try to use port 8080, causing conflicts.
+
+### Docker Service Dependencies
+
+- `frontend` waits for `backend` to be healthy
+- `backend` waits for `postgres` to be healthy
+- This ensures services start in the correct order
+
+### Viewing Logs
+
+```bash
+# View all logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f backend
+docker-compose logs -f postgres
+docker-compose logs -f frontend
+```
+
+### Stopping Services
+
+```bash
+docker-compose down
+```
+
+To also remove database volumes (clear all data):
+```bash
+docker-compose down -v
+```
+
+---
+
+## 👤 Setting Up Your First User as Admin
+
+After the first user signs in via Auth0, their role in the database defaults to `renter`. To promote them to `admin`:
+
+### Option 1: Using Docker
+```bash
+# Connect to PostgreSQL
+docker compose exec postgres psql -U postgres -d rust_backend
+
+# Update the user's role (replace user@example.com with the user's email)
+UPDATE profiles SET role = 'admin' WHERE email = 'user@example.com';
+```
+
+### Option 2: Direct Database Connection
+```bash
+# Connect directly
+PGPASSWORD=postgres psql -h localhost -p 5432 -U postgres -d rust_backend
+
+# Find user ID by email
+SELECT id FROM profiles WHERE email = 'user@example.com';
+
+# Update role
+UPDATE profiles SET role = 'admin' WHERE id = '<user-id-from-above>';
+```
+
+**Note:** Only `admin` or `owner` roles can create equipment via `POST /api/equipment`.
+
+---
+
 ## 🔑 Auth0 Role Requirement
 To create equipment (`POST /api/equipment`), the user's role in the database must be `owner` or `admin`. 
 - New users default to `renter`.

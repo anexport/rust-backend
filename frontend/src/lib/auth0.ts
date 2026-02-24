@@ -13,8 +13,15 @@ export const auth0: Auth0Client = new Proxy({} as Auth0Client, {
         authorizationParameters.audience = process.env.AUTH0_AUDIENCE;
       }
 
+      const appBaseUrl = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL;
+      if (!appBaseUrl) {
+        throw new Error(
+          'Missing required environment variable: APP_BASE_URL or AUTH0_BASE_URL must be set'
+        );
+      }
+
       _auth0 = new Auth0Client({
-        appBaseUrl: process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || 'http://localhost:3000',
+        appBaseUrl,
         authorizationParameters,
       });
     }

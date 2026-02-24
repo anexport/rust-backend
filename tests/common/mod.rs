@@ -58,7 +58,7 @@ impl TestDb {
         &self.pool
     }
 
-    pub fn url(&self) -> &str {
+    pub(crate) fn url(&self) -> &str {
         &self.url
     }
 }

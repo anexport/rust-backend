@@ -23,7 +23,8 @@ export default async function EquipmentPage({ searchParams }: { searchParams: Pr
 
   const query = category_id ? `?category_id=${category_id}` : '';
   const equipmentRes = await fetchServer(`/api/equipment${query}`);
-  const equipmentData = equipmentRes.ok ? await equipmentRes.json() : { items: [] as EquipmentItem[] };
+  const rawEquipmentData = equipmentRes.ok ? await equipmentRes.json() : {};
+  const equipmentData = { items: Array.isArray(rawEquipmentData.items) ? rawEquipmentData.items as EquipmentItem[] : [] };
 
   return (
     <main className="container mx-auto py-10 px-4 md:px-6 max-w-7xl">

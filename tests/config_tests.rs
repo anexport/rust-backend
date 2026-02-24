@@ -7,7 +7,7 @@ static SERIALIZE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 #[test]
 fn test_auth0_config_validation() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Valid config
     let valid = Auth0Config {
         auth0_domain: Some("test.auth0.com".to_string()),
@@ -40,7 +40,7 @@ fn test_auth0_config_validation() {
 
 #[test]
 fn test_auth0_issuer_construction() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     let config = Auth0Config {
         auth0_domain: Some("test.auth0.com".to_string()),
         ..Default::default()
@@ -60,7 +60,7 @@ fn test_auth0_issuer_construction() {
 
 #[test]
 fn test_config_from_env() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Set environment variables
     env::set_var("DATABASE_URL", "postgres://localhost/test");
     env::set_var("JWT_SECRET", "test-secret");
@@ -70,23 +70,30 @@ fn test_config_from_env() {
 
     let config = AppConfig::from_env().expect("Failed to load config from env");
 
-    assert_eq!(config.database.url, "postgres://localhost/test");
-    assert_eq!(config.auth.jwt_secret, "test-secret");
-    assert_eq!(config.auth0.auth0_domain, Some("env.auth0.com".to_string()));
-    assert_eq!(config.auth0.auth0_audience, Some("env-api".to_string()));
-    assert_eq!(config.security.login_max_failures, 10);
+    // Capture values for assertions
+    let db_url = config.database.url;
+    let jwt_secret = config.auth.jwt_secret;
+    let auth0_domain = config.auth0.auth0_domain;
+    let auth0_audience = config.auth0.auth0_audience;
+    let login_max_failures = config.security.login_max_failures;
 
-    // Cleanup
+    // Cleanup before assertions to ensure cleanup even if assertions fail
     env::remove_var("DATABASE_URL");
     env::remove_var("JWT_SECRET");
     env::remove_var("AUTH0_DOMAIN");
     env::remove_var("AUTH0_AUDIENCE");
     env::remove_var("APP_SECURITY__LOGIN_MAX_FAILURES");
+
+    assert_eq!(db_url, "postgres://localhost/test");
+    assert_eq!(jwt_secret, "test-secret");
+    assert_eq!(auth0_domain, Some("env.auth0.com".to_string()));
+    assert_eq!(auth0_audience, Some("env-api".to_string()));
+    assert_eq!(login_max_failures, 10);
 }
 
 #[test]
 fn test_config_defaults() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Clear relevant env vars to ensure we test defaults
     env::remove_var("DATABASE_URL");
     env::remove_var("APP_DATABASE__URL");
@@ -101,7 +108,7 @@ fn test_config_defaults() {
 
 #[test]
 fn test_auth0_config_is_enabled() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     let disabled = Auth0Config {
         auth0_domain: None,
         auth0_audience: None,
@@ -118,7 +125,7 @@ fn test_auth0_config_is_enabled() {
 
 #[test]
 fn test_invalid_env_types_fail() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     env::set_var("APP_APP__PORT", "not-a-number");
     let result = AppConfig::from_env();
     env::remove_var("APP_APP__PORT"); // Cleanup immediately
@@ -127,7 +134,7 @@ fn test_invalid_env_types_fail() {
 
 #[test]
 fn test_negative_timeout_values_fail() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // u64 cannot be negative
     env::set_var("APP_DATABASE__ACQUIRE_TIMEOUT_SECONDS", "-10");
     let result = AppConfig::from_env();
@@ -137,7 +144,7 @@ fn test_negative_timeout_values_fail() {
 
 #[test]
 fn test_cors_origins_list_parsing() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Figment can parse lists from env if properly formatted,
     // but usually it's easier to use a single string if that's how it's configured.
     // However, APP_SECURITY__CORS_ALLOWED_ORIGINS is Vec<String>.
@@ -156,7 +163,7 @@ fn test_cors_origins_list_parsing() {
 
 #[test]
 fn test_config_override_by_env() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Default is 8080 (from default.toml probably)
     env::set_var("APP_APP__PORT", "9090");
     let config = AppConfig::from_env().expect("Failed to load config");
@@ -166,7 +173,7 @@ fn test_config_override_by_env() {
 
 #[test]
 fn test_required_env_var_missing_fails() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Test that Auth0 validation fails when domain is set but audience is missing
     // This simulates a misconfiguration where required Auth0 fields are incomplete
     env::set_var("AUTH0_DOMAIN", "test.auth0.com");
@@ -188,7 +195,7 @@ fn test_required_env_var_missing_fails() {
 
 #[test]
 fn test_invalid_url_format_fails() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Test that invalid types fail to parse for database URL
     // Note: The config doesn't validate URL format, only type parsing
     // We test what actually fails - type conversion errors
@@ -217,7 +224,7 @@ fn test_invalid_url_format_fails() {
 
 #[test]
 fn test_allowed_origins_validation() {
-    let _lock = SERIALIZE.lock().unwrap();
+    let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
 
     // Test empty origins list - should still load (uses default)
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
@@ -272,7 +279,7 @@ fn test_allowed_origins_validation() {
     assert_eq!(config.security.cors_allowed_origins, vec!["localhost:3000"]);
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
 
-    // Test origin with spaces - should be trimmed/accepted
+    // Test origin with spaces - stored verbatim (trimming is NOT performed at config level)
     env::set_var(
         "APP_SECURITY__CORS_ALLOWED_ORIGINS",
         r#"["  https://example.com  "]"#,

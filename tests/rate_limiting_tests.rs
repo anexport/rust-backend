@@ -68,14 +68,15 @@ fn test_login_throttle_exponential_backoff() {
         Err(AppError::RateLimited)
     ));
 
-    thread::sleep(StdDuration::from_millis(150));
-    // Still blocked (only 150ms passed, need 200ms)
+    // Sleep 100ms - should still be blocked
+    thread::sleep(StdDuration::from_millis(100));
     assert!(matches!(
         throttle.ensure_allowed(&key),
         Err(AppError::RateLimited)
     ));
 
-    thread::sleep(StdDuration::from_millis(100));
+    // Sleep another 150ms (total 250ms from second failure) - should be allowed
+    thread::sleep(StdDuration::from_millis(150));
     assert!(throttle.ensure_allowed(&key).is_ok());
 }
 
@@ -325,24 +326,25 @@ fn test_memory_does_not_grow_unbounded() {
 }
 
 #[test]
-fn test_connection_pool_behavior_during_lockout() {
+fn test_concurrent_lockout_on_shared_key() {
     let config = test_config();
     let throttle = std::sync::Arc::new(LoginThrottle::new(&config));
 
     let mut handles = vec![];
+    let shared_key = LoginThrottle::key("shared@example.com", Some("127.0.0.1"));
 
-    // Spawn multiple threads that simultaneously attempt to create lockouts
-    for i in 0..10 {
+    // Spawn multiple threads that all use the same key to exercise concurrent access
+    for _ in 0..10 {
         let throttle_clone = std::sync::Arc::clone(&throttle);
-        let handle = thread::spawn(move || {
-            let key = LoginThrottle::key(&format!("user{}@example.com", i), Some("127.0.0.1"));
+        let key = shared_key.clone();
 
-            // Each thread records 3 failures to trigger lockout
+        let handle = thread::spawn(move || {
+            // Each thread records failures on the shared key
             for _ in 0..3 {
                 let _ = throttle_clone.record_failure(&key);
             }
 
-            // Verify lockout state is consistent across reads
+            // Verify lockout state is consistent across threads
             assert!(matches!(
                 throttle_clone.ensure_allowed(&key),
                 Err(AppError::RateLimited)

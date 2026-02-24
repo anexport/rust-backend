@@ -72,7 +72,7 @@ export default async function AdminOverviewPage() {
           <CardContent className="space-y-2 text-sm">
             {users.users.map((user) => (
               <div key={user.id} className="flex items-center justify-between gap-4 rounded border px-3 py-2">
-                <span className="truncate" title={user.email}>{user.email}</span>
+                <span className="min-w-0 truncate" title={user.email}>{user.email}</span>
                 <span className="shrink-0 text-muted-foreground">{user.role}</span>
               </div>
             ))}
@@ -87,7 +87,7 @@ export default async function AdminOverviewPage() {
           <CardContent className="space-y-2 text-sm">
             {equipment.equipment.map((item) => (
               <div key={item.id} className="flex items-center justify-between gap-4 rounded border px-3 py-2">
-                <span className="truncate" title={item.title}>{item.title}</span>
+                <span className="min-w-0 truncate" title={item.title}>{item.title}</span>
                 <span className="shrink-0 text-muted-foreground truncate max-w-[150px]" title={item.owner_email}>
                   {item.owner_email}
                 </span>

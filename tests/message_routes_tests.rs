@@ -721,10 +721,10 @@ async fn test_pagination_edge_cases() {
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 0);
 
-    // Test page 0 - should return first page
+    // Test negative offset - should return empty array or handle gracefully
     let req = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{}/messages?limit=10&offset=0",
+            "/api/conversations/{}/messages?limit=10&offset=-1",
             conv.id
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
@@ -732,5 +732,5 @@ async fn test_pagination_edge_cases() {
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
-    assert_eq!(messages.len(), 10);
+    assert_eq!(messages.len(), 0);
 }

@@ -13,7 +13,7 @@ This is a continuation of the test expansion work. The first round implemented 3
 | `tests/admin_routes_tests.rs` | ✅ Complete | 9/15 tests (~60%) |
 | `tests/rate_limiting_tests.rs` | ✅ Complete | 9/11 tests (~82%) |
 | `tests/user_routes_tests.rs` | ⚠️ Partial | 5/10 tests (~50%) |
-| `tests/message_routes_tests.rs` | ⚠️ Partial | 3/12 tests (~25%) |
+| `tests/message_routes_tests.rs` | ⚠️ Partial | 10/12 tests (~83%) |
 | `tests/equipment_photos_tests.rs` | ⚠️ Partial | 3/7 tests (~43%) |
 | `tests/config_tests.rs` | ✅ Complete | 6/10 tests (~60%) |
 | `tests/db_pool_tests.rs` | ⚠️ Broken | 4/6 tests (~67%) |
@@ -109,7 +109,8 @@ let config = DatabaseConfig {
    - Create exactly 10 messages (common page size)
    - Request page 1 with limit 10 → should return 10
    - Request page 2 with limit 10 → should return empty
-   - Request page 0 → should return empty or first page
+   - Request with negative offset (e.g., offset=-1) → should return empty or error
+   - Request without pagination params → should return all with default limit
 
 9. **test_websocket_broadcast_on_send_message**
    - Mock ws_hub with outbound receiver
@@ -366,19 +367,8 @@ let config = DatabaseConfig {
 
 ## IMPLEMENTATION NOTES
 
-### Fix Required: tests/message_routes_tests.rs
-Remove unused imports:
-```rust
-// Remove these lines from imports:
-use rust_backend::infrastructure::repositories::{
-    // CategoryRepository,  <-- Remove
-    // EquipmentRepository,  <-- Remove
-    CategoryRepositoryImpl,
-    EquipmentRepositoryImpl,
-    MessageRepository, MessageRepositoryImpl, UserRepository,
-    UserRepositoryImpl,
-};
-```
+### Note: tests/message_routes_tests.rs imports
+The imports in `tests/message_routes_tests.rs` are already correct - they use the implementation classes (`CategoryRepositoryImpl`, `EquipmentRepositoryImpl`, etc.) rather than the traits. No import cleanup is needed.
 
 ### Fix Required: tests/db_pool_tests.rs
 Rewrite to use `TestDb` pattern:

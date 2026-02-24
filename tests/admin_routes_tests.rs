@@ -764,7 +764,7 @@ async fn test_category_list_with_hierarchy() {
 }
 
 #[actix_rt::test]
-async fn test_admin_cannot_update_other_admin_role() {
+async fn test_admin_can_demote_other_admin_role() {
     let Some(test_db) = TestDb::new().await else {
         return;
     };

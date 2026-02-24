@@ -414,7 +414,8 @@ async fn test_photo_persistence_verification() {
             "is_primary": true
         }))
         .to_request();
-    actix_test::call_service(&app, req).await;
+    let resp = actix_test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
 
     // Verify in DB
     let photos = equipment_repo.find_photos(eq.id).await.unwrap();
@@ -453,7 +454,8 @@ async fn test_photo_associated_with_correct_equipment() {
             "is_primary": true
         }))
         .to_request();
-    actix_test::call_service(&app, req).await;
+    let resp = actix_test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
 
     // Verify eq2 has NO photos
     let photos2 = equipment_repo.find_photos(eq2.id).await.unwrap();
@@ -489,7 +491,8 @@ async fn test_delete_equipment_cascades_to_photos() {
                 "is_primary": i == 1
             }))
             .to_request();
-        actix_test::call_service(&app, req).await;
+        let resp = actix_test::call_service(&app, req).await;
+        assert!(resp.status().is_success());
     }
 
     // Delete equipment
@@ -545,7 +548,8 @@ async fn test_delete_photo_leaves_other_photos_intact() {
         .uri(&format!("/api/equipment/{}/photos/{}", eq.id, photo_ids[0]))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
-    actix_test::call_service(&app, req).await;
+    let resp = actix_test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
 
     // Verify 2 remaining
     let photos = equipment_repo.find_photos(eq.id).await.unwrap();

@@ -45,7 +45,18 @@ impl MessageRepository for MessageRepositoryImpl {
     }
 
     async fn create_conversation(&self, participant_ids: Vec<Uuid>) -> AppResult<Conversation> {
-        let mut tx = self.pool.begin().await?;
+        // Reject empty participant lists - conversations must have at least one participant
+        if participant_ids.is_empty() {
+            return Err(crate::error::AppError::validation_error(
+                "Conversations must have at least one participant",
+            ));
+        }
+
+        // Use SERIALIZABLE isolation to prevent race condition in duplicate conversation check
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN ISOLATION LEVEL SERIALIZABLE")
+            .await?;
 
         // Check if a conversation with exactly these participants already exists
         let existing_id: Option<Uuid> = sqlx::query_scalar(

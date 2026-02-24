@@ -407,8 +407,11 @@ async fn test_profile_viewing_excludes_sensitive_data() {
     let profile: serde_json::Value = actix_test::read_body_json(resp).await;
     // Should have: id, username, avatar_url
     assert!(profile.get("id").is_some());
-    assert!(profile.get("username").is_some() || profile.get("username").is_none()); // Option
-    assert!(profile.get("avatar_url").is_some() || profile.get("avatar_url").is_none());
+    // username and avatar_url are optional fields - they may be null or missing
+    let has_username = profile.get("username").is_some();
+    let has_avatar_url = profile.get("avatar_url").is_some();
+    // At least one of username or avatar_url should be present
+    assert!(has_username || has_avatar_url, "Profile should have at least username or avatar_url");
 
     // Should NOT have: email, role, created_at (if using PublicProfileResponse)
     assert!(profile.get("email").is_none());
@@ -568,11 +571,12 @@ async fn test_my_equipment_pagination() {
     let cat = fixtures::test_category();
     category_repo.create(&cat).await.unwrap();
 
-    // Create 15 equipment items
+    // Create 15 equipment items with explicit timestamps to avoid race conditions
     let equipment_count = 15;
     for i in 0..equipment_count {
         let mut eq = fixtures::test_equipment(owner.id, cat.id);
         eq.title = format!("Equipment {}", i);
+        eq.created_at = Utc::now() + Duration::minutes(i);
         equipment_repo.create(&eq).await.unwrap();
     }
 
@@ -596,8 +600,8 @@ async fn test_my_equipment_pagination() {
     assert!(items.iter().all(|i| i["owner_id"] == owner.id.to_string()));
 
     // Verify ordering is by creation date (newest first based on SQL)
-    // Items should be in order of creation (the query uses ORDER BY created_at DESC)
-    // Since we create them sequentially, the last one created should be first in the list
+    // With explicit timestamps, Equipment 14 (created at +14min) should be first
+    // Equipment 0 (created at +0min) should be last
     assert_eq!(
         items[0]["title"],
         format!("Equipment {}", equipment_count - 1)
