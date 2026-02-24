@@ -52,29 +52,39 @@ export default function AdminEquipmentPage() {
 
   const toggleAvailability = useCallback(
     async (id: string, current: boolean) => {
-      const res = await fetchClient(`/api/admin/equipment/${id}/availability`, {
-        method: 'PUT',
-        body: JSON.stringify({ is_available: !current }),
-      });
-      if (!res.ok) {
-        toast.error('Unable to update availability');
-        return;
+      try {
+        const res = await fetchClient(`/api/admin/equipment/${id}/availability`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_available: !current }),
+        });
+        if (!res.ok) {
+          toast.error('Unable to update availability');
+          return;
+        }
+        toast.success('Availability updated');
+        void load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        toast.error(`Unable to update availability: ${message}`);
       }
-      toast.success('Availability updated');
-      void load();
     },
     [load],
   );
 
   const deleteEquipment = useCallback(
     async (id: string) => {
-      const res = await fetchClient(`/api/admin/equipment/${id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        toast.error('Unable to delete equipment');
-        return;
+      try {
+        const res = await fetchClient(`/api/admin/equipment/${id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          toast.error('Unable to delete equipment');
+          return;
+        }
+        toast.success('Equipment deleted');
+        void load();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        toast.error(`Unable to delete equipment: ${message}`);
       }
-      toast.success('Equipment deleted');
-      void load();
     },
     [load],
   );

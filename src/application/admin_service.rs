@@ -10,7 +10,7 @@ use crate::api::dtos::{
     AdminStatsResponse, AdminUpdateRoleRequest, AdminUserDetailResponse, AdminUserListResponse,
     AdminUserRow,
 };
-use crate::domain::{Category, Role};
+use crate::domain::{Category, Role, User};
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{
     CategoryRepository, EquipmentRepository, EquipmentSearchParams, UserRepository,
@@ -103,17 +103,7 @@ impl AdminService {
             .ok_or_else(|| AppError::NotFound("user not found".to_string()))?;
         let equipment_count = self.equipment_repo.count_by_owner(user.id).await?;
 
-        Ok(AdminUserDetailResponse {
-            id: user.id,
-            email: user.email,
-            role: user.role.to_string(),
-            username: user.username,
-            full_name: user.full_name,
-            avatar_url: user.avatar_url,
-            created_at: user.created_at,
-            updated_at: user.updated_at,
-            equipment_count,
-        })
+        Ok(map_user_detail(user, equipment_count))
     }
 
     pub async fn update_user_role(
@@ -137,8 +127,9 @@ impl AdminService {
             target = %target_id,
             role = %new_role.to_string()
         );
-        self.user_repo.update_role(target_id, new_role).await?;
-        self.get_user_detail(target_id).await
+        let user = self.user_repo.update_role(target_id, new_role).await?;
+        let equipment_count = self.equipment_repo.count_by_owner(user.id).await?;
+        Ok(map_user_detail(user, equipment_count))
     }
 
     pub async fn delete_user(&self, actor_id: Uuid, target_id: Uuid) -> AppResult<()> {
@@ -346,5 +337,19 @@ fn map_category(category: Category) -> AdminCategoryResponse {
         name: category.name,
         parent_id: category.parent_id,
         created_at: category.created_at,
+    }
+}
+
+fn map_user_detail(user: User, equipment_count: i64) -> AdminUserDetailResponse {
+    AdminUserDetailResponse {
+        id: user.id,
+        email: user.email,
+        role: user.role.to_string(),
+        username: user.username,
+        full_name: user.full_name,
+        avatar_url: user.avatar_url,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        equipment_count,
     }
 }
