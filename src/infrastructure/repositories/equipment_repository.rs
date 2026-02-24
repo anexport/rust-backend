@@ -1,4 +1,5 @@
 use super::traits::{EquipmentRepository, EquipmentSearchParams, EquipmentWithOwner};
+use super::utils::escape_like_pattern;
 use crate::domain::{Equipment, EquipmentPhoto};
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
@@ -385,11 +386,4 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             .await?;
         Ok(())
     }
-}
-
-fn escape_like_pattern(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }

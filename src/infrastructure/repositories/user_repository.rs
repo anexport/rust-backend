@@ -1,4 +1,5 @@
 use super::traits::{AuthRepository, UserRepository};
+use super::utils::escape_like_pattern;
 use crate::domain::{AuthIdentity, Role, User};
 use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
@@ -155,13 +156,6 @@ impl UserRepository for UserRepositoryImpl {
         .await?;
         updated.ok_or_else(|| AppError::NotFound("user not found".to_string()))
     }
-}
-
-fn escape_like_pattern(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
 }
 
 pub struct AuthRepositoryImpl {
