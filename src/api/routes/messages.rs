@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::api::dtos::{CreateConversationRequest, SendMessageRequest};
+use crate::api::dtos::{CreateConversationRequest, MessageResponse, SendMessageRequest};
 use crate::api::routes::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::Auth0AuthenticatedUser;
@@ -66,6 +66,10 @@ async fn list_messages(
     query: web::Query<MessageQuery>,
 ) -> AppResult<HttpResponse> {
     let q = query.into_inner();
+    // Return empty result for negative offset (invalid input)
+    if q.offset.unwrap_or(0) < 0 {
+        return Ok(HttpResponse::Ok().json(Vec::<MessageResponse>::new()));
+    }
     let result = state
         .message_service
         .list_messages(

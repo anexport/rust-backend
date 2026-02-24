@@ -3,6 +3,7 @@ mod common;
 use common::TestDb;
 use rust_backend::config::DatabaseConfig;
 use rust_backend::infrastructure::db::pool::create_pool;
+use sqlx::Connection;
 use std::time::Duration;
 
 #[tokio::test]
@@ -83,36 +84,39 @@ async fn test_pool_test_before_acquire() {
     let pool = create_pool(&config).await.expect("Failed to create pool");
 
     // Acquire a connection and get its backend PID
-    let conn = pool.acquire().await.expect("Failed to acquire conn");
+    let mut conn = pool.acquire().await.expect("Failed to acquire conn");
     let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&*conn)
+        .fetch_one(&mut *conn)
         .await
         .expect("Failed to get PID");
     drop(conn);
 
     // Terminate the server-side connection from a new connection
     {
-        let kill_conn = sqlx::PgConnection::connect(test_db.url())
+        let mut kill_conn: sqlx::PgConnection = sqlx::PgConnection::connect(test_db.url())
             .await
             .expect("Failed to connect for PID kill");
         sqlx::query("SELECT pg_terminate_backend($1)")
             .bind(pid)
-            .execute(&kill_conn)
+            .execute(&mut kill_conn)
             .await
             .expect("Failed to terminate connection");
         kill_conn.close().await.ok();
     }
 
     // Re-acquire - test_before_acquire should replace the dead connection
-    let conn = pool.acquire().await.expect("Failed to re-acquire conn");
+    let mut conn = pool.acquire().await.expect("Failed to re-acquire conn");
     let new_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&*conn)
+        .fetch_one(&mut *conn)
         .await
         .expect("Failed to get new PID");
     drop(conn);
 
     // The PID should be different (dead connection was replaced)
-    assert_ne!(pid, new_pid, "test_before_acquire should have replaced the dead connection");
+    assert_ne!(
+        pid, new_pid,
+        "test_before_acquire should have replaced the dead connection"
+    );
 }
 
 #[tokio::test]
@@ -198,7 +202,11 @@ async fn test_idle_timeout_closes_connections() {
     }
 
     // Idle connections should be closed by the background reaper task
-    assert_eq!(pool.num_idle(), 0, "Idle connection should have been closed after timeout");
+    assert_eq!(
+        pool.num_idle(),
+        0,
+        "Idle connection should have been closed after timeout"
+    );
 }
 
 #[tokio::test]
@@ -234,5 +242,8 @@ async fn test_max_lifetime_recycles_connections() {
         .unwrap();
 
     // Should be different PIDs because the first one exceeded max lifetime and was closed
-    assert_ne!(pid1, pid2, "Connection should have been recycled after max_lifetime");
+    assert_ne!(
+        pid1, pid2,
+        "Connection should have been recycled after max_lifetime"
+    );
 }
