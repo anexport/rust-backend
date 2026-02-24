@@ -45,28 +45,34 @@ export default function AdminEquipmentPage() {
     void load();
   }, [load]);
 
-  const toggleAvailability = async (id: string, current: boolean) => {
-    const res = await fetchClient(`/api/admin/equipment/${id}/availability`, {
-      method: 'PUT',
-      body: JSON.stringify({ is_available: !current }),
-    });
-    if (!res.ok) {
-      toast.error('Unable to update availability');
-      return;
-    }
-    toast.success('Availability updated');
-    void load();
-  };
+  const toggleAvailability = useCallback(
+    async (id: string, current: boolean) => {
+      const res = await fetchClient(`/api/admin/equipment/${id}/availability`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_available: !current }),
+      });
+      if (!res.ok) {
+        toast.error('Unable to update availability');
+        return;
+      }
+      toast.success('Availability updated');
+      void load();
+    },
+    [load],
+  );
 
-  const deleteEquipment = async (id: string) => {
-    const res = await fetchClient(`/api/admin/equipment/${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      toast.error('Unable to delete equipment');
-      return;
-    }
-    toast.success('Equipment deleted');
-    void load();
-  };
+  const deleteEquipment = useCallback(
+    async (id: string) => {
+      const res = await fetchClient(`/api/admin/equipment/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        toast.error('Unable to delete equipment');
+        return;
+      }
+      toast.success('Equipment deleted');
+      void load();
+    },
+    [load],
+  );
 
   const rows = useMemo(
     () =>
@@ -89,7 +95,7 @@ export default function AdminEquipmentPage() {
           />
         </div>,
       ]),
-    [data.equipment],
+    [data.equipment, toggleAvailability, deleteEquipment],
   );
 
   const totalPages = Math.max(1, Math.ceil(data.total / perPage));

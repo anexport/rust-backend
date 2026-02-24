@@ -298,16 +298,17 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
     }
 
     async fn count_all(&self, search: Option<&str>) -> AppResult<i64> {
+        let escaped_search = search.map(escape_like_pattern);
         let (count,): (i64,) = sqlx::query_as(
             r#"
             SELECT COUNT(*)::BIGINT
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' OR p.email ILIKE '%' || $1 || '%')
+            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '\' OR p.email ILIKE '%' || $1 || '%' ESCAPE '\')
             "#,
         )
-        .bind(search)
+        .bind(escaped_search.as_deref())
         .fetch_one(&self.pool)
         .await?;
         Ok(count)
@@ -319,6 +320,7 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         offset: i64,
         search: Option<&str>,
     ) -> AppResult<Vec<EquipmentWithOwner>> {
+        let escaped_search = search.map(escape_like_pattern);
         let rows = sqlx::query_as::<_, EquipmentWithOwner>(
             r#"
             SELECT
@@ -334,14 +336,14 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' OR p.email ILIKE '%' || $3 || '%')
+            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '\' OR p.email ILIKE '%' || $3 || '%' ESCAPE '\')
             ORDER BY e.created_at DESC
             LIMIT $1 OFFSET $2
             "#,
         )
         .bind(limit)
         .bind(offset)
-        .bind(search)
+        .bind(escaped_search.as_deref())
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
@@ -383,4 +385,11 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             .await?;
         Ok(())
     }
+}
+
+fn escape_like_pattern(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
