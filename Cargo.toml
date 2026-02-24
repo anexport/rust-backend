@@ -59,6 +59,7 @@ sha2 = "0.10"
 futures-util = "0.3"
 base64 = "0.22"
 oauth2 = "5.0.0"
+sentry = { version = "0.46.2", default-features = false, features = ["backtrace", "contexts", "panic", "anyhow", "tracing", "rustls", "httpdate", "reqwest"] }
 
 [dev-dependencies]
 actix-rt = "2"
