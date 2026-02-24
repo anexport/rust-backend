@@ -2,7 +2,7 @@ use actix_web::{web, HttpResponse};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::api::dtos::{CreateConversationRequest, MessageResponse, SendMessageRequest};
+use crate::api::dtos::{CreateConversationRequest, SendMessageRequest};
 use crate::api::routes::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::Auth0AuthenticatedUser;
@@ -68,7 +68,9 @@ async fn list_messages(
     let q = query.into_inner();
     // Return 400 for negative offset (invalid input)
     if q.offset.unwrap_or(0) < 0 {
-        return Err(crate::error::AppError::validation_error("offset must be non-negative"));
+        return Err(crate::error::AppError::validation_error(
+            "offset must be non-negative",
+        ));
     }
     let result = state
         .message_service
