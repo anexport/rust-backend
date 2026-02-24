@@ -66,9 +66,9 @@ async fn list_messages(
     query: web::Query<MessageQuery>,
 ) -> AppResult<HttpResponse> {
     let q = query.into_inner();
-    // Return empty result for negative offset (invalid input)
+    // Return 400 for negative offset (invalid input)
     if q.offset.unwrap_or(0) < 0 {
-        return Ok(HttpResponse::Ok().json(Vec::<MessageResponse>::new()));
+        return Err(crate::error::AppError::validation_error("offset must be non-negative"));
     }
     let result = state
         .message_service

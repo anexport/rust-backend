@@ -1,11 +1,6 @@
 import { Auth0Client } from '@auth0/nextjs-auth0/server';
 
-const appBaseUrl = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL;
-if (!appBaseUrl) {
-  throw new Error(
-    'Missing required environment variable: APP_BASE_URL or AUTH0_BASE_URL must be set'
-  );
-}
+const appBaseUrl = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || undefined;
 
 let _auth0: Auth0Client | null = null;
 

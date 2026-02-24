@@ -2,6 +2,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
+import Image from 'next/image';
 import { fetchServer } from '@/lib/server';
 import { Search, MapPin, Zap, Shield } from 'lucide-react';
 
@@ -83,10 +84,12 @@ export default async function Home() {
                 <CardHeader className="p-0">
                   <div className="relative aspect-[4/3] overflow-hidden bg-muted">
                     {item.photos && item.photos.length > 0 ? (
-                      <img 
+                      <Image 
                         src={item.photos[0].photo_url} 
-                        alt={item.title} 
-                        className="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105" 
+                        alt={item.title}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover transition-transform duration-300 group-hover:scale-105" 
                       />
                     ) : (
                       <div className="flex items-center justify-center w-full h-full text-muted-foreground bg-secondary/50">

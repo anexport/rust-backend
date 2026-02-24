@@ -721,7 +721,7 @@ async fn test_pagination_edge_cases() {
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 0);
 
-    // Test negative offset - should return empty array or handle gracefully
+    // Test negative offset - should return 400 Bad Request
     let req = actix_test::TestRequest::get()
         .uri(&format!(
             "/api/conversations/{}/messages?limit=10&offset=-1",
@@ -730,7 +730,5 @@ async fn test_pagination_edge_cases() {
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::OK);
-    let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
-    assert_eq!(messages.len(), 0);
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }

@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { fetchServer } from '@/lib/server';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
+import Image from 'next/image';
 
 interface Category {
   id: string;
@@ -61,11 +62,15 @@ export default async function EquipmentPage({ searchParams }: { searchParams: Pr
                 </CardHeader>
                 <CardContent className="flex-1">
                   {item.photos && item.photos.length > 0 ? (
-                    <img 
-                      src={item.photos[0].photo_url} 
-                      alt={item.title} 
-                      className="w-full h-48 object-cover rounded-md mb-4" 
-                    />
+                    <div className="relative w-full h-48 rounded-md mb-4 overflow-hidden">
+                      <Image 
+                        src={item.photos[0].photo_url} 
+                        alt={item.title}
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover"
+                      />
+                    </div>
                   ) : (
                     <div className="w-full h-48 bg-muted rounded-md mb-4 flex items-center justify-center text-muted-foreground">
                       No image

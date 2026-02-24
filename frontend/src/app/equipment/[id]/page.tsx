@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 import { fetchServer } from '@/lib/server';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import Image from 'next/image';
 
 interface EquipmentItem {
   id: string;
@@ -34,11 +35,15 @@ export default async function EquipmentDetailsPage({ params }: { params: Promise
       <div className="grid md:grid-cols-2 gap-8">
         <div>
            {item.photos && item.photos.length > 0 ? (
-             <img 
-               src={item.photos[0].photo_url} 
-               alt={item.title} 
-               className="w-full h-auto object-cover rounded-lg shadow-sm" 
-             />
+             <div className="relative w-full aspect-square rounded-lg overflow-hidden">
+               <Image 
+                 src={item.photos[0].photo_url} 
+                 alt={item.title}
+                 fill
+                 sizes="(max-width: 768px) 100vw, 50vw"
+                 className="object-cover"
+               />
+             </div>
            ) : (
              <div className="w-full aspect-square bg-muted rounded-lg shadow-sm flex items-center justify-center text-muted-foreground">
                No image provided
