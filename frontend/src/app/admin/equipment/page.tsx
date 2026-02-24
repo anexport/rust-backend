@@ -96,7 +96,9 @@ export default function AdminEquipmentPage() {
             description={`Delete ${item.title}? This action cannot be undone.`}
             triggerLabel="Delete"
             confirmLabel="Delete"
-            onConfirm={() => deleteEquipment(item.id)}
+            onConfirm={async () => {
+              await deleteEquipment(item.id);
+            }}
           />
         </div>,
       ]),
@@ -123,7 +125,13 @@ export default function AdminEquipmentPage() {
         <Button variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
           Next
         </Button>
-        <Select value={String(perPage)} onValueChange={(value) => setPerPage(Number(value))}>
+        <Select
+          value={String(perPage)}
+          onValueChange={(value) => {
+            setPage(1);
+            setPerPage(Number(value));
+          }}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
