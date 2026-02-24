@@ -26,6 +26,7 @@ use rust_backend::utils::auth0_claims::Auth0UserContext;
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
 use rust_backend::utils::auth0_jwks::JwksProvider;
 use rust_decimal::Decimal;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 // =============================================================================
@@ -682,11 +683,7 @@ fn app_state_with_provisioning(
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
 
     AppState {
-        auth_service: Arc::new(AuthService::new(
-            user_repo.clone(),
-            auth_repo,
-            auth_config(),
-        )),
+        auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -697,7 +694,7 @@ fn app_state_with_provisioning(
         )),
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
-        db_pool: None,
+        db_pool: test_db_pool(),
         ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     }
@@ -727,11 +724,7 @@ fn app_with_auth0_data(
         web::Data::new(provisioning_service.clone() as Arc<dyn UserProvisioningService>);
 
     let state = AppState {
-        auth_service: Arc::new(AuthService::new(
-            user_repo.clone(),
-            auth_repo,
-            auth_config(),
-        )),
+        auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo)),
         equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -742,7 +735,7 @@ fn app_with_auth0_data(
         )),
         app_environment: "test".to_string(),
         metrics: Arc::new(AppMetrics::default()),
-        db_pool: None,
+        db_pool: test_db_pool(),
         ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     };
@@ -753,6 +746,15 @@ fn app_with_auth0_data(
         auth0_jwks_client,
         provisioning_service_data,
     )
+}
+
+fn test_db_pool() -> sqlx::PgPool {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
+    PgPoolOptions::new()
+        .connect_lazy(&database_url)
+        .expect("test db pool should build lazily")
 }
 
 fn create_equipment(
@@ -810,6 +812,12 @@ fn get_limit(body: &serde_json::Value) -> i64 {
     body.get("limit")
         .and_then(serde_json::Value::as_i64)
         .unwrap_or(20)
+}
+
+fn get_total_pages(body: &serde_json::Value) -> i64 {
+    body.get("total_pages")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(0)
 }
 
 // =============================================================================
@@ -1683,6 +1691,8 @@ async fn pagination_respects_page_parameter() {
     let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_page(&body), 1);
     assert_eq!(get_limit(&body), 2);
+    assert_eq!(get_total(&body), 5);
+    assert_eq!(get_total_pages(&body), 3);
     assert_eq!(get_items_array(&body).len(), 2);
 }
 

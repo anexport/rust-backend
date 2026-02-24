@@ -34,6 +34,14 @@ pub struct DatabaseConfig {
     pub url: String,
     pub max_connections: u32,
     pub min_connections: u32,
+    #[serde(default = "default_db_acquire_timeout_seconds")]
+    pub acquire_timeout_seconds: u64,
+    #[serde(default = "default_db_idle_timeout_seconds")]
+    pub idle_timeout_seconds: u64,
+    #[serde(default = "default_db_max_lifetime_seconds")]
+    pub max_lifetime_seconds: u64,
+    #[serde(default = "default_db_test_before_acquire")]
+    pub test_before_acquire: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -223,6 +231,22 @@ fn default_login_backoff_base_ms() -> u64 {
 
 fn default_environment() -> String {
     "development".to_string()
+}
+
+fn default_db_acquire_timeout_seconds() -> u64 {
+    10
+}
+
+fn default_db_idle_timeout_seconds() -> u64 {
+    600
+}
+
+fn default_db_max_lifetime_seconds() -> u64 {
+    1800
+}
+
+fn default_db_test_before_acquire() -> bool {
+    true
 }
 
 fn default_auth0_connection() -> String {

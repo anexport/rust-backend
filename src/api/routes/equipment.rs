@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use uuid::Uuid;
 
 use crate::api::dtos::{
@@ -28,8 +28,17 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 async fn list_equipment(
     state: web::Data<AppState>,
+    request: HttpRequest,
     query: web::Query<EquipmentQueryParams>,
 ) -> AppResult<HttpResponse> {
+    let ip = client_ip(&request);
+    let throttle_key = crate::security::LoginThrottle::key("equipment_public_list", ip.as_deref());
+    state.login_throttle.enforce_fixed_window(
+        &throttle_key,
+        state.security.login_max_failures,
+        state.security.login_lockout_seconds,
+    )?;
+
     let result = state.equipment_service.list(query.into_inner()).await?;
     Ok(HttpResponse::Ok().json(result))
 }
@@ -126,4 +135,11 @@ async fn get_category(
 ) -> AppResult<HttpResponse> {
     let result = state.category_service.get_by_id(path.into_inner()).await?;
     Ok(HttpResponse::Ok().json(result))
+}
+
+fn client_ip(request: &HttpRequest) -> Option<String> {
+    request
+        .connection_info()
+        .realip_remote_addr()
+        .map(str::to_string)
 }

@@ -20,6 +20,7 @@ use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::security::{cors_middleware, security_headers};
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
 use rust_decimal::Decimal;
+use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 #[derive(Default)]
@@ -795,7 +796,6 @@ fn app_with_auth0_data_and_message_repo(
         auth_service: Arc::new(rust_backend::application::AuthService::new(
             user_repo.clone(),
             auth_repo,
-            auth_config(),
         )),
         user_service: Arc::new(rust_backend::application::UserService::new(
             user_repo.clone(),
@@ -832,7 +832,7 @@ fn app_with_auth0_data_and_message_repo(
         )),
         app_environment: "test".to_string(),
         metrics: Arc::new(rust_backend::observability::AppMetrics::default()),
-        db_pool: None,
+        db_pool: test_db_pool(),
         ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     };
@@ -877,7 +877,6 @@ fn app_state_with_message_repo(
         auth_service: Arc::new(rust_backend::application::AuthService::new(
             user_repo.clone(),
             auth_repo,
-            auth_config(),
         )),
         user_service: Arc::new(rust_backend::application::UserService::new(
             user_repo.clone(),
@@ -914,10 +913,19 @@ fn app_state_with_message_repo(
         )),
         app_environment: "test".to_string(),
         metrics: Arc::new(rust_backend::observability::AppMetrics::default()),
-        db_pool: None,
+        db_pool: test_db_pool(),
         ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     }
+}
+
+fn test_db_pool() -> sqlx::PgPool {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
+    PgPoolOptions::new()
+        .connect_lazy(&database_url)
+        .expect("test db pool should build lazily")
 }
 
 #[test]
@@ -984,7 +992,11 @@ async fn equipment_crud_flow_succeeds() {
             "description": "Full frame cinema camera body and accessories",
             "daily_rate": Decimal::new(9900, 2),
             "condition": "excellent",
-            "location": "New York"
+            "location": "New York",
+            "coordinates": {
+                "latitude": 40.7128,
+                "longitude": -74.0060
+            }
         }))
         .to_request();
     let create_response = actix_test::call_service(&app, create_request).await;
@@ -995,23 +1007,71 @@ async fn equipment_crud_flow_succeeds() {
         .and_then(serde_json::Value::as_str)
         .expect("equipment id should exist")
         .to_string();
+    assert_eq!(
+        created
+            .get("coordinates")
+            .and_then(|value| value.get("latitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(40.7128)
+    );
+    assert_eq!(
+        created
+            .get("coordinates")
+            .and_then(|value| value.get("longitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(-74.0060)
+    );
 
     let get_request = actix_test::TestRequest::get()
         .uri(&format!("/api/equipment/{equipment_id}"))
         .to_request();
     let get_response = actix_test::call_service(&app, get_request).await;
     assert_eq!(get_response.status(), StatusCode::OK);
+    let fetched: serde_json::Value = actix_test::read_body_json(get_response).await;
+    assert_eq!(
+        fetched
+            .get("coordinates")
+            .and_then(|value| value.get("latitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(40.7128)
+    );
+    assert_eq!(
+        fetched
+            .get("coordinates")
+            .and_then(|value| value.get("longitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(-74.0060)
+    );
 
     let update_request = actix_test::TestRequest::put()
         .uri(&format!("/api/equipment/{equipment_id}"))
         .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .set_json(serde_json::json!({
             "title": "Cinema Camera Updated",
-            "description": "Updated description for camera package"
+            "description": "Updated description for camera package",
+            "coordinates": {
+                "latitude": 40.7130,
+                "longitude": -74.0070
+            }
         }))
         .to_request();
     let update_response = actix_test::call_service(&app, update_request).await;
     assert_eq!(update_response.status(), StatusCode::OK);
+    let updated: serde_json::Value = actix_test::read_body_json(update_response).await;
+    assert_eq!(
+        updated
+            .get("coordinates")
+            .and_then(|value| value.get("latitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(40.7130)
+    );
+    assert_eq!(
+        updated
+            .get("coordinates")
+            .and_then(|value| value.get("longitude"))
+            .and_then(serde_json::Value::as_f64),
+        Some(-74.0070)
+    );
 
     let delete_request = actix_test::TestRequest::delete()
         .uri(&format!("/api/equipment/{equipment_id}"))
@@ -1786,7 +1846,13 @@ async fn ready_endpoint_checks_dependencies() {
 
     let request = actix_test::TestRequest::get().uri("/ready").to_request();
     let response = actix_test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::OK);
+    let has_test_db_url =
+        std::env::var("TEST_DATABASE_URL").is_ok() || std::env::var("DATABASE_URL").is_ok();
+    if has_test_db_url {
+        assert_eq!(response.status(), StatusCode::OK);
+    } else {
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
 }
 
 // Message routes tests

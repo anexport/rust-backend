@@ -7,7 +7,7 @@ edition = "2021"
 # Web
 actix-web = "=4.8.0"
 actix-ws = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
 actix-cors = "0.7"
 actix-governor = "0.5"
 actix-http = "=3.7.0"

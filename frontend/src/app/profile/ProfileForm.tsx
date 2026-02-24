@@ -19,7 +19,15 @@ const profileFormSchema = z.object({
 
 type ProfileFormValues = z.infer<typeof profileFormSchema>;
 
-export function ProfileForm({ user }: { user: any }) {
+interface UserProfile {
+  id: string;
+  username?: string | null;
+  full_name?: string | null;
+  email: string;
+  role: string;
+}
+
+export function ProfileForm({ user }: { user: UserProfile }) {
   const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<ProfileFormValues>({

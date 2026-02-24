@@ -1,7 +1,7 @@
 use crate::domain::{
     AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User,
 };
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -15,6 +15,18 @@ pub struct EquipmentSearchParams {
     pub longitude: Option<f64>,
     pub radius_km: Option<f64>,
     pub is_available: Option<bool>,
+}
+
+impl EquipmentSearchParams {
+    pub const fn has_filters(&self) -> bool {
+        self.category_id.is_some()
+            || self.min_price.is_some()
+            || self.max_price.is_some()
+            || self.latitude.is_some()
+            || self.longitude.is_some()
+            || self.radius_km.is_some()
+            || self.is_available.is_some()
+    }
 }
 
 #[async_trait]
@@ -53,18 +65,32 @@ pub trait EquipmentRepository: Send + Sync {
         limit: i64,
         offset: i64,
     ) -> AppResult<Vec<Equipment>> {
-        if params.category_id.is_none()
-            && params.min_price.is_none()
-            && params.max_price.is_none()
-            && params.latitude.is_none()
-            && params.longitude.is_none()
-            && params.radius_km.is_none()
-            && params.is_available.is_none()
-        {
+        if !params.has_filters() {
             return self.find_all(limit, offset).await;
         }
 
-        self.find_all(limit, offset).await
+        Err(AppError::BadRequest(
+            "equipment search filters are not supported by this repository implementation"
+                .to_string(),
+        ))
+    }
+    async fn count_search(&self, params: &EquipmentSearchParams) -> AppResult<i64> {
+        const PAGE_SIZE: i64 = 1_000;
+
+        let mut total = 0_i64;
+        let mut offset = 0_i64;
+        loop {
+            let items = self.search(params, PAGE_SIZE, offset).await?;
+            let count = items.len() as i64;
+            total = total.saturating_add(count);
+
+            if count < PAGE_SIZE || offset > i64::MAX - PAGE_SIZE {
+                break;
+            }
+            offset += PAGE_SIZE;
+        }
+
+        Ok(total)
     }
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment>;

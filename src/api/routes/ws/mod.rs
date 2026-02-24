@@ -233,6 +233,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
     use serde_json::json;
+    use sqlx::postgres::PgPoolOptions;
     use tokio::sync::mpsc::error::TryRecvError;
     use uuid::Uuid;
 
@@ -563,20 +564,7 @@ mod tests {
         let security = security_config();
 
         AppState {
-            auth_service: Arc::new(AuthService::new(
-                user_repo.clone(),
-                auth_repo.clone(),
-                crate::config::AuthConfig {
-                    jwt_secret: "test-secret".to_string(),
-                    jwt_kid: "test".to_string(),
-                    previous_jwt_secrets: Vec::new(),
-                    previous_jwt_kids: Vec::new(),
-                    jwt_expiration_seconds: 900,
-                    refresh_token_expiration_days: 7,
-                    issuer: "test".to_string(),
-                    audience: "test".to_string(),
-                },
-            )),
+            auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo.clone())),
             user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
             category_service: Arc::new(CategoryService::new(category_repo)),
             equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
@@ -585,10 +573,19 @@ mod tests {
             login_throttle: Arc::new(LoginThrottle::new(&security)),
             app_environment: app_environment.to_string(),
             metrics: Arc::new(AppMetrics::default()),
-            db_pool: None,
+            db_pool: test_db_pool(),
             ws_hub: super::WsConnectionHub::default(),
             auth0_api_client: Arc::new(crate::infrastructure::auth0_api::DisabledAuth0ApiClient),
         }
+    }
+
+    fn test_db_pool() -> sqlx::PgPool {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
+        PgPoolOptions::new()
+            .connect_lazy(&database_url)
+            .expect("test db pool should build lazily")
     }
 
     #[actix_rt::test]

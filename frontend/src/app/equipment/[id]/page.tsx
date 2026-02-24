@@ -3,6 +3,16 @@ import { fetchServer } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+interface EquipmentItem {
+  id: string;
+  title: string;
+  description: string;
+  daily_rate: number;
+  condition: string;
+  location: string;
+  photos: { photo_url: string }[];
+}
+
 export default async function EquipmentDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const res = await fetchServer(`/api/equipment/${id}`);
@@ -11,7 +21,7 @@ export default async function EquipmentDetailsPage({ params }: { params: Promise
     return <div className="p-8 text-center text-red-500">Equipment not found.</div>;
   }
 
-  const item = await res.json();
+  const item: EquipmentItem = await res.json();
 
   return (
     <main className="container mx-auto py-10 px-4 max-w-4xl">

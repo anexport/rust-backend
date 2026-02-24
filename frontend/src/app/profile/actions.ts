@@ -16,8 +16,8 @@ export async function updateProfile(userId: string, formData: FormData) {
   });
 
   if (!res.ok) {
-    let errorText = await res.text();
-    return { error: `Failed to update profile: ${res.statusText}` };
+    const errorText = await res.text();
+    return { error: `Failed to update profile: ${res.statusText}. ${errorText}` };
   }
 
   revalidatePath('/profile');

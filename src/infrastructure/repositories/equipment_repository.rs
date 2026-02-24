@@ -121,6 +121,52 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         Ok(equipment)
     }
 
+    async fn count_search(&self, params: &EquipmentSearchParams) -> AppResult<i64> {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT COUNT(*) AS count
+            FROM equipment
+            WHERE 1=1
+            "#,
+        );
+
+        if let Some(category_id) = params.category_id {
+            builder.push(" AND category_id = ");
+            builder.push_bind(category_id);
+        }
+        if let Some(min_price) = params.min_price {
+            builder.push(" AND daily_rate >= ");
+            builder.push_bind(min_price);
+        }
+        if let Some(max_price) = params.max_price {
+            builder.push(" AND daily_rate <= ");
+            builder.push_bind(max_price);
+        }
+        if let Some(is_available) = params.is_available {
+            builder.push(" AND is_available = ");
+            builder.push_bind(is_available);
+        }
+
+        if let Some(((latitude, longitude), radius_km)) =
+            params.latitude.zip(params.longitude).zip(params.radius_km)
+        {
+            builder.push(
+                " AND coordinates IS NOT NULL AND ST_DWithin(
+                    coordinates,
+                    ST_SetSRID(ST_MakePoint(",
+            );
+            builder.push_bind(longitude);
+            builder.push(", ");
+            builder.push_bind(latitude);
+            builder.push("), 4326)::geography, ");
+            builder.push_bind(radius_km * 1000.0);
+            builder.push(")");
+        }
+
+        let (count,): (i64,) = builder.build_query_as().fetch_one(&self.pool).await?;
+        Ok(count)
+    }
+
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>> {
         let equipment = sqlx::query_as::<_, Equipment>(
             r#"

@@ -2,7 +2,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use rust_backend::domain::{Conversation, Equipment, EquipmentPhoto, Message};
-use rust_backend::error::AppResult;
+use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::repositories::{
     EquipmentRepository, EquipmentSearchParams, MessageRepository,
 };
@@ -98,6 +98,68 @@ impl MessageRepository for MessageRepositoryDefaultsOnly {
     }
 }
 
+#[derive(Default)]
+struct EquipmentRepositoryCountSearchLimitGuard {
+    search_calls: Mutex<Vec<(i64, i64)>>,
+}
+
+#[async_trait]
+impl EquipmentRepository for EquipmentRepositoryCountSearchLimitGuard {
+    async fn find_by_id(&self, _id: Uuid) -> AppResult<Option<Equipment>> {
+        unreachable_call()
+    }
+
+    async fn find_all(&self, _limit: i64, _offset: i64) -> AppResult<Vec<Equipment>> {
+        unreachable_call()
+    }
+
+    async fn search(
+        &self,
+        _params: &EquipmentSearchParams,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
+        self.search_calls
+            .lock()
+            .expect("search_calls mutex poisoned")
+            .push((limit, offset));
+        if limit > 10_000 {
+            return Err(AppError::BadRequest(
+                "count_search requested an unsafe page size".to_string(),
+            ));
+        }
+        Ok(Vec::new())
+    }
+
+    async fn find_by_owner(&self, _owner_id: Uuid) -> AppResult<Vec<Equipment>> {
+        unreachable_call()
+    }
+
+    async fn create(&self, _equipment: &Equipment) -> AppResult<Equipment> {
+        unreachable_call()
+    }
+
+    async fn update(&self, _equipment: &Equipment) -> AppResult<Equipment> {
+        unreachable_call()
+    }
+
+    async fn delete(&self, _id: Uuid) -> AppResult<()> {
+        unreachable_call()
+    }
+
+    async fn add_photo(&self, _photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
+        unreachable_call()
+    }
+
+    async fn find_photos(&self, _equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {
+        unreachable_call()
+    }
+
+    async fn delete_photo(&self, _photo_id: Uuid) -> AppResult<()> {
+        unreachable_call()
+    }
+}
+
 #[tokio::test]
 async fn equipment_repository_search_calls_find_all_when_all_filters_none() {
     let repository = EquipmentRepositorySpy::default();
@@ -111,6 +173,26 @@ async fn equipment_repository_search_calls_find_all_when_all_filters_none() {
 }
 
 #[tokio::test]
+async fn equipment_repository_search_returns_error_when_filters_are_provided() {
+    let repository = EquipmentRepositorySpy::default();
+    let params = EquipmentSearchParams {
+        is_available: Some(true),
+        ..EquipmentSearchParams::default()
+    };
+
+    let result = repository.search(&params, 25, 10).await;
+
+    match result {
+        Err(AppError::BadRequest(message)) => {
+            assert!(message.contains("not supported"));
+        }
+        other => panic!("expected bad request error, got: {other:?}"),
+    }
+    let calls = repository.calls.lock().expect("calls mutex poisoned");
+    assert!(calls.is_empty());
+}
+
+#[tokio::test]
 async fn message_repository_find_participant_ids_returns_empty_vec_by_default() {
     let repository = MessageRepositoryDefaultsOnly;
 
@@ -120,4 +202,23 @@ async fn message_repository_find_participant_ids_returns_empty_vec_by_default() 
         .expect("default implementation should succeed");
 
     assert!(participant_ids.is_empty());
+}
+
+#[tokio::test]
+async fn equipment_repository_count_search_uses_bounded_page_size() {
+    let repository = EquipmentRepositoryCountSearchLimitGuard::default();
+    let params = EquipmentSearchParams::default();
+
+    let result = repository.count_search(&params).await;
+
+    assert!(result.is_ok(), "count_search should avoid huge page sizes");
+    let calls = repository
+        .search_calls
+        .lock()
+        .expect("search_calls mutex poisoned");
+    assert!(!calls.is_empty(), "count_search should call search");
+    assert!(
+        calls.iter().all(|(limit, _)| *limit <= 10_000),
+        "count_search should use bounded limits"
+    );
 }

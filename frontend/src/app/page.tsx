@@ -26,7 +26,7 @@ export default function Home() {
           <CardHeader>
             <CardTitle>List Equipment</CardTitle>
             <CardDescription>
-              Got gear you don't use every day? List it and earn extra income.
+              Got gear you don&apos;t use every day? List it and earn extra income.
             </CardDescription>
           </CardHeader>
           <CardContent>

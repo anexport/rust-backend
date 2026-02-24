@@ -91,6 +91,8 @@ impl MessageRepository for MessageRepositoryImpl {
     }
 
     async fn create_message(&self, message: &Message) -> AppResult<Message> {
+        let mut tx = self.pool.begin().await?;
+
         let created = sqlx::query_as::<_, Message>(
             r#"
             INSERT INTO messages (id, conversation_id, sender_id, content, created_at)
@@ -103,14 +105,15 @@ impl MessageRepository for MessageRepositoryImpl {
         .bind(message.sender_id)
         .bind(&message.content)
         .bind(message.created_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
         sqlx::query("UPDATE conversations SET updated_at = NOW() WHERE id = $1")
             .bind(message.conversation_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
 
+        tx.commit().await?;
         Ok(created)
     }
 

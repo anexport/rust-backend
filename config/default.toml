@@ -7,6 +7,10 @@ environment = "development"
 url = "postgres://postgres:postgres@localhost:5432/rust_backend"
 max_connections = 10
 min_connections = 1
+acquire_timeout_seconds = 10
+idle_timeout_seconds = 600
+max_lifetime_seconds = 1800
+test_before_acquire = true
 
 [auth]
 jwt_secret = "change-me-in-production"
