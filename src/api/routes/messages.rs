@@ -84,9 +84,17 @@ async fn send_message(
     path: web::Path<Uuid>,
     payload: web::Json<SendMessageRequest>,
 ) -> AppResult<HttpResponse> {
-    let result = state
+    let (result, participant_ids) = state
         .message_service
-        .send_message(auth.0.user_id, path.into_inner(), payload.into_inner())
+        .send_message_with_participants(auth.0.user_id, path.into_inner(), payload.into_inner())
         .await?;
+
+    let ws_payload = serde_json::json!({
+        "type": "new_message",
+        "data": result
+    })
+    .to_string();
+    state.ws_hub.broadcast_to_users(&participant_ids, &ws_payload);
+
     Ok(HttpResponse::Created().json(result))
 }
