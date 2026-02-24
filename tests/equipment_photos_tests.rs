@@ -12,9 +12,8 @@ use rust_backend::config::{Auth0Config, SecurityConfig};
 use rust_backend::domain::Role;
 use rust_backend::infrastructure::auth0_api::DisabledAuth0ApiClient;
 use rust_backend::infrastructure::repositories::{
-    AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl,
-    EquipmentRepository, EquipmentRepositoryImpl, MessageRepositoryImpl, UserRepository,
-    UserRepositoryImpl,
+    AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl, EquipmentRepository,
+    EquipmentRepositoryImpl, MessageRepositoryImpl, UserRepository, UserRepositoryImpl,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
@@ -44,7 +43,10 @@ impl MockJwksProvider {
 
 #[async_trait]
 impl JwksProvider for MockJwksProvider {
-    async fn get_decoding_key(&self, kid: &str) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
+    async fn get_decoding_key(
+        &self,
+        kid: &str,
+    ) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
         if kid == "test-key-id" {
             Ok(self.decoding_key.clone())
         } else {
@@ -59,26 +61,35 @@ struct MockProvisioningService {
 
 #[async_trait]
 impl UserProvisioningService for MockProvisioningService {
-    async fn provision_user(&self, claims: &Auth0Claims) -> rust_backend::error::AppResult<Auth0UserContext> {
+    async fn provision_user(
+        &self,
+        claims: &Auth0Claims,
+    ) -> rust_backend::error::AppResult<Auth0UserContext> {
         let user_repo = UserRepositoryImpl::new(self.db_pool.clone());
         let sub = &claims.sub;
-        
+
         let user_id = if sub.starts_with("auth0|") {
             Uuid::parse_str(&sub[6..]).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         };
 
-        let role_str = if let Some(role_val) = claims.custom_claims.get("https://test-tenant.auth0.com/role") {
+        let role_str = if let Some(role_val) = claims
+            .custom_claims
+            .get("https://test-tenant.auth0.com/role")
+        {
             role_val.as_str().unwrap_or("renter").to_string()
         } else {
             "renter".to_string()
         };
-        
+
         if user_repo.find_by_id(user_id).await?.is_none() {
             let user = rust_backend::domain::User {
                 id: user_id,
-                email: claims.email.clone().unwrap_or_else(|| format!("{}@example.com", sub)),
+                email: claims
+                    .email
+                    .clone()
+                    .unwrap_or_else(|| format!("{}@example.com", sub)),
                 role: match role_str.as_str() {
                     "admin" => Role::Admin,
                     "owner" => Role::Owner,
@@ -92,7 +103,7 @@ impl UserProvisioningService for MockProvisioningService {
             };
             user_repo.create(&user).await?;
         }
-        
+
         Ok(Auth0UserContext {
             user_id,
             auth0_sub: sub.clone(),
@@ -144,13 +155,19 @@ fn test_auth0_config() -> Auth0Config {
     }
 }
 
-async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_http::Request, Response = actix_web::dev::ServiceResponse, Error = actix_web::Error> {
+async fn setup_app(
+    db_pool: sqlx::PgPool,
+) -> impl actix_web::dev::Service<
+    actix_http::Request,
+    Response = actix_web::dev::ServiceResponse,
+    Error = actix_web::Error,
+> {
     let user_repo = Arc::new(UserRepositoryImpl::new(db_pool.clone()));
     let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(db_pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(db_pool.clone()));
     let auth_repo = Arc::new(AuthRepositoryImpl::new(db_pool.clone()));
     let message_repo = Arc::new(MessageRepositoryImpl::new(db_pool.clone()));
-    
+
     let security = SecurityConfig {
         cors_allowed_origins: vec!["http://localhost:3000".to_string()],
         metrics_allow_private_only: true,
@@ -162,10 +179,17 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo.clone())),
-        admin_service: Arc::new(AdminService::new(user_repo.clone(), equipment_repo.clone(), category_repo.clone())),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo.clone())),
-        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo.clone())),
+        equipment_service: Arc::new(EquipmentService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+        )),
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo.clone())),
         security: security.clone(),
         login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&security)),
@@ -177,7 +201,10 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
     };
 
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(MockJwksProvider::new());
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(MockProvisioningService { db_pool: db_pool.clone() });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(MockProvisioningService {
+            db_pool: db_pool.clone(),
+        });
 
     actix_test::init_service(
         App::new()
@@ -186,7 +213,8 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
             .app_data(web::Data::new(jwks_provider))
             .app_data(web::Data::new(provisioning_service))
             .configure(routes::configure),
-    ).await
+    )
+    .await
 }
 
 // ============================================================================
@@ -195,7 +223,9 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
 
 #[actix_rt::test]
 async fn test_equipment_photo_authorization() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -275,7 +305,9 @@ async fn test_equipment_photo_authorization() {
 
 #[actix_rt::test]
 async fn test_equipment_multiple_photos() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -310,7 +342,9 @@ async fn test_equipment_multiple_photos() {
 
 #[actix_rt::test]
 async fn test_admin_photo_management() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -339,7 +373,7 @@ async fn test_admin_photo_management() {
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
-    
+
     let photo: serde_json::Value = actix_test::read_body_json(resp).await;
     let photo_id = Uuid::parse_str(photo["id"].as_str().unwrap()).unwrap();
 
@@ -354,7 +388,9 @@ async fn test_admin_photo_management() {
 
 #[actix_rt::test]
 async fn test_photo_persistence_verification() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -388,7 +424,9 @@ async fn test_photo_persistence_verification() {
 
 #[actix_rt::test]
 async fn test_photo_associated_with_correct_equipment() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -398,7 +436,7 @@ async fn test_photo_associated_with_correct_equipment() {
     user_repo.create(&owner).await.unwrap();
     let cat = fixtures::test_category();
     category_repo.create(&cat).await.unwrap();
-    
+
     let eq1 = fixtures::test_equipment(owner.id, cat.id);
     equipment_repo.create(&eq1).await.unwrap();
     let eq2 = fixtures::test_equipment(owner.id, cat.id);
@@ -424,7 +462,9 @@ async fn test_photo_associated_with_correct_equipment() {
 
 #[actix_rt::test]
 async fn test_delete_equipment_cascades_to_photos() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -467,7 +507,9 @@ async fn test_delete_equipment_cascades_to_photos() {
 
 #[actix_rt::test]
 async fn test_delete_photo_leaves_other_photos_intact() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());

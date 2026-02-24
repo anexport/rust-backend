@@ -1,7 +1,7 @@
+use once_cell::sync::Lazy;
 use rust_backend::config::{AppConfig, Auth0Config};
 use std::env;
 use std::sync::Mutex;
-use once_cell::sync::Lazy;
 
 static SERIALIZE: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
@@ -52,7 +52,10 @@ fn test_auth0_issuer_construction() {
         auth0_issuer: Some("https://custom.issuer.com/".to_string()),
         ..Default::default()
     };
-    assert_eq!(config_with_issuer.issuer(), Some("https://custom.issuer.com/".to_string()));
+    assert_eq!(
+        config_with_issuer.issuer(),
+        Some("https://custom.issuer.com/".to_string())
+    );
 }
 
 #[test]
@@ -87,9 +90,9 @@ fn test_config_defaults() {
     // Clear relevant env vars to ensure we test defaults
     env::remove_var("DATABASE_URL");
     env::remove_var("APP_DATABASE__URL");
-    
+
     let config = AppConfig::from_env().expect("Failed to load config");
-    
+
     // Check some defaults from default.toml
     assert_eq!(config.app.port, 8080);
     assert_eq!(config.security.login_max_failures, 5);
@@ -135,12 +138,15 @@ fn test_negative_timeout_values_fail() {
 #[test]
 fn test_cors_origins_list_parsing() {
     let _lock = SERIALIZE.lock().unwrap();
-    // Figment can parse lists from env if properly formatted, 
+    // Figment can parse lists from env if properly formatted,
     // but usually it's easier to use a single string if that's how it's configured.
     // However, APP_SECURITY__CORS_ALLOWED_ORIGINS is Vec<String>.
     // To set a list via env, it usually needs to be like "[a, b]" or use indices.
-    
-    env::set_var("APP_SECURITY__CORS_ALLOWED_ORIGINS", r#"["http://a.com", "http://b.com"]"#);
+
+    env::set_var(
+        "APP_SECURITY__CORS_ALLOWED_ORIGINS",
+        r#"["http://a.com", "http://b.com"]"#,
+    );
     let config = AppConfig::from_env().expect("Failed to load config");
     assert_eq!(config.security.cors_allowed_origins.len(), 2);
     assert_eq!(config.security.cors_allowed_origins[0], "http://a.com");
@@ -171,7 +177,10 @@ fn test_required_env_var_missing_fails() {
 
     // Validation should fail because AUTH0_AUDIENCE is missing when AUTH0_DOMAIN is set
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("AUTH0_AUDIENCE is required when Auth0 is enabled"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("AUTH0_AUDIENCE is required when Auth0 is enabled"));
 
     // Cleanup
     env::remove_var("AUTH0_DOMAIN");
@@ -215,34 +224,63 @@ fn test_allowed_origins_validation() {
     let config = AppConfig::from_env().expect("Config should load");
     // Default from default.toml is ["http://localhost:3000"]
     assert!(!config.security.cors_allowed_origins.is_empty());
-    assert_eq!(config.security.cors_allowed_origins, vec!["http://localhost:3000"]);
+    assert_eq!(
+        config.security.cors_allowed_origins,
+        vec!["http://localhost:3000"]
+    );
 
     // Test single origin
-    env::set_var("APP_SECURITY__CORS_ALLOWED_ORIGINS", r#"["https://example.com"]"#);
+    env::set_var(
+        "APP_SECURITY__CORS_ALLOWED_ORIGINS",
+        r#"["https://example.com"]"#,
+    );
     let config = AppConfig::from_env().expect("Config should load");
-    assert_eq!(config.security.cors_allowed_origins, vec!["https://example.com"]);
+    assert_eq!(
+        config.security.cors_allowed_origins,
+        vec!["https://example.com"]
+    );
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
 
     // Test multiple origins
-    env::set_var("APP_SECURITY__CORS_ALLOWED_ORIGINS", r#"["https://app.example.com", "https://admin.example.com", "http://localhost:3000"]"#);
+    env::set_var(
+        "APP_SECURITY__CORS_ALLOWED_ORIGINS",
+        r#"["https://app.example.com", "https://admin.example.com", "http://localhost:3000"]"#,
+    );
     let config = AppConfig::from_env().expect("Config should load");
     assert_eq!(config.security.cors_allowed_origins.len(), 3);
-    assert_eq!(config.security.cors_allowed_origins[0], "https://app.example.com");
-    assert_eq!(config.security.cors_allowed_origins[1], "https://admin.example.com");
-    assert_eq!(config.security.cors_allowed_origins[2], "http://localhost:3000");
+    assert_eq!(
+        config.security.cors_allowed_origins[0],
+        "https://app.example.com"
+    );
+    assert_eq!(
+        config.security.cors_allowed_origins[1],
+        "https://admin.example.com"
+    );
+    assert_eq!(
+        config.security.cors_allowed_origins[2],
+        "http://localhost:3000"
+    );
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
 
     // Test origin without protocol - should still be accepted as string
     // (validation happens at CORS middleware level, not config level)
-    env::set_var("APP_SECURITY__CORS_ALLOWED_ORIGINS", r#"["localhost:3000"]"#);
+    env::set_var(
+        "APP_SECURITY__CORS_ALLOWED_ORIGINS",
+        r#"["localhost:3000"]"#,
+    );
     let config = AppConfig::from_env().expect("Config should load");
     assert_eq!(config.security.cors_allowed_origins, vec!["localhost:3000"]);
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
 
     // Test origin with spaces - should be trimmed/accepted
-    env::set_var("APP_SECURITY__CORS_ALLOWED_ORIGINS", r#"["  https://example.com  "]"#);
+    env::set_var(
+        "APP_SECURITY__CORS_ALLOWED_ORIGINS",
+        r#"["  https://example.com  "]"#,
+    );
     let config = AppConfig::from_env().expect("Config should load");
-    assert_eq!(config.security.cors_allowed_origins, vec!["  https://example.com  "]);
+    assert_eq!(
+        config.security.cors_allowed_origins,
+        vec!["  https://example.com  "]
+    );
     env::remove_var("APP_SECURITY__CORS_ALLOWED_ORIGINS");
 }
-

@@ -7,7 +7,10 @@ use std::time::Duration as StdDuration;
 
 fn test_config() -> SecurityConfig {
     SecurityConfig {
-        cors_allowed_origins: vec!["http://localhost:3000".to_string(), "https://app.example.com".to_string()],
+        cors_allowed_origins: vec![
+            "http://localhost:3000".to_string(),
+            "https://app.example.com".to_string(),
+        ],
         metrics_allow_private_only: true,
         metrics_admin_token: None,
         login_max_failures: 3,
@@ -30,7 +33,10 @@ fn test_login_throttle_basic_flow() {
     assert!(matches!(err, AppError::Unauthorized));
 
     // Should be blocked by backoff (100ms)
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
 
     // Wait for backoff (100ms)
     thread::sleep(StdDuration::from_millis(150));
@@ -50,19 +56,25 @@ fn test_login_throttle_exponential_backoff() {
 
     // 1st failure: backoff = 100ms
     throttle.record_failure(&key);
-    
+
     // 2nd failure: wait very little so 1st failure is NOT cleaned up
     // backoff will become 100 * 2^1 = 200ms
-    thread::sleep(StdDuration::from_millis(10)); 
+    thread::sleep(StdDuration::from_millis(10));
     throttle.record_failure(&key);
-    
+
     // Should be blocked for 200ms from NOW
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
-    
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
+
     thread::sleep(StdDuration::from_millis(150));
     // Still blocked (only 150ms passed, need 200ms)
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
-    
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
+
     thread::sleep(StdDuration::from_millis(100));
     assert!(throttle.ensure_allowed(&key).is_ok());
 }
@@ -80,13 +92,16 @@ fn test_login_throttle_lockout_behavior() {
     // 3rd failure -> Lockout
     let err = throttle.record_failure(&key);
     assert!(matches!(err, AppError::RateLimited));
-    
+
     // Should be blocked regardless of backoff
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
-    
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
+
     // Wait for lockout to expire (2s)
     thread::sleep(StdDuration::from_millis(2100));
-    
+
     // After lockout expires, should be allowed again
     assert!(throttle.ensure_allowed(&key).is_ok());
 }
@@ -103,7 +118,10 @@ fn test_login_throttle_key_isolation() {
     throttle.record_failure(&key1);
     throttle.record_failure(&key1); // Key 1 locked out
 
-    assert!(matches!(throttle.ensure_allowed(&key1), Err(AppError::RateLimited)));
+    assert!(matches!(
+        throttle.ensure_allowed(&key1),
+        Err(AppError::RateLimited)
+    ));
     assert!(throttle.ensure_allowed(&key2).is_ok());
     assert!(throttle.ensure_allowed(&key3).is_ok());
 }
@@ -117,7 +135,8 @@ async fn test_cors_middleware() {
         App::new()
             .wrap(cors)
             .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
-    ).await;
+    )
+    .await;
 
     // Allowed origin
     let req = actix_test::TestRequest::get()
@@ -127,7 +146,9 @@ async fn test_cors_middleware() {
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     assert_eq!(
-        resp.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .unwrap(),
         "http://localhost:3000"
     );
 
@@ -137,15 +158,18 @@ async fn test_cors_middleware() {
         .insert_header((header::ORIGIN, "http://evil.com"))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
-    // actix-cors returns 200 OK but without CORS headers if origin not allowed 
+    // actix-cors returns 200 OK but without CORS headers if origin not allowed
     // OR it might return 400 Bad Request depending on configuration.
     // In our implementation, it's allowed_origin_fn.
-    assert!(resp.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+    assert!(resp
+        .headers()
+        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        .is_none());
 }
 
 #[test]
 fn test_login_throttle_lockout_persistence() {
-    let config = test_config(); 
+    let config = test_config();
     let throttle = LoginThrottle::new(&config);
     let key = LoginThrottle::key("persist@example.com", None);
 
@@ -153,14 +177,23 @@ fn test_login_throttle_lockout_persistence() {
     throttle.record_failure(&key);
     throttle.record_failure(&key);
     throttle.record_failure(&key);
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
 
     // Try again immediately, should still be rate limited
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
-    
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
+
     // Record another failure while locked out (simulating brute force)
     throttle.record_failure(&key);
-    assert!(matches!(throttle.ensure_allowed(&key), Err(AppError::RateLimited)));
+    assert!(matches!(
+        throttle.ensure_allowed(&key),
+        Err(AppError::RateLimited)
+    ));
 }
 
 #[actix_rt::test]
@@ -169,19 +202,29 @@ async fn test_security_headers_detailed() {
         App::new()
             .wrap(security_headers())
             .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
-    ).await;
+    )
+    .await;
 
     let req = actix_test::TestRequest::get().uri("/").to_request();
     let resp = actix_test::call_service(&app, req).await;
-    
+
     let headers = resp.headers();
-    
+
     // HSTS
-    assert_eq!(headers.get("Strict-Transport-Security").unwrap(), "max-age=31536000; includeSubDomains");
+    assert_eq!(
+        headers.get("Strict-Transport-Security").unwrap(),
+        "max-age=31536000; includeSubDomains"
+    );
     // CSP
-    assert_eq!(headers.get("Content-Security-Policy").unwrap(), "default-src 'self'; frame-ancestors 'none'; object-src 'none'");
+    assert_eq!(
+        headers.get("Content-Security-Policy").unwrap(),
+        "default-src 'self'; frame-ancestors 'none'; object-src 'none'"
+    );
     // Referrer
-    assert_eq!(headers.get("Referrer-Policy").unwrap(), "strict-origin-when-cross-origin");
+    assert_eq!(
+        headers.get("Referrer-Policy").unwrap(),
+        "strict-origin-when-cross-origin"
+    );
 }
 
 #[actix_rt::test]
@@ -193,15 +236,19 @@ async fn test_cors_disallowed_origin_returns_no_cors_headers() {
         App::new()
             .wrap(cors)
             .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
-    ).await;
+    )
+    .await;
 
     let req = actix_test::TestRequest::get()
         .uri("/")
         .insert_header((header::ORIGIN, "http://malicious.com"))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
-    
-    assert!(resp.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+
+    assert!(resp
+        .headers()
+        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+        .is_none());
 }
 
 #[test]
@@ -213,13 +260,16 @@ fn test_fixed_window_rate_limiting() {
     // Allow 2 requests per 1 second
     assert!(throttle.enforce_fixed_window(key, 2, 1).is_ok());
     assert!(throttle.enforce_fixed_window(key, 2, 1).is_ok());
-    
+
     // 3rd request should be blocked
-    assert!(matches!(throttle.enforce_fixed_window(key, 2, 1), Err(AppError::RateLimited)));
+    assert!(matches!(
+        throttle.enforce_fixed_window(key, 2, 1),
+        Err(AppError::RateLimited)
+    ));
 
     // Wait for window to expire
     thread::sleep(StdDuration::from_millis(1100));
-    
+
     // Should be allowed again
     assert!(throttle.enforce_fixed_window(key, 2, 1).is_ok());
 }
@@ -236,15 +286,18 @@ fn test_entry_cleanup_removes_expired_entries() {
     throttle.record_failure(&key);
     throttle.record_failure(&key);
     throttle.record_failure(&key);
-    
+
     // Wait for lockout to expire
     thread::sleep(StdDuration::from_millis(1100));
-    
+
     // Trigger cleanup via ensure_allowed
     assert!(throttle.ensure_allowed(&key).is_ok());
-    
+
     // Check if it's really cleared - another failure should be Unauthorized, not RateLimited
-    assert!(matches!(throttle.record_failure(&key), AppError::Unauthorized));
+    assert!(matches!(
+        throttle.record_failure(&key),
+        AppError::Unauthorized
+    ));
 }
 
 #[test]
@@ -259,14 +312,14 @@ fn test_memory_does_not_grow_unbounded() {
         let key = LoginThrottle::key(&format!("user{}@example.com", i), None);
         throttle.record_failure(&key);
     }
-    
+
     // Wait for them to expire
     thread::sleep(StdDuration::from_millis(1100));
-    
+
     // Trigger cleanup with a new key
     let final_key = LoginThrottle::key("final@example.com", None);
     throttle.ensure_allowed(&final_key).unwrap();
-    
+
     // Note: We can't easily check the size of the internal map without exposing it,
     // but the test confirms cleanup logic runs without error.
 }
@@ -316,4 +369,3 @@ fn test_connection_pool_behavior_during_lockout() {
     let new_key = LoginThrottle::key("newuser@example.com", Some("127.0.0.1"));
     assert!(throttle.ensure_allowed(&new_key).is_ok());
 }
-

@@ -12,9 +12,8 @@ use rust_backend::config::{Auth0Config, SecurityConfig};
 use rust_backend::domain::Role;
 use rust_backend::infrastructure::auth0_api::DisabledAuth0ApiClient;
 use rust_backend::infrastructure::repositories::{
-    AuthRepositoryImpl, CategoryRepositoryImpl,
-    EquipmentRepositoryImpl, MessageRepository, MessageRepositoryImpl, UserRepository,
-    UserRepositoryImpl,
+    AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepository,
+    MessageRepositoryImpl, UserRepository, UserRepositoryImpl,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
@@ -44,7 +43,10 @@ impl MockJwksProvider {
 
 #[async_trait]
 impl JwksProvider for MockJwksProvider {
-    async fn get_decoding_key(&self, kid: &str) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
+    async fn get_decoding_key(
+        &self,
+        kid: &str,
+    ) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
         if kid == "test-key-id" {
             Ok(self.decoding_key.clone())
         } else {
@@ -59,26 +61,35 @@ struct MockProvisioningService {
 
 #[async_trait]
 impl UserProvisioningService for MockProvisioningService {
-    async fn provision_user(&self, claims: &Auth0Claims) -> rust_backend::error::AppResult<Auth0UserContext> {
+    async fn provision_user(
+        &self,
+        claims: &Auth0Claims,
+    ) -> rust_backend::error::AppResult<Auth0UserContext> {
         let user_repo = UserRepositoryImpl::new(self.db_pool.clone());
         let sub = &claims.sub;
-        
+
         let user_id = if sub.starts_with("auth0|") {
             Uuid::parse_str(&sub[6..]).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         };
 
-        let role_str = if let Some(role_val) = claims.custom_claims.get("https://test-tenant.auth0.com/role") {
+        let role_str = if let Some(role_val) = claims
+            .custom_claims
+            .get("https://test-tenant.auth0.com/role")
+        {
             role_val.as_str().unwrap_or("renter").to_string()
         } else {
             "renter".to_string()
         };
-        
+
         if user_repo.find_by_id(user_id).await?.is_none() {
             let user = rust_backend::domain::User {
                 id: user_id,
-                email: claims.email.clone().unwrap_or_else(|| format!("{}@example.com", sub)),
+                email: claims
+                    .email
+                    .clone()
+                    .unwrap_or_else(|| format!("{}@example.com", sub)),
                 role: match role_str.as_str() {
                     "admin" => Role::Admin,
                     "owner" => Role::Owner,
@@ -92,7 +103,7 @@ impl UserProvisioningService for MockProvisioningService {
             };
             user_repo.create(&user).await?;
         }
-        
+
         Ok(Auth0UserContext {
             user_id,
             auth0_sub: sub.clone(),
@@ -144,13 +155,22 @@ fn test_auth0_config() -> Auth0Config {
     }
 }
 
-async fn setup_app(db_pool: sqlx::PgPool) -> (AppState, impl actix_web::dev::Service<actix_http::Request, Response = actix_web::dev::ServiceResponse, Error = actix_web::Error>) {
+async fn setup_app(
+    db_pool: sqlx::PgPool,
+) -> (
+    AppState,
+    impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+) {
     let user_repo = Arc::new(UserRepositoryImpl::new(db_pool.clone()));
     let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(db_pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(db_pool.clone()));
     let auth_repo = Arc::new(AuthRepositoryImpl::new(db_pool.clone()));
     let message_repo = Arc::new(MessageRepositoryImpl::new(db_pool.clone()));
-    
+
     let security = SecurityConfig {
         cors_allowed_origins: vec!["http://localhost:3000".to_string()],
         metrics_allow_private_only: true,
@@ -162,10 +182,17 @@ async fn setup_app(db_pool: sqlx::PgPool) -> (AppState, impl actix_web::dev::Ser
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo.clone())),
-        admin_service: Arc::new(AdminService::new(user_repo.clone(), equipment_repo.clone(), category_repo.clone())),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo.clone())),
-        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo.clone())),
+        equipment_service: Arc::new(EquipmentService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+        )),
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo.clone())),
         security: security.clone(),
         login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&security)),
@@ -177,7 +204,10 @@ async fn setup_app(db_pool: sqlx::PgPool) -> (AppState, impl actix_web::dev::Ser
     };
 
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(MockJwksProvider::new());
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(MockProvisioningService { db_pool: db_pool.clone() });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(MockProvisioningService {
+            db_pool: db_pool.clone(),
+        });
 
     let app = actix_test::init_service(
         App::new()
@@ -186,7 +216,8 @@ async fn setup_app(db_pool: sqlx::PgPool) -> (AppState, impl actix_web::dev::Ser
             .app_data(web::Data::new(jwks_provider))
             .app_data(web::Data::new(provisioning_service))
             .configure(routes::configure),
-    ).await;
+    )
+    .await;
 
     (state, app)
 }
@@ -197,7 +228,9 @@ async fn setup_app(db_pool: sqlx::PgPool) -> (AppState, impl actix_web::dev::Ser
 
 #[actix_rt::test]
 async fn test_conversation_crud_flow() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -257,7 +290,9 @@ async fn test_conversation_crud_flow() {
 
 #[actix_rt::test]
 async fn test_message_pagination() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -267,24 +302,33 @@ async fn test_message_pagination() {
     user_repo.create(&user1).await.unwrap();
     user_repo.create(&user2).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
-    
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
+
     // Create 5 messages
     for i in 0..5 {
-        message_repo.create_message(&rust_backend::domain::Message {
-            id: Uuid::new_v4(),
-            conversation_id: conv.id,
-            sender_id: user1.id,
-            content: format!("Message {}", i),
-            created_at: Utc::now() + Duration::seconds(i),
-        }).await.unwrap();
+        message_repo
+            .create_message(&rust_backend::domain::Message {
+                id: Uuid::new_v4(),
+                conversation_id: conv.id,
+                sender_id: user1.id,
+                content: format!("Message {}", i),
+                created_at: Utc::now() + Duration::seconds(i),
+            })
+            .await
+            .unwrap();
     }
 
     let token1 = create_auth0_token(user1.id, "renter");
 
     // Get first 2 messages
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages?limit=2&offset=0", conv.id))
+        .uri(&format!(
+            "/api/conversations/{}/messages?limit=2&offset=0",
+            conv.id
+        ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -297,7 +341,9 @@ async fn test_message_pagination() {
 
 #[actix_rt::test]
 async fn test_create_conversation_validates_participants() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -319,7 +365,9 @@ async fn test_create_conversation_validates_participants() {
 
 #[actix_rt::test]
 async fn test_non_participant_cannot_view_conversation() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -331,7 +379,10 @@ async fn test_non_participant_cannot_view_conversation() {
     user_repo.create(&user2).await.unwrap();
     user_repo.create(&user3).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
     let token3 = create_auth0_token(user3.id, "renter");
 
     let req = actix_test::TestRequest::get()
@@ -344,7 +395,9 @@ async fn test_non_participant_cannot_view_conversation() {
 
 #[actix_rt::test]
 async fn test_non_participant_cannot_send_message() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -356,7 +409,10 @@ async fn test_non_participant_cannot_send_message() {
     user_repo.create(&user2).await.unwrap();
     user_repo.create(&user3).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
     let token3 = create_auth0_token(user3.id, "renter");
 
     let req = actix_test::TestRequest::post()
@@ -372,7 +428,9 @@ async fn test_non_participant_cannot_send_message() {
 
 #[actix_rt::test]
 async fn test_conversation_list_isolation() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -384,8 +442,14 @@ async fn test_conversation_list_isolation() {
     user_repo.create(&user2).await.unwrap();
     user_repo.create(&user3).await.unwrap();
 
-    message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
-    message_repo.create_conversation(vec![user1.id, user3.id]).await.unwrap();
+    message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
+    message_repo
+        .create_conversation(vec![user1.id, user3.id])
+        .await
+        .unwrap();
 
     let token2 = create_auth0_token(user2.id, "renter");
 
@@ -402,7 +466,9 @@ async fn test_conversation_list_isolation() {
 
 #[actix_rt::test]
 async fn test_cannot_create_conversation_with_nonexistent_user() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -418,14 +484,16 @@ async fn test_cannot_create_conversation_with_nonexistent_user() {
         }))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
-    // Should be 400 or 404 depending on implementation. 
+    // Should be 400 or 404 depending on implementation.
     // Usually 400 if validation fails.
     assert!(resp.status().is_client_error());
 }
 
 #[actix_rt::test]
 async fn test_conversation_duplicate_prevention() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -457,7 +525,7 @@ async fn test_conversation_duplicate_prevention() {
         }))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
-    
+
     // Depending on implementation, it might return 200 OK with existing, or 201 with same ID, or 400.
     // Based on many apps, returning existing one is common.
     assert!(resp.status().is_success());
@@ -467,7 +535,9 @@ async fn test_conversation_duplicate_prevention() {
 
 #[actix_rt::test]
 async fn test_websocket_broadcast_on_send_message() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (state, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -477,7 +547,10 @@ async fn test_websocket_broadcast_on_send_message() {
     user_repo.create(&user1).await.unwrap();
     user_repo.create(&user2).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
     let token1 = create_auth0_token(user1.id, "renter");
 
     // Register user2 in WS hub to receive broadcast
@@ -498,7 +571,7 @@ async fn test_websocket_broadcast_on_send_message() {
         .await
         .expect("Timeout waiting for WS broadcast")
         .expect("WS channel closed");
-    
+
     let ws_payload: serde_json::Value = serde_json::from_str(&ws_msg).unwrap();
     assert_eq!(ws_payload["type"], "new_message");
     assert_eq!(ws_payload["data"]["content"], "WS test message");
@@ -506,7 +579,9 @@ async fn test_websocket_broadcast_on_send_message() {
 
 #[actix_rt::test]
 async fn test_message_list_ordering() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -516,17 +591,23 @@ async fn test_message_list_ordering() {
     user_repo.create(&user1).await.unwrap();
     user_repo.create(&user2).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
 
     // Create 5 messages with different timestamps (oldest first)
     for i in 0..5 {
-        message_repo.create_message(&rust_backend::domain::Message {
-            id: Uuid::new_v4(),
-            conversation_id: conv.id,
-            sender_id: user1.id,
-            content: format!("Message {}", i),
-            created_at: Utc::now() - Duration::hours(5 - i),
-        }).await.unwrap();
+        message_repo
+            .create_message(&rust_backend::domain::Message {
+                id: Uuid::new_v4(),
+                conversation_id: conv.id,
+                sender_id: user1.id,
+                content: format!("Message {}", i),
+                created_at: Utc::now() - Duration::hours(5 - i),
+            })
+            .await
+            .unwrap();
     }
 
     let token1 = create_auth0_token(user1.id, "renter");
@@ -550,7 +631,9 @@ async fn test_message_list_ordering() {
 
 #[actix_rt::test]
 async fn test_get_conversation_details_participants_only() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -562,7 +645,10 @@ async fn test_get_conversation_details_participants_only() {
     user_repo.create(&user2).await.unwrap();
     user_repo.create(&user3).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
     let token3 = create_auth0_token(user3.id, "renter");
 
     // User 3 is NOT a participant, should get 403 Forbidden
@@ -576,7 +662,9 @@ async fn test_get_conversation_details_participants_only() {
 
 #[actix_rt::test]
 async fn test_pagination_edge_cases() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -586,24 +674,33 @@ async fn test_pagination_edge_cases() {
     user_repo.create(&user1).await.unwrap();
     user_repo.create(&user2).await.unwrap();
 
-    let conv = message_repo.create_conversation(vec![user1.id, user2.id]).await.unwrap();
+    let conv = message_repo
+        .create_conversation(vec![user1.id, user2.id])
+        .await
+        .unwrap();
 
     // Create exactly 10 messages
     for i in 0..10 {
-        message_repo.create_message(&rust_backend::domain::Message {
-            id: Uuid::new_v4(),
-            conversation_id: conv.id,
-            sender_id: user1.id,
-            content: format!("Message {}", i),
-            created_at: Utc::now() + Duration::seconds(i),
-        }).await.unwrap();
+        message_repo
+            .create_message(&rust_backend::domain::Message {
+                id: Uuid::new_v4(),
+                conversation_id: conv.id,
+                sender_id: user1.id,
+                content: format!("Message {}", i),
+                created_at: Utc::now() + Duration::seconds(i),
+            })
+            .await
+            .unwrap();
     }
 
     let token1 = create_auth0_token(user1.id, "renter");
 
     // Test page 1 with limit 10 - should return all 10 messages
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages?limit=10&offset=0", conv.id))
+        .uri(&format!(
+            "/api/conversations/{}/messages?limit=10&offset=0",
+            conv.id
+        ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -613,7 +710,10 @@ async fn test_pagination_edge_cases() {
 
     // Test page 2 with limit 10 - should return empty array (no more messages)
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages?limit=10&offset=10", conv.id))
+        .uri(&format!(
+            "/api/conversations/{}/messages?limit=10&offset=10",
+            conv.id
+        ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -623,7 +723,10 @@ async fn test_pagination_edge_cases() {
 
     // Test page 0 - should return first page
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages?limit=10&offset=0", conv.id))
+        .uri(&format!(
+            "/api/conversations/{}/messages?limit=10&offset=0",
+            conv.id
+        ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;

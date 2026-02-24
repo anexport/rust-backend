@@ -94,7 +94,9 @@ async fn send_message(
         "data": result
     })
     .to_string();
-    state.ws_hub.broadcast_to_users(&participant_ids, &ws_payload);
+    state
+        .ws_hub
+        .broadcast_to_users(&participant_ids, &ws_payload);
 
     Ok(HttpResponse::Created().json(result))
 }

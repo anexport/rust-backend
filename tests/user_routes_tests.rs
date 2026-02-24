@@ -12,9 +12,8 @@ use rust_backend::config::{Auth0Config, SecurityConfig};
 use rust_backend::domain::Role;
 use rust_backend::infrastructure::auth0_api::DisabledAuth0ApiClient;
 use rust_backend::infrastructure::repositories::{
-    AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl,
-    EquipmentRepository, EquipmentRepositoryImpl, MessageRepositoryImpl, UserRepository,
-    UserRepositoryImpl,
+    AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl, EquipmentRepository,
+    EquipmentRepositoryImpl, MessageRepositoryImpl, UserRepository, UserRepositoryImpl,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
@@ -44,7 +43,10 @@ impl MockJwksProvider {
 
 #[async_trait]
 impl JwksProvider for MockJwksProvider {
-    async fn get_decoding_key(&self, kid: &str) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
+    async fn get_decoding_key(
+        &self,
+        kid: &str,
+    ) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
         if kid == "test-key-id" {
             Ok(self.decoding_key.clone())
         } else {
@@ -59,10 +61,13 @@ struct MockProvisioningService {
 
 #[async_trait]
 impl UserProvisioningService for MockProvisioningService {
-    async fn provision_user(&self, claims: &Auth0Claims) -> rust_backend::error::AppResult<Auth0UserContext> {
+    async fn provision_user(
+        &self,
+        claims: &Auth0Claims,
+    ) -> rust_backend::error::AppResult<Auth0UserContext> {
         let user_repo = UserRepositoryImpl::new(self.db_pool.clone());
         let sub = &claims.sub;
-        
+
         let user_id = if sub.starts_with("auth0|") {
             let id_part = &sub[6..];
             Uuid::parse_str(id_part).unwrap_or_else(|_| Uuid::new_v4())
@@ -70,12 +75,15 @@ impl UserProvisioningService for MockProvisioningService {
             Uuid::new_v4()
         };
 
-        let role_str = if let Some(role_val) = claims.custom_claims.get("https://test-tenant.auth0.com/role") {
+        let role_str = if let Some(role_val) = claims
+            .custom_claims
+            .get("https://test-tenant.auth0.com/role")
+        {
             role_val.as_str().unwrap_or("renter").to_string()
         } else {
             "renter".to_string()
         };
-        
+
         // Ensure user exists in DB for tests
         if let Some(user) = user_repo.find_by_id(user_id).await? {
             return Ok(Auth0UserContext {
@@ -88,7 +96,10 @@ impl UserProvisioningService for MockProvisioningService {
 
         let user = rust_backend::domain::User {
             id: user_id,
-            email: claims.email.clone().unwrap_or_else(|| format!("{}@example.com", sub)),
+            email: claims
+                .email
+                .clone()
+                .unwrap_or_else(|| format!("{}@example.com", sub)),
             role: match role_str.as_str() {
                 "admin" => Role::Admin,
                 "owner" => Role::Owner,
@@ -101,7 +112,7 @@ impl UserProvisioningService for MockProvisioningService {
             updated_at: Utc::now(),
         };
         user_repo.create(&user).await?;
-        
+
         Ok(Auth0UserContext {
             user_id,
             auth0_sub: sub.clone(),
@@ -153,13 +164,19 @@ fn test_auth0_config() -> Auth0Config {
     }
 }
 
-async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_http::Request, Response = actix_web::dev::ServiceResponse, Error = actix_web::Error> {
+async fn setup_app(
+    db_pool: sqlx::PgPool,
+) -> impl actix_web::dev::Service<
+    actix_http::Request,
+    Response = actix_web::dev::ServiceResponse,
+    Error = actix_web::Error,
+> {
     let user_repo = Arc::new(UserRepositoryImpl::new(db_pool.clone()));
     let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(db_pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(db_pool.clone()));
     let auth_repo = Arc::new(AuthRepositoryImpl::new(db_pool.clone()));
     let message_repo = Arc::new(MessageRepositoryImpl::new(db_pool.clone()));
-    
+
     let security = SecurityConfig {
         cors_allowed_origins: vec!["http://localhost:3000".to_string()],
         metrics_allow_private_only: true,
@@ -171,10 +188,17 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
 
     let state = AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo.clone())),
-        admin_service: Arc::new(AdminService::new(user_repo.clone(), equipment_repo.clone(), category_repo.clone())),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
         user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
         category_service: Arc::new(CategoryService::new(category_repo.clone())),
-        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo.clone())),
+        equipment_service: Arc::new(EquipmentService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+        )),
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo.clone())),
         security: security.clone(),
         login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(&security)),
@@ -186,7 +210,10 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
     };
 
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(MockJwksProvider::new());
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(MockProvisioningService { db_pool: db_pool.clone() });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(MockProvisioningService {
+            db_pool: db_pool.clone(),
+        });
 
     actix_test::init_service(
         App::new()
@@ -195,7 +222,8 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
             .app_data(web::Data::new(jwks_provider))
             .app_data(web::Data::new(provisioning_service))
             .configure(routes::configure),
-    ).await
+    )
+    .await
 }
 
 // ============================================================================
@@ -204,17 +232,23 @@ async fn setup_app(db_pool: sqlx::PgPool) -> impl actix_web::dev::Service<actix_
 
 #[actix_rt::test]
 async fn test_get_user_profile_not_found() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
 
-    let req = actix_test::TestRequest::get().uri(&format!("/api/users/{}", Uuid::new_v4())).to_request();
+    let req = actix_test::TestRequest::get()
+        .uri(&format!("/api/users/{}", Uuid::new_v4()))
+        .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[actix_rt::test]
 async fn test_update_profile_partial() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -233,7 +267,7 @@ async fn test_update_profile_partial() {
             "username": "new_user"
         }))
         .to_request();
-    
+
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -244,17 +278,23 @@ async fn test_update_profile_partial() {
 
 #[actix_rt::test]
 async fn test_my_equipment_unauthorized() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
 
-    let req = actix_test::TestRequest::get().uri("/api/users/me/equipment").to_request();
+    let req = actix_test::TestRequest::get()
+        .uri("/api/users/me/equipment")
+        .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[actix_rt::test]
 async fn test_update_own_profile() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -270,7 +310,7 @@ async fn test_update_own_profile() {
             "username": "updated_username"
         }))
         .to_request();
-    
+
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -281,7 +321,9 @@ async fn test_update_own_profile() {
 
 #[actix_rt::test]
 async fn test_cannot_update_other_profile() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -297,14 +339,16 @@ async fn test_cannot_update_other_profile() {
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "full_name": "Hacker" }))
         .to_request();
-    
+
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[actix_rt::test]
 async fn test_my_equipment_listing() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -334,7 +378,7 @@ async fn test_my_equipment_listing() {
         .uri("/api/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
-    
+
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
@@ -345,7 +389,9 @@ async fn test_my_equipment_listing() {
 
 #[actix_rt::test]
 async fn test_profile_viewing_excludes_sensitive_data() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -357,13 +403,13 @@ async fn test_profile_viewing_excludes_sensitive_data() {
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    
+
     let profile: serde_json::Value = actix_test::read_body_json(resp).await;
     // Should have: id, username, avatar_url
     assert!(profile.get("id").is_some());
     assert!(profile.get("username").is_some() || profile.get("username").is_none()); // Option
     assert!(profile.get("avatar_url").is_some() || profile.get("avatar_url").is_none());
-    
+
     // Should NOT have: email, role, created_at (if using PublicProfileResponse)
     assert!(profile.get("email").is_none());
     assert!(profile.get("role").is_none());
@@ -371,7 +417,9 @@ async fn test_profile_viewing_excludes_sensitive_data() {
 
 #[actix_rt::test]
 async fn test_profile_update_username_constraints() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -401,7 +449,9 @@ async fn test_profile_update_username_constraints() {
 
 #[actix_rt::test]
 async fn test_my_equipment_ordered_by_creation_date() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -425,10 +475,10 @@ async fn test_my_equipment_ordered_by_creation_date() {
         .uri("/api/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
-    
+
     let resp = actix_test::call_service(&app, req).await;
     let items: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
-    
+
     // Should be newest first
     assert_eq!(items[0]["title"], "Equipment 2");
     assert_eq!(items[1]["title"], "Equipment 1");
@@ -437,7 +487,9 @@ async fn test_my_equipment_ordered_by_creation_date() {
 
 #[actix_rt::test]
 async fn test_get_public_profile_anonymous() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -453,7 +505,9 @@ async fn test_get_public_profile_anonymous() {
 
 #[actix_rt::test]
 async fn test_profile_update_email_validation() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -501,7 +555,9 @@ async fn test_profile_update_email_validation() {
 
 #[actix_rt::test]
 async fn test_my_equipment_pagination() {
-    let Some(test_db) = TestDb::new().await else { return; };
+    let Some(test_db) = TestDb::new().await else {
+        return;
+    };
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -542,6 +598,12 @@ async fn test_my_equipment_pagination() {
     // Verify ordering is by creation date (newest first based on SQL)
     // Items should be in order of creation (the query uses ORDER BY created_at DESC)
     // Since we create them sequentially, the last one created should be first in the list
-    assert_eq!(items[0]["title"], format!("Equipment {}", equipment_count - 1));
-    assert_eq!(items[equipment_count as usize - 1]["title"], format!("Equipment {}", 0));
+    assert_eq!(
+        items[0]["title"],
+        format!("Equipment {}", equipment_count - 1)
+    );
+    assert_eq!(
+        items[equipment_count as usize - 1]["title"],
+        format!("Equipment {}", 0)
+    );
 }

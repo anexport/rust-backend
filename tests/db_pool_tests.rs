@@ -1,9 +1,9 @@
 mod common;
 
-use rust_backend::infrastructure::db::pool::create_pool;
-use rust_backend::config::DatabaseConfig;
-use std::time::Duration;
 use common::TestDb;
+use rust_backend::config::DatabaseConfig;
+use rust_backend::infrastructure::db::pool::create_pool;
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_create_pool_success() {
@@ -24,7 +24,7 @@ async fn test_create_pool_success() {
 
     let pool = create_pool(&config).await.expect("Failed to create pool");
     assert!(pool.size() >= 1);
-    
+
     let _conn = pool.acquire().await.expect("Failed to acquire connection");
     assert!(pool.size() >= 1);
 }
@@ -40,7 +40,7 @@ async fn test_pool_exhaustion_behavior() {
         url: test_db.url().to_string(),
         max_connections: 2,
         min_connections: 2,
-        acquire_timeout_seconds: 1, 
+        acquire_timeout_seconds: 1,
         idle_timeout_seconds: 600,
         max_lifetime_seconds: 1800,
         test_before_acquire: true,
@@ -58,7 +58,7 @@ async fn test_pool_exhaustion_behavior() {
     let elapsed = start.elapsed();
 
     assert!(result.is_err());
-    assert!(elapsed >= Duration::from_millis(900)); 
+    assert!(elapsed >= Duration::from_millis(900));
     assert!(matches!(result.unwrap_err(), sqlx::Error::PoolTimedOut));
 }
 
@@ -118,17 +118,17 @@ async fn test_connection_reuse() {
     };
 
     let pool = create_pool(&config).await.expect("Failed to create pool");
-    
+
     let pid1: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&pool)
         .await
         .unwrap();
-        
+
     let pid2: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&pool)
         .await
         .unwrap();
-        
+
     assert_eq!(pid1, pid2);
 }
 
@@ -142,7 +142,7 @@ async fn test_idle_timeout_closes_connections() {
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
         max_connections: 1,
-        min_connections: 0, 
+        min_connections: 0,
         acquire_timeout_seconds: 1,
         idle_timeout_seconds: 1,
         max_lifetime_seconds: 60,
@@ -150,15 +150,15 @@ async fn test_idle_timeout_closes_connections() {
     };
 
     let pool = create_pool(&config).await.expect("Failed to create pool");
-    
+
     // Acquire and release
     {
         let _conn = pool.acquire().await.expect("Acquire");
     }
-    
+
     // Wait for idle timeout
     tokio::time::sleep(Duration::from_secs(3)).await;
-    
+
     // Depending on sqlx version, idle connections are closed by a background task.
     // We can check if num_idle has decreased.
     assert!(pool.num_idle() == 0);
@@ -177,25 +177,25 @@ async fn test_max_lifetime_recycles_connections() {
         min_connections: 1,
         acquire_timeout_seconds: 1,
         idle_timeout_seconds: 60,
-        max_lifetime_seconds: 1, 
+        max_lifetime_seconds: 1,
         test_before_acquire: false,
     };
 
     let pool = create_pool(&config).await.expect("Failed to create pool");
-    
+
     let pid1: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&pool)
         .await
         .unwrap();
-    
+
     // Wait for max lifetime
     tokio::time::sleep(Duration::from_secs(2)).await;
-    
+
     let pid2: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
         .fetch_one(&pool)
         .await
         .unwrap();
-    
+
     // Should be different PIDs because the first one exceeded max lifetime and was closed
     assert_ne!(pid1, pid2);
 }
