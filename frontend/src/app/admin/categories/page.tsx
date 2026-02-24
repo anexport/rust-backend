@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { fetchClient } from '@/lib/api';
 import { DataTable } from '@/components/admin/DataTable';
@@ -121,53 +121,60 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const categoryNameById = new Map(categories.map((category) => [category.id, category.name]));
+  const categoryNameById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category.name])),
+    [categories],
+  );
 
-  const rows = categories.map((category) => [
-    editingId === category.id ? (
-      <div key={`${category.id}-edit`} className="flex items-center gap-2">
-        <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} disabled={isSubmitting} />
-        <Button size="sm" onClick={() => void updateCategory(category.id)} disabled={isSubmitting}>
-          {isSubmitting ? 'Saving...' : 'Save'}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setEditingId(null);
-            setEditingName('');
-          }}
-          disabled={isSubmitting}
-        >
-          Cancel
-        </Button>
-      </div>
-    ) : (
-      category.name
-    ),
-    category.parent_id ? categoryNameById.get(category.parent_id) || '-' : '-',
-    <div key={`${category.id}-actions`} className="flex items-center gap-2">
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          setEditingId(category.id);
-          setEditingName(category.name);
-        }}
-        disabled={isSubmitting || (editingId !== null && editingId !== category.id)}
-      >
-        Edit
-      </Button>
-      <ConfirmDialog
-        title="Delete category"
-        description={`Delete ${category.name}?`}
-        triggerLabel="Delete"
-        confirmLabel="Delete"
-        onConfirm={() => deleteCategory(category.id)}
-        disabled={isSubmitting || editingId !== null}
-      />
-    </div>,
-  ]);
+  const rows = useMemo(
+    () =>
+      categories.map((category) => [
+        editingId === category.id ? (
+          <div key={`${category.id}-edit`} className="flex items-center gap-2">
+            <Input value={editingName} onChange={(e) => setEditingName(e.target.value)} disabled={isSubmitting} />
+            <Button size="sm" onClick={() => void updateCategory(category.id)} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setEditingId(null);
+                setEditingName('');
+              }}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          category.name
+        ),
+        category.parent_id ? categoryNameById.get(category.parent_id) || '-' : '-',
+        <div key={`${category.id}-actions`} className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setEditingId(category.id);
+              setEditingName(category.name);
+            }}
+            disabled={isSubmitting || (editingId !== null && editingId !== category.id)}
+          >
+            Edit
+          </Button>
+          <ConfirmDialog
+            title="Delete category"
+            description={`Delete ${category.name}?`}
+            triggerLabel="Delete"
+            confirmLabel="Delete"
+            onConfirm={() => deleteCategory(category.id)}
+            disabled={isSubmitting || editingId !== null}
+          />
+        </div>,
+      ]),
+    [categories, categoryNameById, editingId, editingName, isSubmitting],
+  );
 
   return (
     <div className="space-y-4">
