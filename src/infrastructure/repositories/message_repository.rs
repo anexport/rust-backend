@@ -45,7 +45,45 @@ impl MessageRepository for MessageRepositoryImpl {
     }
 
     async fn create_conversation(&self, participant_ids: Vec<Uuid>) -> AppResult<Conversation> {
-        let mut tx = self.pool.begin().await?;
+        // Reject empty participant lists - conversations must have at least one participant
+        if participant_ids.is_empty() {
+            return Err(crate::error::AppError::validation_error(
+                "Conversations must have at least one participant",
+            ));
+        }
+
+        // Use SERIALIZABLE isolation to prevent race condition in duplicate conversation check
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN ISOLATION LEVEL SERIALIZABLE")
+            .await?;
+
+        // Check if a conversation with exactly these participants already exists
+        let existing_id: Option<Uuid> = sqlx::query_scalar(
+            r#"
+            SELECT conversation_id
+            FROM conversation_participants
+            GROUP BY conversation_id
+            HAVING ARRAY_AGG(profile_id ORDER BY profile_id) = (
+                SELECT ARRAY_AGG(p ORDER BY p)
+                FROM UNNEST($1::UUID[]) AS p
+            )
+            "#,
+        )
+        .bind(&participant_ids)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(id) = existing_id {
+            let conversation = sqlx::query_as::<_, Conversation>(
+                "SELECT id, created_at, updated_at FROM conversations WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return Ok(conversation);
+        }
 
         let conversation: Conversation = sqlx::query_as(
             "INSERT INTO conversations (id, created_at, updated_at) VALUES (gen_random_uuid(), NOW(), NOW()) RETURNING id, created_at, updated_at"

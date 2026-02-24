@@ -32,7 +32,7 @@ pub struct ParticipantResponse {
     pub last_read_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct MessageResponse {
     pub id: Uuid,
     pub conversation_id: Uuid,

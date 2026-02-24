@@ -17,5 +17,56 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rust-backend-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/rust_backend
+      - APP__ENVIRONMENT=development
+      # These will be populated from the .env file in the host machine
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+      - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
+      - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}
+      - RUST_LOG=${RUST_LOG:-info}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rust-backend-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Frontend needs to know the backend URL (from the browser's perspective)
+      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      # Server-side URL for Docker network communication
+      - API_URL=http://backend:8080
+      # These will be populated from the .env file
+      - AUTH0_SECRET=${AUTH0_SECRET}
+      - AUTH0_BASE_URL=http://localhost:3000
+      - AUTH0_ISSUER_BASE_URL=https://${AUTH0_DOMAIN}
+      - AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
+      - AUTH0_CLIENT_SECRET=${AUTH0_CLIENT_SECRET}
+      - AUTH0_AUDIENCE=${AUTH0_AUDIENCE}
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   postgres_data:

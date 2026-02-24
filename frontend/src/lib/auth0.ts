@@ -1,5 +1,7 @@
 import { Auth0Client } from '@auth0/nextjs-auth0/server';
 
+const appBaseUrl = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || undefined;
+
 let _auth0: Auth0Client | null = null;
 
 export const auth0: Auth0Client = new Proxy({} as Auth0Client, {
@@ -14,12 +16,11 @@ export const auth0: Auth0Client = new Proxy({} as Auth0Client, {
       }
 
       _auth0 = new Auth0Client({
-        appBaseUrl: process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || 'http://localhost:3000',
+        appBaseUrl,
         authorizationParameters,
       });
     }
     const value = Reflect.get(_auth0, prop);
-    // Bind methods to the instance so `this` is correct when called
     return typeof value === 'function' ? value.bind(_auth0) : value;
   },
 });

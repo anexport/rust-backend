@@ -66,6 +66,12 @@ async fn list_messages(
     query: web::Query<MessageQuery>,
 ) -> AppResult<HttpResponse> {
     let q = query.into_inner();
+    // Return 400 for negative offset (invalid input)
+    if q.offset.unwrap_or(0) < 0 {
+        return Err(crate::error::AppError::validation_error(
+            "offset must be non-negative",
+        ));
+    }
     let result = state
         .message_service
         .list_messages(
@@ -84,9 +90,19 @@ async fn send_message(
     path: web::Path<Uuid>,
     payload: web::Json<SendMessageRequest>,
 ) -> AppResult<HttpResponse> {
-    let result = state
+    let (result, participant_ids) = state
         .message_service
-        .send_message(auth.0.user_id, path.into_inner(), payload.into_inner())
+        .send_message_with_participants(auth.0.user_id, path.into_inner(), payload.into_inner())
         .await?;
+
+    let ws_payload = serde_json::json!({
+        "type": "new_message",
+        "data": result.clone()
+    })
+    .to_string();
+    state
+        .ws_hub
+        .broadcast_to_users(&participant_ids, &ws_payload);
+
     Ok(HttpResponse::Created().json(result))
 }

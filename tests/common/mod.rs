@@ -15,6 +15,7 @@ static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
 pub struct TestDb {
     pool: PgPool,
+    url: String,
     _db_lock_conn: PgConnection,
     _lock: MutexGuard<'static, ()>,
 }
@@ -47,6 +48,7 @@ impl TestDb {
 
         Some(Self {
             pool,
+            url,
             _db_lock_conn: db_lock_conn,
             _lock: lock,
         })
@@ -54,6 +56,10 @@ impl TestDb {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    pub(crate) fn url(&self) -> &str {
+        &self.url
     }
 }
 
