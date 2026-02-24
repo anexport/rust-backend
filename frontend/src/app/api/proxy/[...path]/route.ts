@@ -3,6 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 const PROXY_TIMEOUT_MS = 15000;
+const FORWARDED_REQUEST_HEADERS = new Set([
+  'accept',
+  'accept-language',
+  'content-type',
+  'if-match',
+  'if-none-match',
+  'if-modified-since',
+  'if-unmodified-since',
+  'x-request-id',
+  'x-correlation-id',
+]);
 
 function isValidPathSegment(segment: string): boolean {
   if (segment === '.' || segment === '..') {
@@ -34,7 +45,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   const headers = new Headers();
   req.headers.forEach((value, key) => {
     const lowerKey = key.toLowerCase();
-    if (!['host', 'content-length', 'connection'].includes(lowerKey)) {
+    if (FORWARDED_REQUEST_HEADERS.has(lowerKey)) {
       headers.set(key, value);
     }
   });
