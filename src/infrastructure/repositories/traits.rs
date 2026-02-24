@@ -75,8 +75,22 @@ pub trait EquipmentRepository: Send + Sync {
         ))
     }
     async fn count_search(&self, params: &EquipmentSearchParams) -> AppResult<i64> {
-        let items = self.search(params, i64::from(i32::MAX), 0).await?;
-        Ok(items.len() as i64)
+        const PAGE_SIZE: i64 = 1_000;
+
+        let mut total = 0_i64;
+        let mut offset = 0_i64;
+        loop {
+            let items = self.search(params, PAGE_SIZE, offset).await?;
+            let count = items.len() as i64;
+            total = total.saturating_add(count);
+
+            if count < PAGE_SIZE || offset > i64::MAX - PAGE_SIZE {
+                break;
+            }
+            offset += PAGE_SIZE;
+        }
+
+        Ok(total)
     }
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment>;

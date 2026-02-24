@@ -9,9 +9,9 @@ pub fn capture_unexpected_5xx(
     request_id: &str,
 ) -> AppResult<Uuid> {
     if status < 500 {
-        return Err(AppError::BadRequest(
-            "capture_unexpected_5xx requires an HTTP 5xx status".to_string(),
-        ));
+        return Err(AppError::InternalError(anyhow::anyhow!(
+            "capture_unexpected_5xx requires an HTTP 5xx status"
+        )));
     }
 
     let event_id = Uuid::new_v4();
@@ -47,6 +47,6 @@ mod tests {
     fn capture_unexpected_5xx_rejects_non_5xx_status() {
         let error = capture_unexpected_5xx("/api/test", "GET", 400, "req-123")
             .expect_err("non-5xx status must be rejected");
-        assert!(matches!(error, AppError::BadRequest(_)));
+        assert!(matches!(error, AppError::InternalError(_)));
     }
 }

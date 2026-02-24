@@ -59,20 +59,16 @@ impl LoginThrottle {
         format!("{email}|{}", ip.unwrap_or("unknown"))
     }
 
-    fn read_entries(&self) -> std::sync::RwLockReadGuard<'_, HashMap<String, LoginAttemptState>> {
-        self.entries
-            .read()
-            .expect("login throttle read lock poisoned")
-    }
-
     fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
         self.entries
             .write()
             .expect("login throttle write lock poisoned")
     }
 
-    fn cleanup_expired_entries(&self, now: DateTime<Utc>) {
-        let mut entries = self.write_entries();
+    fn cleanup_expired_entries(
+        entries: &mut HashMap<String, LoginAttemptState>,
+        now: DateTime<Utc>,
+    ) {
         entries.retain(|_, state| {
             let latest_block = state
                 .locked_until
@@ -90,8 +86,8 @@ impl LoginThrottle {
         window_seconds: u64,
     ) -> AppResult<()> {
         let now = Utc::now();
-        self.cleanup_expired_entries(now);
         let mut entries = self.write_entries();
+        Self::cleanup_expired_entries(&mut entries, now);
         let mut entry = entries.get(key).cloned().unwrap_or_default();
 
         if let Some(window_end) = entry.locked_until {
@@ -117,8 +113,8 @@ impl LoginThrottle {
 
     pub fn ensure_allowed(&self, key: &str) -> AppResult<()> {
         let now = Utc::now();
-        self.cleanup_expired_entries(now);
-        let entries = self.read_entries();
+        let mut entries = self.write_entries();
+        Self::cleanup_expired_entries(&mut entries, now);
         if let Some(state) = entries.get(key) {
             if state.locked_until.is_some_and(|until| until > now) {
                 return Err(AppError::RateLimited);
@@ -138,10 +134,10 @@ impl LoginThrottle {
 
     pub fn record_failure(&self, key: &str) -> AppError {
         let now = Utc::now();
-        self.cleanup_expired_entries(now);
         let mut entries = self.write_entries();
+        Self::cleanup_expired_entries(&mut entries, now);
         let mut entry = entries.get(key).cloned().unwrap_or_default();
-        entry.failures += 1;
+        entry.failures = entry.failures.saturating_add(1);
 
         let exponent = (entry.failures.saturating_sub(1)).min(8);
         let backoff_ms = self.backoff_base_ms.saturating_mul(1_u64 << exponent);
@@ -228,5 +224,26 @@ mod tests {
             throttle.enforce_fixed_window(&key, 2, 60),
             Err(AppError::RateLimited)
         ));
+    }
+
+    #[test]
+    fn record_failure_does_not_panic_when_failures_counter_is_maxed() {
+        let throttle = LoginThrottle::new(&test_security_config(60));
+        let key = LoginThrottle::key("overflow@example.com", Some("198.51.100.55"));
+        let now = Utc::now();
+        {
+            let mut entries = throttle.write_entries();
+            entries.insert(
+                key.clone(),
+                LoginAttemptState {
+                    failures: u32::MAX,
+                    locked_until: Some(now + Duration::seconds(60)),
+                    next_allowed_at: Some(now + Duration::seconds(1)),
+                },
+            );
+        }
+
+        let result = std::panic::catch_unwind(|| throttle.record_failure(&key));
+        assert!(result.is_ok(), "record_failure must not panic on overflow");
     }
 }

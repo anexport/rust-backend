@@ -19,7 +19,7 @@ impl AppMetrics {
             self.error_count.fetch_add(1, Ordering::Relaxed);
         }
         self.latency_total_ms
-            .fetch_add(latency_ms, Ordering::Relaxed);
+            .fetch_add(latency_ms, Ordering::Release);
         // Release on count pairs with Acquire in render_prometheus so the
         // corresponding total update is visible when sampling both together.
         self.latency_count.fetch_add(1, Ordering::Release);

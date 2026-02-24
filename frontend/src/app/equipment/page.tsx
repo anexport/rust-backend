@@ -3,14 +3,27 @@ import { fetchServer } from '@/lib/api';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import Link from 'next/link';
 
+interface Category {
+  id: string;
+  name: string;
+}
+
+interface EquipmentItem {
+  id: string;
+  title: string;
+  description: string;
+  daily_rate: number;
+  photos: { photo_url: string }[];
+}
+
 export default async function EquipmentPage({ searchParams }: { searchParams: Promise<{ category_id?: string }> }) {
   const { category_id } = await searchParams;
   const categoriesRes = await fetchServer('/api/categories');
-  const categories = categoriesRes.ok ? await categoriesRes.json() : [];
+  const categories: Category[] = categoriesRes.ok ? await categoriesRes.json() : [];
 
   const query = category_id ? `?category_id=${category_id}` : '';
   const equipmentRes = await fetchServer(`/api/equipment${query}`);
-  const equipmentData = equipmentRes.ok ? await equipmentRes.json() : { items: [] };
+  const equipmentData = equipmentRes.ok ? await equipmentRes.json() : { items: [] as EquipmentItem[] };
 
   return (
     <main className="container mx-auto py-10 px-4">
@@ -19,7 +32,7 @@ export default async function EquipmentPage({ searchParams }: { searchParams: Pr
           <h2 className="text-xl font-bold">Categories</h2>
           <nav className="flex flex-col space-y-2">
             <Link href="/equipment" className={!category_id ? "font-bold text-primary" : "text-muted-foreground hover:text-foreground"}>All</Link>
-            {categories.map((c: any) => (
+            {categories.map((c) => (
               <Link 
                 key={c.id} 
                 href={`/equipment?category_id=${c.id}`}
@@ -40,7 +53,7 @@ export default async function EquipmentPage({ searchParams }: { searchParams: Pr
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {equipmentData.items.map((item: any) => (
+            {equipmentData.items.map((item: EquipmentItem) => (
               <Card key={item.id} className="flex flex-col">
                 <CardHeader>
                   <CardTitle className="text-lg line-clamp-1">{item.title}</CardTitle>

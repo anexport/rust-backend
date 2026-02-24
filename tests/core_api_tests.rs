@@ -920,8 +920,11 @@ fn app_state_with_message_repo(
 }
 
 fn test_db_pool() -> sqlx::PgPool {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
     PgPoolOptions::new()
-        .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/test_db")
+        .connect_lazy(&database_url)
         .expect("test db pool should build lazily")
 }
 
@@ -1843,7 +1846,13 @@ async fn ready_endpoint_checks_dependencies() {
 
     let request = actix_test::TestRequest::get().uri("/ready").to_request();
     let response = actix_test::call_service(&app, request).await;
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let has_test_db_url =
+        std::env::var("TEST_DATABASE_URL").is_ok() || std::env::var("DATABASE_URL").is_ok();
+    if has_test_db_url {
+        assert_eq!(response.status(), StatusCode::OK);
+    } else {
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
 }
 
 // Message routes tests

@@ -56,7 +56,7 @@ async fn ready(state: web::Data<AppState>) -> AppResult<HttpResponse> {
     sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.db_pool)
         .await
-        .map_err(|_| AppError::InternalError(anyhow::anyhow!("database is not ready")))?;
+        .map_err(|e| AppError::InternalError(anyhow::anyhow!("database is not ready: {e}")))?;
     Ok(HttpResponse::Ok().body("ready"))
 }
 

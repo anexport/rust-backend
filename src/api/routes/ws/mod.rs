@@ -580,8 +580,11 @@ mod tests {
     }
 
     fn test_db_pool() -> sqlx::PgPool {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
         PgPoolOptions::new()
-            .connect_lazy("postgres://postgres:postgres@127.0.0.1:1/test_db")
+            .connect_lazy(&database_url)
             .expect("test db pool should build lazily")
     }
 
