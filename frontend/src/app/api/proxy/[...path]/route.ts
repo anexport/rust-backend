@@ -4,6 +4,19 @@ import { NextRequest, NextResponse } from 'next/server';
 const API_BASE_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 const PROXY_TIMEOUT_MS = 15000;
 
+type AccessTokenResult = {
+  token?: string;
+  accessToken?: string;
+};
+
+function extractAccessToken(result: unknown): string | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  const tokenResult = result as AccessTokenResult;
+  return tokenResult.token ?? tokenResult.accessToken ?? null;
+}
+
 function isValidPathSegment(segment: string): boolean {
   if (segment === '.' || segment === '..') {
     return false;
@@ -25,8 +38,10 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   let token;
   const proxyRes = new NextResponse();
   try {
-    const { token: accessToken } = await auth0.getAccessToken(req, proxyRes);
-    token = accessToken;
+    token = extractAccessToken(await auth0.getAccessToken(req, proxyRes));
+    if (!token) {
+      console.warn('Proxy request getAccessToken returned no token value');
+    }
   } catch (error) {
     console.warn('Proxy request without access token', error);
   }

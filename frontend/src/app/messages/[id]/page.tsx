@@ -1,6 +1,5 @@
 export const dynamic = 'force-dynamic';
 import { fetchServer } from '@/lib/server';
-import { redirect } from 'next/navigation';
 import ChatClient from './ChatClient';
 
 interface Message {
@@ -41,7 +40,14 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
   }
 
   if (!meRes.ok) {
-    redirect('/auth/login');
+    return (
+      <div className="p-8 text-center">
+        <p className="mb-3">You need to log in to open this conversation.</p>
+        <a href="/auth/login" className="underline">
+          Log in
+        </a>
+      </div>
+    );
   }
 
   let currentUser: { id: string } | null = null;
@@ -49,11 +55,25 @@ export default async function ConversationPage({ params }: { params: Promise<{ i
     currentUser = await meRes.json();
   } catch (error) {
     console.error('Failed to parse current user payload', error);
-    redirect('/auth/login');
+    return (
+      <div className="p-8 text-center">
+        <p className="mb-3">Your session payload is invalid.</p>
+        <a href="/auth/login" className="underline">
+          Log in again
+        </a>
+      </div>
+    );
   }
 
   if (!currentUser?.id) {
-    redirect('/auth/login');
+    return (
+      <div className="p-8 text-center">
+        <p className="mb-3">Your session is missing user details.</p>
+        <a href="/auth/login" className="underline">
+          Log in again
+        </a>
+      </div>
+    );
   }
 
   if (!convRes.ok) {

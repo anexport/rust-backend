@@ -1,17 +1,28 @@
+import { auth0 } from '@/lib/auth0';
+
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
-// Get the base URL for internal API routes (needed for server-side fetch)
-const APP_BASE_URL = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || 'http://localhost:3000';
+
+type AccessTokenResult = {
+  token?: string;
+  accessToken?: string;
+};
+
+function extractAccessToken(result: unknown): string | null {
+  if (!result || typeof result !== 'object') {
+    return null;
+  }
+  const tokenResult = result as AccessTokenResult;
+  return tokenResult.token ?? tokenResult.accessToken ?? null;
+}
 
 export async function fetchServer(path: string, options: RequestInit = {}): Promise<Response> {
   let token: string | null = null;
 
   try {
-    // Use the API route to get the access token
-    // The API route has access to req/res objects needed for session handling
-    const tokenRes = await fetch(`${APP_BASE_URL}/api/auth/token`, { cache: 'no-store' });
-    if (tokenRes.ok) {
-      const data = await tokenRes.json();
-      token = data.accessToken ?? null;
+    const tokenResult = await auth0.getAccessToken();
+    token = extractAccessToken(tokenResult);
+    if (!token) {
+      console.warn('fetchServer getAccessToken returned no token');
     }
   } catch (err) {
     // Log the error for debugging but proceed without access token
@@ -27,7 +38,9 @@ export async function fetchServer(path: string, options: RequestInit = {}): Prom
     reqHeadersForFetch.set('Content-Type', 'application/json');
   }
 
-  return fetch(`${API_BASE_URL}${path}`, {
+  const upstreamUrl = new URL(path, API_BASE_URL);
+
+  return fetch(upstreamUrl, {
     ...options,
     headers: reqHeadersForFetch,
   });
