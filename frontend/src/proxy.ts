@@ -1,6 +1,7 @@
 import { auth0 } from '@/lib/auth0';
 
 export async function proxy(request: Request) {
+  console.log('Middleware called for:', request.url);
   return auth0.middleware(request);
 }
 
