@@ -134,6 +134,8 @@ UPDATE profiles SET role = 'admin' WHERE id = '<user-id-from-above>';
 
 ---
 
+ed3bd0f4-6ed9-4c96-b063-72b958c75b07
+
 ## 🔑 Auth0 Role Requirement
 
 To create equipment (`POST /api/equipment`), the user's role in the database must be `owner` or `admin`.
