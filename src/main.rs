@@ -65,6 +65,16 @@ async fn main() -> std::io::Result<()> {
 
     let config = AppConfig::from_env().expect("failed to load application configuration");
 
+    let dsn = config.sentry.dsn.as_deref().unwrap_or("");
+    let _guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            send_default_pii: true,
+            ..Default::default()
+        },
+    ));
+
     if config.logging.json_format {
         tracing_subscriber::registry()
             .with(EnvFilter::new(config.logging.level.clone()))
@@ -74,11 +84,13 @@ async fn main() -> std::io::Result<()> {
                     .with_current_span(true)
                     .with_span_list(true),
             )
+            .with(sentry::integrations::tracing::layer())
             .init();
     } else {
         tracing_subscriber::registry()
             .with(EnvFilter::new(config.logging.level.clone()))
             .with(fmt::layer())
+            .with(sentry::integrations::tracing::layer())
             .init();
     }
 
