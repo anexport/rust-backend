@@ -1,4 +1,6 @@
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
+// Get the base URL for internal API routes (needed for server-side fetch)
+const APP_BASE_URL = process.env.APP_BASE_URL || process.env.AUTH0_BASE_URL || 'http://localhost:3000';
 
 export async function fetchServer(path: string, options: RequestInit = {}): Promise<Response> {
   let token: string | null = null;
@@ -6,7 +8,7 @@ export async function fetchServer(path: string, options: RequestInit = {}): Prom
   try {
     // Use the API route to get the access token
     // The API route has access to req/res objects needed for session handling
-    const tokenRes = await fetch('/api/auth/token', { cache: 'no-store' });
+    const tokenRes = await fetch(`${APP_BASE_URL}/api/auth/token`, { cache: 'no-store' });
     if (tokenRes.ok) {
       const data = await tokenRes.json();
       token = data.accessToken ?? null;
