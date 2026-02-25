@@ -34,6 +34,43 @@ Edit `.env` and fill in your **Auth0** details:
 - `AUTH0_CLIENT_SECRET`: Your Application Client Secret
 - `AUTH0_SECRET`: A random 32-character string (for frontend session encryption)
 
+### 3.1 Environment Values: Local vs Production
+
+Use different base URLs per environment. Most callback mismatch issues come from this value.
+
+| Variable | Local (localhost) | Production (EC2 / custom domain) |
+|----------|-------------------|-----------------------------------|
+| `AUTH0_BASE_URL` | `http://localhost:3000` | `http://<your-host>:3000` or `https://<your-domain>` |
+| `AUTH0_DOMAIN` | same tenant in both envs | same tenant in both envs |
+| `AUTH0_AUDIENCE` | same API audience in both envs | same API audience in both envs |
+| `AUTH0_CLIENT_ID` | Auth0 app client id | same or separate prod app client id |
+| `AUTH0_CLIENT_SECRET` | matching client secret | matching prod secret |
+| `AUTH0_SECRET` | random string (32+ chars) | different random string (32+ chars) |
+
+Example `.env` values:
+
+```bash
+# Local
+AUTH0_BASE_URL=http://localhost:3000
+
+# Production
+AUTH0_BASE_URL=http://ec2-13-40-100-25.eu-west-2.compute.amazonaws.com:3000
+# or
+AUTH0_BASE_URL=https://app.example.com
+```
+
+Auth0 Application settings must also match each host:
+
+- **Allowed Callback URLs**: `http://localhost:3000/auth/callback`, `http://<your-host>:3000/auth/callback` (or your HTTPS domain callback)
+- **Allowed Logout URLs**: `http://localhost:3000`, `http://<your-host>:3000` (or your HTTPS domain)
+- **Allowed Web Origins**: `http://localhost:3000`, `http://<your-host>:3000` (or your HTTPS domain)
+- **Allowed Origins (CORS)**: `http://localhost:3000`, `http://<your-host>:3000` (or your HTTPS domain)
+
+Notes:
+
+- `docker-compose.yml` reads env vars from the repository root `.env`.
+- If running frontend manually (`cd frontend && npm run dev`), also set `AUTH0_BASE_URL` in `frontend/.env.local`.
+
 ### 4. Run Everything
 
 Start the database, backend, and frontend with one command:
