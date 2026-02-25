@@ -1,13 +1,16 @@
-import { auth0 } from './auth0';
-
 const API_BASE_URL = process.env.API_URL || 'http://localhost:8080';
 
 export async function fetchServer(path: string, options: RequestInit = {}): Promise<Response> {
   let token: string | null = null;
 
   try {
-    const { token: accessToken } = await auth0.getAccessToken();
-    token = accessToken ?? null;
+    // Use the API route to get the access token
+    // The API route has access to req/res objects needed for session handling
+    const tokenRes = await fetch('/api/auth/token', { cache: 'no-store' });
+    if (tokenRes.ok) {
+      const data = await tokenRes.json();
+      token = data.accessToken ?? null;
+    }
   } catch (err) {
     // Log the error for debugging but proceed without access token
     console.warn('fetchServer proceeding without access token:', err);
