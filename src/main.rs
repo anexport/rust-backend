@@ -66,11 +66,14 @@ async fn main() -> std::io::Result<()> {
     let config = AppConfig::from_env().expect("failed to load application configuration");
 
     let dsn = config.sentry.dsn.as_deref().unwrap_or("");
-    let _guard = sentry::init((dsn, sentry::ClientOptions {
-        release: sentry::release_name!(),
-        send_default_pii: true,
-        ..Default::default()
-    }));
+    let _guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            send_default_pii: true,
+            ..Default::default()
+        },
+    ));
 
     if config.logging.json_format {
         tracing_subscriber::registry()
