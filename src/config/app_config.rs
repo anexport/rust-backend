@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub auth0: Auth0Config,
     pub security: SecurityConfig,
     pub logging: LoggingConfig,
+    pub sentry: SentryConfig,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -147,6 +148,21 @@ pub struct LoggingConfig {
     pub json_format: bool,
 }
 
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct SentryConfig {
+    #[serde(default)]
+    pub dsn: Option<String>,
+}
+
+impl SentryConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.dsn
+            .as_ref()
+            .map(|d| !d.trim().is_empty())
+            .unwrap_or(false)
+    }
+}
+
 impl AppConfig {
     pub fn from_env() -> Result<Self, Box<figment::Error>> {
         let mut config: Self = Figment::new()
@@ -158,6 +174,7 @@ impl AppConfig {
             .merge(Env::prefixed("AUTH0_").split("__"))
             .merge(Env::prefixed("SECURITY_").split("__"))
             .merge(Env::prefixed("LOGGING_").split("__"))
+            .merge(Env::prefixed("SENTRY_").split("__"))
             .merge(
                 Env::raw()
                     .only(&[
@@ -181,6 +198,7 @@ impl AppConfig {
                         "AUTH0_CLIENT_ID" => "auth0.auth0_client_id".into(),
                         "AUTH0_CONNECTION" => "auth0.auth0_connection".into(),
                         "AUTH0_CLIENT_SECRET" => "auth0.auth0_client_secret".into(),
+                        "SENTRY_DSN" => "sentry.dsn".into(),
                         _ => key.into(),
                     }),
             )
@@ -193,6 +211,7 @@ impl AppConfig {
         config.auth0.auth0_client_id = normalize_optional_string(config.auth0.auth0_client_id);
         config.auth0.auth0_client_secret =
             normalize_optional_string(config.auth0.auth0_client_secret);
+        config.sentry.dsn = normalize_optional_string(config.sentry.dsn);
         if config.auth0.auth0_connection.trim().is_empty() {
             config.auth0.auth0_connection = default_auth0_connection();
         }

@@ -63,15 +63,14 @@ fn build_jwks_provider(auth0_config: &rust_backend::config::Auth0Config) -> Arc<
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
 
-    let _guard = sentry::init(("https://9544cf61c9c2843a0b317008b67b9151@o4510940686712832.ingest.de.sentry.io/4510940731277392", sentry::ClientOptions {
+    let config = AppConfig::from_env().expect("failed to load application configuration");
+
+    let dsn = config.sentry.dsn.as_deref().unwrap_or("");
+    let _guard = sentry::init((dsn, sentry::ClientOptions {
         release: sentry::release_name!(),
-        // Capture user IPs and potentially sensitive headers when using HTTP server integrations
-        // see https://docs.sentry.io/platforms/rust/data-management/data-collected for more info
         send_default_pii: true,
         ..Default::default()
     }));
-
-    let config = AppConfig::from_env().expect("failed to load application configuration");
 
     if config.logging.json_format {
         tracing_subscriber::registry()

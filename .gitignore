@@ -1,5 +1,6 @@
 /target
 /.env
+/.env.local
 /config/local.toml
 /.worktrees/
 *.db
