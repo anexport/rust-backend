@@ -60,3 +60,6 @@ login_backoff_base_ms = 200
 [logging]
 level = "info"
 json_format = false
+
+[sentry]
+dsn = ""
