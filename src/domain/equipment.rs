@@ -5,12 +5,13 @@ use sqlx::FromRow;
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
 #[sqlx(type_name = "condition", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Condition {
     New,
     Excellent,
+    #[default]
     Good,
     Fair,
 }
@@ -48,6 +49,26 @@ pub struct Equipment {
     pub updated_at: DateTime<Utc>,
 }
 
+impl Default for Equipment {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            owner_id: Uuid::nil(),
+            category_id: Uuid::nil(),
+            title: "Default Equipment".to_string(),
+            description: None,
+            daily_rate: Decimal::new(1000, 2),
+            condition: Condition::default(),
+            location: None,
+            coordinates: None,
+            is_available: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
 impl Equipment {
     pub fn coordinates_tuple(&self) -> Option<(f64, f64)> {
         self.coordinates.as_ref().and_then(|c| {
@@ -62,8 +83,19 @@ impl Equipment {
         })
     }
 
-    pub fn set_coordinates(&mut self, lat: f64, lng: f64) {
+    pub fn set_coordinates(&mut self, lat: f64, lng: f64) -> crate::error::AppResult<()> {
+        if !(-90.0..=90.0).contains(&lat) {
+            return Err(crate::error::AppError::validation_error(
+                "Latitude must be between -90 and 90",
+            ));
+        }
+        if !(-180.0..=180.0).contains(&lng) {
+            return Err(crate::error::AppError::validation_error(
+                "Longitude must be between -180 and 180",
+            ));
+        }
         self.coordinates = Some(format!("{}, {}", lat, lng));
+        Ok(())
     }
 }
 
@@ -176,7 +208,7 @@ mod tests {
     #[test]
     fn set_coordinates_sets_string_correctly() {
         let mut equipment = create_test_equipment();
-        equipment.set_coordinates(40.7128, -74.0060);
+        equipment.set_coordinates(40.7128, -74.0060).unwrap();
         assert!(equipment.coordinates.is_some());
         let result = equipment.coordinates_tuple();
         assert!(result.is_some());
@@ -189,9 +221,27 @@ mod tests {
     fn set_coordinates_overwrites_existing() {
         let mut equipment = create_test_equipment();
         equipment.coordinates = Some("1.0, 2.0".to_string());
-        equipment.set_coordinates(40.7128, -74.0060);
+        equipment.set_coordinates(40.7128, -74.0060).unwrap();
         let (lat, lng) = equipment.coordinates_tuple().unwrap();
         assert!((lat - 40.7128).abs() < 0.0001);
         assert!((lng - (-74.0060)).abs() < 0.0001);
+    }
+
+    #[test]
+    fn set_coordinates_rejects_out_of_range() {
+        let mut equipment = create_test_equipment();
+        
+        // Latitude too high
+        assert!(equipment.set_coordinates(90.1, 0.0).is_err());
+        // Latitude too low
+        assert!(equipment.set_coordinates(-90.1, 0.0).is_err());
+        // Longitude too high
+        assert!(equipment.set_coordinates(0.0, 180.1).is_err());
+        // Longitude too low
+        assert!(equipment.set_coordinates(0.0, -180.1).is_err());
+        
+        // Exact boundaries should pass
+        assert!(equipment.set_coordinates(90.0, 180.0).is_ok());
+        assert!(equipment.set_coordinates(-90.0, -180.0).is_ok());
     }
 }

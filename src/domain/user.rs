@@ -4,10 +4,11 @@ use sqlx::FromRow;
 use std::fmt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
 #[sqlx(type_name = "role", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
+    #[default]
     Renter,
     Owner,
     Admin,
@@ -39,6 +40,22 @@ pub struct User {
     pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        let now = Utc::now();
+        Self {
+            id: Uuid::new_v4(),
+            email: "default@example.com".to_string(),
+            role: Role::default(),
+            username: None,
+            full_name: None,
+            avatar_url: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]

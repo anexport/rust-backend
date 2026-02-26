@@ -153,7 +153,7 @@ impl EquipmentService {
         };
 
         if let Some(coords) = request.coordinates {
-            equipment.set_coordinates(coords.latitude, coords.longitude);
+            equipment.set_coordinates(coords.latitude, coords.longitude)?;
         }
 
         let created = self.equipment_repo.create(&equipment).await?;
@@ -231,7 +231,7 @@ impl EquipmentService {
             existing.is_available = is_available;
         }
         if let Some(coordinates) = request.coordinates {
-            existing.set_coordinates(coordinates.latitude, coordinates.longitude);
+            existing.set_coordinates(coordinates.latitude, coordinates.longitude)?;
         }
 
         let updated = self.equipment_repo.update(&existing).await?;

@@ -11,7 +11,7 @@ use rust_backend::application::{
 };
 use rust_backend::config::{Auth0Config, AuthConfig, SecurityConfig};
 use rust_backend::domain::{
-    AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, Role,
+    AuthIdentity, AuthProvider, Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, Role,
     User,
 };
 use rust_backend::infrastructure::auth0_api::{Auth0SignupResponse, Auth0TokenResponse};
@@ -797,7 +797,7 @@ fn create_equipment(
         updated_at: Utc::now(),
     };
     if let (Some(lat), Some(lng)) = (lat, lng) {
-        equipment.set_coordinates(lat, lng);
+        equipment.set_coordinates(lat, lng).unwrap();
     }
     equipment
 }
@@ -2556,6 +2556,83 @@ async fn search_ignores_undefined_optional_filters_in_query_string() {
     let response = actix_test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[test]
+async fn search_with_zero_radius() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let owner_id = Uuid::new_v4();
+    let category_id = Uuid::new_v4();
+    user_repo.push(User { id: owner_id, email: "o@e.c".to_string(), role: Role::Owner, ..User::default() });
+    
+    // Item at exact point
+    equipment_repo.push(create_equipment(Uuid::new_v4(), owner_id, category_id, "Exact", 1000, Condition::Good, None, Some(40.0), Some(40.0), true));
+    // Item 1m away
+    equipment_repo.push(create_equipment(Uuid::new_v4(), owner_id, category_id, "Near", 1000, Condition::Good, None, Some(40.00001), Some(40.0), true));
+
+    let app = actix_test::init_service(App::new().app_data(web::Data::new(auth_config())).app_data(web::Data::new(state)).configure(routes::configure)).await;
+
+    let request = actix_test::TestRequest::get().uri("/api/v1/equipment?lat=40.0&lng=40.0&radius_km=0").to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    let items = get_items_array(&body);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].get("title").unwrap(), "Exact");
+}
+
+#[test]
+async fn search_pagination_beyond_bounds() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let owner_id = Uuid::new_v4();
+    let category_id = Uuid::new_v4();
+    user_repo.push(User { id: owner_id, email: "o@e.c".to_string(), role: Role::Owner, ..User::default() });
+    
+    for i in 0..5 {
+        equipment_repo.push(create_equipment(Uuid::new_v4(), owner_id, category_id, &format!("Item {}", i), 1000, Condition::Good, None, None, None, true));
+    }
+
+    let app = actix_test::init_service(App::new().app_data(web::Data::new(auth_config())).app_data(web::Data::new(state)).configure(routes::configure)).await;
+
+    // Page beyond total pages
+    let request = actix_test::TestRequest::get().uri("/api/v1/equipment?page=10&limit=5").to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    let items = get_items_array(&body);
+    assert_eq!(items.len(), 0);
+    assert_eq!(get_total(&body), 5);
+
+    // Limit beyond available items
+    let request = actix_test::TestRequest::get().uri("/api/v1/equipment?page=1&limit=100").to_request();
+    let response = actix_test::call_service(&app, request).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(get_items_array(&body).len(), 5);
+}
+
+#[test]
+async fn search_with_invalid_category_id() {
+    let user_repo = Arc::new(MockUserRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let state = app_state(user_repo.clone(), equipment_repo.clone());
+
+    let owner_id = Uuid::new_v4();
+    user_repo.push(User { id: owner_id, email: "o@e.c".to_string(), role: Role::Owner, ..User::default() });
+    equipment_repo.push(create_equipment(Uuid::new_v4(), owner_id, Uuid::new_v4(), "Item", 1000, Condition::Good, None, None, None, true));
+
+    let app = actix_test::init_service(App::new().app_data(web::Data::new(auth_config())).app_data(web::Data::new(state)).configure(routes::configure)).await;
+
+    let request = actix_test::TestRequest::get().uri(&format!("/api/v1/equipment?category_id={}", Uuid::new_v4())).to_request();
+    let response = actix_test::call_service(&app, request).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    assert_eq!(get_items_array(&body).len(), 0);
 }
 
 #[test]
