@@ -13,7 +13,7 @@ max_lifetime_seconds = 1800
 test_before_acquire = true
 
 [auth]
-jwt_secret = "change-me-in-production"
+jwt_secret = ""
 jwt_kid = "v1"
 previous_jwt_secrets = []
 previous_jwt_kids = []
@@ -56,6 +56,13 @@ metrics_admin_token = ""
 login_max_failures = 5
 login_lockout_seconds = 300
 login_backoff_base_ms = 200
+# Global rate limiting (applies to all API endpoints)
+# Rate limit for anonymous requests (requests per minute)
+global_rate_limit_per_minute = 300
+# Burst size - allows short-term bursts above the rate limit
+global_rate_limit_burst_size = 30
+# Rate limit for authenticated requests (higher limit for logged-in users)
+global_rate_limit_authenticated_per_minute = 1000
 
 [logging]
 level = "info"

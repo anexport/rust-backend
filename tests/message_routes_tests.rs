@@ -68,8 +68,8 @@ impl UserProvisioningService for MockProvisioningService {
         let user_repo = UserRepositoryImpl::new(self.db_pool.clone());
         let sub = &claims.sub;
 
-        let user_id = if sub.starts_with("auth0|") {
-            Uuid::parse_str(&sub[6..]).unwrap_or_else(|_| Uuid::new_v4())
+        let user_id = if let Some(id_part) = sub.strip_prefix("auth0|") {
+            Uuid::parse_str(id_part).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         };
@@ -178,6 +178,9 @@ async fn setup_app(
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     };
 
     let state = AppState {
@@ -243,7 +246,7 @@ async fn test_conversation_crud_flow() {
 
     // 1. Create conversation
     let req = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "participant_ids": [user2.id]
@@ -256,7 +259,7 @@ async fn test_conversation_crud_flow() {
 
     // 2. List conversations
     let req = actix_test::TestRequest::get()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -267,7 +270,7 @@ async fn test_conversation_crud_flow() {
 
     // 3. Send message
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{}/messages", conv_id))
+        .uri(&format!("/api/v1/conversations/{}/messages", conv_id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "content": "Hello there!"
@@ -278,7 +281,7 @@ async fn test_conversation_crud_flow() {
 
     // 4. List messages
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages", conv_id))
+        .uri(&format!("/api/v1/conversations/{}/messages", conv_id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -326,7 +329,7 @@ async fn test_message_pagination() {
     // Get first 2 messages
     let req = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{}/messages?limit=2&offset=0",
+            "/api/v1/conversations/{}/messages?limit=2&offset=0",
             conv.id
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
@@ -353,7 +356,7 @@ async fn test_create_conversation_validates_participants() {
 
     // Try to create conversation with NO other participants
     let req = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "participant_ids": []
@@ -386,7 +389,7 @@ async fn test_non_participant_cannot_view_conversation() {
     let token3 = create_auth0_token(user3.id, "renter");
 
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}", conv.id))
+        .uri(&format!("/api/v1/conversations/{}", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token3)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -416,7 +419,7 @@ async fn test_non_participant_cannot_send_message() {
     let token3 = create_auth0_token(user3.id, "renter");
 
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{}/messages", conv.id))
+        .uri(&format!("/api/v1/conversations/{}/messages", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token3)))
         .set_json(serde_json::json!({
             "content": "Trying to intrude"
@@ -454,7 +457,7 @@ async fn test_conversation_list_isolation() {
     let token2 = create_auth0_token(user2.id, "renter");
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token2)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -477,7 +480,7 @@ async fn test_cannot_create_conversation_with_nonexistent_user() {
     let token1 = create_auth0_token(user1.id, "renter");
 
     let req = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "participant_ids": [Uuid::new_v4()]
@@ -506,7 +509,7 @@ async fn test_conversation_duplicate_prevention() {
 
     // First creation
     let req = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "participant_ids": [user2.id]
@@ -518,7 +521,7 @@ async fn test_conversation_duplicate_prevention() {
 
     // Second creation attempt with same participants
     let req = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "participant_ids": [user2.id]
@@ -557,7 +560,7 @@ async fn test_websocket_broadcast_on_send_message() {
     let mut rx2 = state.ws_hub.register(user2.id);
 
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{}/messages", conv.id))
+        .uri(&format!("/api/v1/conversations/{}/messages", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({
             "content": "WS test message"
@@ -614,7 +617,7 @@ async fn test_message_list_ordering() {
 
     // List messages and assert newest first
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}/messages", conv.id))
+        .uri(&format!("/api/v1/conversations/{}/messages", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -653,7 +656,7 @@ async fn test_get_conversation_details_participants_only() {
 
     // User 3 is NOT a participant, should get 403 Forbidden
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{}", conv.id))
+        .uri(&format!("/api/v1/conversations/{}", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token3)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -698,7 +701,7 @@ async fn test_pagination_edge_cases() {
     // Test page 1 with limit 10 - should return all 10 messages
     let req = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{}/messages?limit=10&offset=0",
+            "/api/v1/conversations/{}/messages?limit=10&offset=0",
             conv.id
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
@@ -711,7 +714,7 @@ async fn test_pagination_edge_cases() {
     // Test page 2 with limit 10 - should return empty array (no more messages)
     let req = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{}/messages?limit=10&offset=10",
+            "/api/v1/conversations/{}/messages?limit=10&offset=10",
             conv.id
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
@@ -724,7 +727,7 @@ async fn test_pagination_edge_cases() {
     // Test negative offset - should return 400 Bad Request
     let req = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{}/messages?limit=10&offset=-1",
+            "/api/v1/conversations/{}/messages?limit=10&offset=-1",
             conv.id
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))

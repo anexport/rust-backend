@@ -179,6 +179,20 @@ impl JwksProvider for Auth0JwksClient {
     }
 }
 
+/// Disabled JWKS provider that always returns ServiceUnavailable error.
+/// Used as a fallback when Auth0 is not configured or unavailable.
+pub struct DisabledJwksProvider;
+
+#[async_trait]
+impl JwksProvider for DisabledJwksProvider {
+    async fn get_decoding_key(&self, _kid: &str) -> AppResult<DecodingKey> {
+        Err(AppError::ServiceUnavailable {
+            service: "auth0".to_string(),
+            message: "Auth0 JWT validation is not available. Please configure AUTH0_DOMAIN and AUTH0_AUDIENCE.".to_string(),
+        })
+    }
+}
+
 pub async fn validate_auth0_token(
     token: &str,
     client: &dyn JwksProvider,
@@ -201,10 +215,13 @@ pub async fn validate_auth0_token(
         AppError::Unauthorized
     })?;
 
-    let decoding_key = client
-        .get_decoding_key(&kid)
-        .await
-        .map_err(|_| AppError::Unauthorized)?;
+    let decoding_key = client.get_decoding_key(&kid).await.map_err(|e| {
+        if matches!(e, AppError::ServiceUnavailable { .. }) {
+            e
+        } else {
+            AppError::Unauthorized
+        }
+    })?;
 
     let expected_issuer = config
         .issuer()

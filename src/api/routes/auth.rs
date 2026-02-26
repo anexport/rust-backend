@@ -1,7 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse};
-use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+use crate::api::dtos::auth_dto::{Auth0LoginRequestDto, Auth0LoginResponse, Auth0SignupRequestDto};
 use crate::api::routes::AppState;
 use crate::config::{Auth0Config, AuthConfig};
 use crate::error::{AppError, AppResult};
@@ -20,7 +20,77 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 
 const PROVISIONING_CLAIMS_TTL_SECS: u64 = 300;
 const PROVISIONING_CONTEXT_DEFAULT: &str = "auth0-signup-provisioning";
+const MIN_PASSWORD_LENGTH: usize = 12;
 
+/// Validates password complexity requirements and strength
+/// Returns an error message if validation fails, None otherwise
+fn validate_password(password: &str) -> Result<(), String> {
+    // Check minimum length
+    if password.len() < MIN_PASSWORD_LENGTH {
+        return Err(format!(
+            "Password must be at least {} characters long ({} chars provided).",
+            MIN_PASSWORD_LENGTH,
+            password.len()
+        ));
+    }
+
+    // Check for at least one uppercase letter
+    if !password.chars().any(|c| c.is_uppercase()) {
+        return Err("Password must contain at least one uppercase letter.".to_string());
+    }
+
+    // Check for at least one lowercase letter
+    if !password.chars().any(|c| c.is_lowercase()) {
+        return Err("Password must contain at least one lowercase letter.".to_string());
+    }
+
+    // Check for at least one digit
+    if !password.chars().any(|c| c.is_ascii_digit()) {
+        return Err("Password must contain at least one number.".to_string());
+    }
+
+    // Check for at least one special character
+    if !password.chars().any(|c| !c.is_alphanumeric()) {
+        return Err(
+            "Password must contain at least one special character (e.g., !@#$%^&*).".to_string(),
+        );
+    }
+
+    // Use zxcvbn for password strength estimation
+    let estimate = match zxcvbn::zxcvbn(password, &[]) {
+        Ok(e) => e,
+        Err(_) => return Err("Password strength check failed.".to_string()),
+    };
+    if estimate.score() < 2 {
+        return Err("Password is too weak. Please choose a stronger password.".to_string());
+    }
+
+    // Check for common/weak patterns (repeated chars, sequences)
+    let password_lower = password.to_lowercase();
+    if password_lower
+        .chars()
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        < password.chars().count() / 2
+    {
+        return Err("Password contains too many repeated characters.".to_string());
+    }
+
+    Ok(())
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/auth/me",
+    security(
+        ("bearer_auth" = [])
+    ),
+    responses(
+        (status = 200, description = "User profile retrieved successfully", body = UserDto),
+        (status = 401, description = "Unauthorized")
+    ),
+    tag = "auth"
+)]
 async fn me(state: web::Data<AppState>, auth: Auth0AuthenticatedUser) -> AppResult<HttpResponse> {
     let result = state.auth_service.me(auth.0.user_id).await?;
     Ok(HttpResponse::Ok().json(result))
@@ -30,40 +100,32 @@ async fn me(state: web::Data<AppState>, auth: Auth0AuthenticatedUser) -> AppResu
 ///
 /// This endpoint creates a user in Auth0 using a Database Connection.
 /// The user can then authenticate using /auth/auth0/login.
-#[derive(Debug, Deserialize, Validate)]
-struct Auth0SignupRequestDto {
-    #[serde(alias = "email")]
-    #[validate(length(min = 1, message = "Email is required"))]
-    #[validate(email(message = "Invalid email format"))]
-    email: String,
-    #[serde(alias = "password")]
-    password: String,
-    #[serde(alias = "username")]
-    username: Option<String>,
-    #[serde(alias = "full_name")]
-    _full_name: Option<String>,
-}
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/auth0/signup",
+    request_body = Auth0SignupRequestDto,
+    responses(
+        (status = 201, description = "User created successfully"),
+        (status = 400, description = "Invalid input"),
+        (status = 409, description = "Email already registered")
+    ),
+    tag = "auth"
+)]
 async fn auth0_signup(
     state: web::Data<AppState>,
     request: HttpRequest,
     payload: web::Json<Auth0SignupRequestDto>,
 ) -> AppResult<HttpResponse> {
     tracing::info!(
-        email = %payload.email,
-        username = ?payload.username,
+        has_username = payload.username.is_some(),
         "Processing Auth0 signup request"
     );
 
     payload.validate()?;
 
-    // Validate password
-    if payload.password.len() < 12 {
-        return Err(AppError::BadRequest(format!(
-            "Password is too short ({} chars). It must be at least 12 characters.",
-            payload.password.len()
-        )));
-    }
+    // Validate password complexity and strength
+    validate_password(&payload.password).map_err(AppError::BadRequest)?;
 
     let ip = client_ip(&request);
     let throttle_key = crate::security::LoginThrottle::key("auth0_signup", ip.as_deref());
@@ -148,23 +210,17 @@ fn provisioning_claims(
 ///
 /// This endpoint authenticates a user using Auth0 Password Grant flow.
 /// Returns Auth0 access token and ID token which can be used with the API.
-#[derive(Debug, Deserialize)]
-struct Auth0LoginRequestDto {
-    #[serde(alias = "email")]
-    email: String,
-    #[serde(alias = "password")]
-    password: String,
-}
 
-#[derive(Debug, Serialize)]
-struct Auth0LoginResponse {
-    access_token: String,
-    id_token: String,
-    refresh_token: Option<String>,
-    expires_in: u64,
-    token_type: String,
-}
-
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/auth0/login",
+    request_body = Auth0LoginRequestDto,
+    responses(
+        (status = 200, description = "Login successful", body = Auth0LoginResponse),
+        (status = 401, description = "Invalid credentials")
+    ),
+    tag = "auth"
+)]
 async fn auth0_login(
     state: web::Data<AppState>,
     request: HttpRequest,
@@ -185,15 +241,13 @@ async fn auth0_login(
 
     state.login_throttle.record_success(&throttle_key);
 
-    let response = Auth0LoginResponse {
+    Ok(HttpResponse::Ok().json(Auth0LoginResponse {
         access_token: auth0_response.access_token.clone(),
-        id_token: auth0_response.id_token.clone(),
         refresh_token: auth0_response.refresh_token.clone(),
-        expires_in: auth0_response.expires_in,
+        id_token: auth0_response.id_token.clone(),
         token_type: auth0_response.token_type,
-    };
-
-    Ok(HttpResponse::Ok().json(response))
+        expires_in: auth0_response.expires_in,
+    }))
 }
 
 fn client_ip(request: &HttpRequest) -> Option<String> {
@@ -296,7 +350,7 @@ mod tests {
             email: "@.".to_string(),
             password: "SecurePassword123!".to_string(),
             username: None,
-            _full_name: None,
+            full_name: None,
         };
 
         let result = validator::Validate::validate(&dto);

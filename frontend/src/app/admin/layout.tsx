@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { ShieldCheck, LayoutDashboard, Users, Wrench, Tags } from 'lucide-react';
 import { requireAdmin } from '@/lib/adminGuard';
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,15 +40,25 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             })}
           </nav>
           <div className="text-muted-foreground mt-4 border-t px-2 pt-3 text-xs">
-            <div className="flex flex-col gap-0.5 overflow-hidden">
-              <span className="shrink-0">Signed in as:</span>
-              <span
-                className="truncate font-medium"
-                title={user.email ?? 'unknown'}
-              >
-                {user.email ?? 'unknown'}
-              </span>
-            </div>
+            <TooltipProvider delayDuration={0}>
+              <div className="flex flex-col gap-0.5 overflow-hidden">
+                <span className="shrink-0">Signed in as:</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      className="truncate font-medium cursor-help text-left bg-transparent border-0 p-0 text-inherit text-xs"
+                      tabIndex={0}
+                    >
+                      {user.email ?? 'unknown'}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-none">
+                    <p>{user.email ?? 'unknown'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
           </div>
         </aside>
         <section>

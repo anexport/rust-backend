@@ -77,21 +77,20 @@ impl UserProvisioningService for JitUserProvisioningService {
             ));
         }
 
-        let user = if let Some(existing) = self
-            .user_repo
-            .find_by_email(claims.email.as_deref().unwrap_or(""))
-            .await?
-        {
+        // Require email from Auth0 - do not create placeholder emails
+        let email = claims
+            .email
+            .as_ref()
+            .ok_or_else(|| AppError::BadRequest("Email is required from Auth0".to_string()))?;
+
+        let user = if let Some(existing) = self.user_repo.find_by_email(email).await? {
             existing
         } else {
             let now = Utc::now();
             self.user_repo
                 .create(&User {
                     id: uuid::Uuid::new_v4(),
-                    email: claims
-                        .email
-                        .clone()
-                        .unwrap_or_else(|| format!("{}@auth0.placeholder", claims.sub)),
+                    email: email.clone(),
                     role: Role::Renter,
                     username: None,
                     full_name: claims.name.clone(),

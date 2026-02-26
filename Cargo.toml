@@ -25,6 +25,7 @@ jsonwebtoken = "9"
 argon2 = "0.5"
 rand = "0.8"
 moka = { version = "0.12", features = ["future"] }
+zxcvbn = "2.2"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

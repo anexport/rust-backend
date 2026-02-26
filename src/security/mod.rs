@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};
 use actix_web::middleware::DefaultHeaders;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
@@ -38,6 +39,60 @@ pub fn security_headers() -> DefaultHeaders {
         ))
 }
 
+/// Create a global rate limiting middleware
+///
+/// This middleware applies rate limiting to all API endpoints based on IP address.
+/// The default configuration is used for anonymous requests.
+///
+/// # Configuration
+/// - `global_rate_limit_per_minute`: Requests per minute (must be > 0 and <= 60,000)
+/// - `global_rate_limit_burst_size`: Burst capacity (allows short-term spikes)
+pub fn global_rate_limiting(
+    security_config: &SecurityConfig,
+) -> Governor<actix_governor::PeerIpKeyExtractor, NoOpMiddleware> {
+    // Validate rate limit configuration to prevent division by zero and unreasonable values
+    let rate_limit_per_minute = security_config.global_rate_limit_per_minute;
+    if rate_limit_per_minute == 0 {
+        panic!(
+            "global_rate_limit_per_minute must be greater than 0, got {}",
+            rate_limit_per_minute
+        );
+    }
+    if rate_limit_per_minute > 60_000 {
+        panic!(
+            "global_rate_limit_per_minute must not exceed 60,000 (to allow valid per-millisecond conversion), got {}",
+            rate_limit_per_minute
+        );
+    }
+
+    // Burst size should be reasonable (between 1 and 1000)
+    let burst_size = security_config.global_rate_limit_burst_size;
+    if burst_size == 0 {
+        panic!(
+            "global_rate_limit_burst_size must be greater than 0, got {}",
+            burst_size
+        );
+    }
+    if burst_size > 1000 {
+        tracing::warn!(
+            burst_size,
+            "global_rate_limit_burst_size is unusually high; consider reducing to avoid abuse"
+        );
+    }
+
+    // Create governor configuration
+    // Use per_millisecond since actix-governor expects u64
+    let requests_per_millisecond = (60_000 / rate_limit_per_minute) as u64;
+    let governor_config = GovernorConfigBuilder::default()
+        .per_millisecond(requests_per_millisecond)
+        .burst_size(burst_size)
+        .finish()
+        .expect("Failed to build governor config");
+
+    // Create Governor with default key extractor (PeerIpKeyExtractor) and middleware (NoOpMiddleware)
+    Governor::new(&governor_config)
+}
+
 pub struct LoginThrottle {
     entries: RwLock<HashMap<String, LoginAttemptState>>,
     max_failures: u32,
@@ -60,9 +115,10 @@ impl LoginThrottle {
     }
 
     fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
-        self.entries
-            .write()
-            .expect("login throttle write lock poisoned")
+        self.entries.write().unwrap_or_else(|e| {
+            tracing::warn!("Login throttle lock was poisoned, recovering the lock");
+            e.into_inner()
+        })
     }
 
     fn cleanup_expired_entries(
@@ -174,6 +230,9 @@ mod tests {
             login_max_failures: 3,
             login_lockout_seconds: lockout_seconds,
             login_backoff_base_ms: 1,
+            global_rate_limit_per_minute: 300,
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
         }
     }
 
@@ -245,5 +304,53 @@ mod tests {
 
         let result = std::panic::catch_unwind(|| throttle.record_failure(&key));
         assert!(result.is_ok(), "record_failure must not panic on overflow");
+    }
+
+    #[test]
+    fn global_rate_limiting_panics_when_rate_limit_exceeds_60000() {
+        let config = SecurityConfig {
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            metrics_allow_private_only: true,
+            metrics_admin_token: None,
+            login_max_failures: 3,
+            login_lockout_seconds: 300,
+            login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 60_001, // Exceeds 60,000
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            global_rate_limiting(&config);
+        });
+
+        assert!(
+            result.is_err(),
+            "global_rate_limiting should panic when rate_limit_per_minute > 60,000"
+        );
+    }
+
+    #[test]
+    fn global_rate_limiting_succeeds_at_max_valid_rate_limit() {
+        let config = SecurityConfig {
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            metrics_allow_private_only: true,
+            metrics_admin_token: None,
+            login_max_failures: 3,
+            login_lockout_seconds: 300,
+            login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 60_000, // Maximum valid value
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            global_rate_limiting(&config);
+        });
+
+        assert!(
+            result.is_ok(),
+            "global_rate_limiting should succeed when rate_limit_per_minute = 60,000"
+        );
     }
 }

@@ -38,7 +38,7 @@ pub struct AppState {
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::scope("/api")
+        web::scope("/api/v1")
             .configure(auth::configure)
             .configure(admin::configure)
             .configure(users::configure)
@@ -51,15 +51,35 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     .route("/metrics", web::get().to(metrics));
 }
 
+#[utoipa::path(
+    get,
+    path = "/health",
+    responses(
+        (status = 200, description = "Health check passed")
+    ),
+    tag = "health"
+)]
 async fn health() -> &'static str {
     "ok"
 }
 
+#[utoipa::path(
+    get,
+    path = "/ready",
+    responses(
+        (status = 200, description = "Readiness check passed"),
+        (status = 503, description = "Service not ready"),
+    ),
+    tag = "health"
+)]
 async fn ready(state: web::Data<AppState>) -> AppResult<HttpResponse> {
     sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.db_pool)
         .await
-        .map_err(|e| AppError::InternalError(anyhow::anyhow!("database is not ready: {e}")))?;
+        .map_err(|e| AppError::ServiceUnavailable {
+            service: "database".to_string(),
+            message: format!("Service not ready: {e}"),
+        })?;
     Ok(HttpResponse::Ok().body("ready"))
 }
 

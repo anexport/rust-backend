@@ -26,7 +26,7 @@ use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
     AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
-use rust_backend::config::{AuthConfig, SecurityConfig};
+use rust_backend::config::SecurityConfig;
 use rust_backend::domain::{
     AuthIdentity, Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, User,
 };
@@ -481,19 +481,6 @@ impl MessageRepository for MockMessageRepo {
 // Helper Functions
 // =============================================================================
 
-fn auth_config() -> AuthConfig {
-    AuthConfig {
-        jwt_secret: "test-secret-key".to_string(),
-        jwt_kid: "v1".to_string(),
-        previous_jwt_secrets: Vec::new(),
-        previous_jwt_kids: Vec::new(),
-        jwt_expiration_seconds: 900,
-        refresh_token_expiration_days: 7,
-        issuer: "rust-backend-test".to_string(),
-        audience: "rust-backend-client".to_string(),
-    }
-}
-
 fn security_config() -> SecurityConfig {
     SecurityConfig {
         cors_allowed_origins: vec!["http://localhost:3000".to_string()],
@@ -502,6 +489,9 @@ fn security_config() -> SecurityConfig {
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     }
 }
 
@@ -577,8 +567,8 @@ async fn auth0_signup_with_valid_data_returns_201() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "newuser@example.com",
             "password": "SecurePassword123!",
             "username": "newuser"
@@ -621,8 +611,8 @@ async fn auth0_signup_with_duplicate_email_returns_409() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "existing@example.com",
             "password": "SecurePassword123!"
         }))
@@ -648,8 +638,8 @@ async fn auth0_signup_with_invalid_email_format_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "invalid-email-format",
             "password": "SecurePassword123!"
         }))
@@ -681,8 +671,8 @@ async fn auth0_signup_with_email_missing_at_sign_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "userexample.com",
             "password": "SecurePassword123!"
         }))
@@ -708,8 +698,8 @@ async fn auth0_signup_with_weak_password_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "short"  // Less than 12 chars
         }))
@@ -723,7 +713,7 @@ async fn auth0_signup_with_weak_password_returns_400() {
     assert!(body["message"]
         .as_str()
         .unwrap()
-        .contains("Password is too short"));
+        .contains("at least 12 characters"));
 }
 
 #[actix_web::test]
@@ -741,10 +731,10 @@ async fn auth0_signup_with_exactly_12_char_password_succeeds() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
-            "password": "12charslong!!"  // Exactly 12 chars
+            "password": "S3curePass!1"  // Exactly 12 chars
         }))
         .to_request();
 
@@ -768,8 +758,8 @@ async fn auth0_signup_with_empty_email_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "",
             "password": "SecurePassword123!"
         }))
@@ -795,8 +785,8 @@ async fn auth0_signup_with_empty_password_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": ""
         }))
@@ -822,8 +812,8 @@ async fn auth0_signup_creates_local_user_and_identity() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "newuser@example.com",
             "password": "SecurePassword123!",
             "username": "testuser"
@@ -865,8 +855,8 @@ async fn auth0_login_with_valid_credentials_returns_200() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "correctpassword"
         }))
@@ -909,8 +899,8 @@ async fn auth0_login_with_wrong_password_returns_401() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "wrongpassword"
         }))
@@ -936,8 +926,8 @@ async fn auth0_login_with_nonexistent_user_returns_401() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "nonexistent@example.com",
             "password": "anypassword"
         }))
@@ -963,8 +953,8 @@ async fn auth0_login_with_empty_email_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "",
             "password": "anypassword"
         }))
@@ -995,8 +985,8 @@ async fn auth0_login_with_empty_password_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": ""
         }))
@@ -1025,8 +1015,8 @@ async fn auth0_login_with_missing_fields_returns_400() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com"
             // Missing password
         }))
@@ -1065,8 +1055,8 @@ async fn auth0_login_returns_bearer_token_type() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))
@@ -1104,8 +1094,8 @@ async fn auth0_login_returns_expiration_time() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))
@@ -1144,8 +1134,8 @@ async fn auth0_login_returns_all_required_token_fields() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))
@@ -1197,8 +1187,8 @@ async fn auth0_tokens_have_jwt_structure() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))
@@ -1245,8 +1235,8 @@ async fn auth0_signup_with_auth0_unavailable_returns_500() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "SecurePassword123!"
         }))
@@ -1275,8 +1265,8 @@ async fn auth0_login_with_auth0_unavailable_returns_500() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))
@@ -1312,8 +1302,8 @@ async fn auth0_signup_respects_rate_limiting() {
     // (rate limiting behavior is difficult to test without real rate limit config)
     for i in 0..10 {
         let request = actix_test::TestRequest::post()
-            .uri("/api/auth/auth0/signup")
-            .set_json(&serde_json::json!({
+            .uri("/api/v1/auth/auth0/signup")
+            .set_json(serde_json::json!({
                 "email": &format!("user{}@example.com", i),
                 "password": "SecurePassword123!"
             }))
@@ -1354,8 +1344,8 @@ async fn auth0_login_respects_rate_limiting() {
     // Send many failed login attempts - should return 401 until rate limit is hit
     for _ in 0..10 {
         let request = actix_test::TestRequest::post()
-            .uri("/api/auth/auth0/login")
-            .set_json(&serde_json::json!({
+            .uri("/api/v1/auth/auth0/login")
+            .set_json(serde_json::json!({
                 "email": "user@example.com",
                 "password": "wrongpassword"
             }))
@@ -1389,8 +1379,8 @@ async fn auth0_signup_with_username_returns_username_in_response() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "SecurePassword123!",
             "username": "cooluser123"
@@ -1417,8 +1407,8 @@ async fn auth0_signup_without_username_succeeds() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "SecurePassword123!"
             // No username
@@ -1453,8 +1443,8 @@ async fn auth0_signup_endpoint_responds_to_post() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/signup")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/signup")
+        .set_json(serde_json::json!({
             "email": "newuser@example.com",
             "password": "SecurePassword123!"
         }))
@@ -1490,8 +1480,8 @@ async fn auth0_login_endpoint_responds_to_post() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/auth/auth0/login")
-        .set_json(&serde_json::json!({
+        .uri("/api/v1/auth/auth0/login")
+        .set_json(serde_json::json!({
             "email": "user@example.com",
             "password": "password"
         }))

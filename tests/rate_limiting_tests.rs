@@ -16,6 +16,9 @@ fn test_config() -> SecurityConfig {
         login_max_failures: 3,
         login_lockout_seconds: 2,
         login_backoff_base_ms: 100,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     }
 }
 
@@ -202,7 +205,7 @@ async fn test_security_headers_detailed() {
     let app = actix_test::init_service(
         App::new()
             .wrap(security_headers())
-            .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
+            .route("/", actix_web::web::get().to(HttpResponse::Ok)),
     )
     .await;
 

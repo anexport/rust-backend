@@ -500,6 +500,9 @@ fn security_config() -> rust_backend::config::SecurityConfig {
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     }
 }
 
@@ -824,6 +827,9 @@ fn app_with_auth0_data_and_message_repo(
             login_max_failures: 5,
             login_lockout_seconds: 300,
             login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 300,
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
         },
         login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
             &rust_backend::config::SecurityConfig {
@@ -833,6 +839,9 @@ fn app_with_auth0_data_and_message_repo(
                 login_max_failures: 5,
                 login_lockout_seconds: 300,
                 login_backoff_base_ms: 200,
+                global_rate_limit_per_minute: 300,
+                global_rate_limit_burst_size: 30,
+                global_rate_limit_authenticated_per_minute: 1000,
             },
         )),
         app_environment: "test".to_string(),
@@ -910,6 +919,9 @@ fn app_state_with_message_repo(
             login_max_failures: 5,
             login_lockout_seconds: 300,
             login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 300,
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
         },
         login_throttle: Arc::new(rust_backend::security::LoginThrottle::new(
             &rust_backend::config::SecurityConfig {
@@ -919,6 +931,9 @@ fn app_state_with_message_repo(
                 login_max_failures: 5,
                 login_lockout_seconds: 300,
                 login_backoff_base_ms: 200,
+                global_rate_limit_per_minute: 300,
+                global_rate_limit_burst_size: 30,
+                global_rate_limit_authenticated_per_minute: 1000,
             },
         )),
         app_environment: "test".to_string(),
@@ -994,7 +1009,7 @@ async fn equipment_crud_flow_succeeds() {
     let owner_token = create_auth0_token(owner_id, "owner");
 
     let create_request = actix_test::TestRequest::post()
-        .uri("/api/equipment")
+        .uri("/api/v1/equipment")
         .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .set_json(serde_json::json!({
             "category_id": Uuid::new_v4(),
@@ -1033,7 +1048,7 @@ async fn equipment_crud_flow_succeeds() {
     );
 
     let get_request = actix_test::TestRequest::get()
-        .uri(&format!("/api/equipment/{equipment_id}"))
+        .uri(&format!("/api/v1/equipment/{equipment_id}"))
         .to_request();
     let get_response = actix_test::call_service(&app, get_request).await;
     assert_eq!(get_response.status(), StatusCode::OK);
@@ -1054,7 +1069,7 @@ async fn equipment_crud_flow_succeeds() {
     );
 
     let update_request = actix_test::TestRequest::put()
-        .uri(&format!("/api/equipment/{equipment_id}"))
+        .uri(&format!("/api/v1/equipment/{equipment_id}"))
         .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .set_json(serde_json::json!({
             "title": "Cinema Camera Updated",
@@ -1084,7 +1099,7 @@ async fn equipment_crud_flow_succeeds() {
     );
 
     let delete_request = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{equipment_id}"))
+        .uri(&format!("/api/v1/equipment/{equipment_id}"))
         .insert_header(("Authorization", format!("Bearer {owner_token}")))
         .to_request();
     let delete_response = actix_test::call_service(&app, delete_request).await;
@@ -1162,7 +1177,7 @@ async fn users_me_equipment_route_wins_over_dynamic_id_route() {
 
     let token = create_auth0_token(user_id, "owner");
     let request = actix_test::TestRequest::get()
-        .uri("/api/users/me/equipment")
+        .uri("/api/v1/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -1207,7 +1222,7 @@ async fn get_users_id_returns_public_profile() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/users/{user_id}"))
+        .uri(&format!("/api/v1/users/{user_id}"))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1323,7 +1338,7 @@ async fn equipment_list_filters_by_price_category_and_radius() {
 
     let request = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/equipment?category_id={category_id}&min_price=20&max_price=40&lat=40.7128&lng=-74.0060&radius_km=5"
+            "/api/v1/equipment?category_id={category_id}&min_price=20&max_price=40&lat=40.7128&lng=-74.0060&radius_km=5"
         ))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -1401,7 +1416,7 @@ async fn cors_preflight_respects_allowlist() {
 
     let allowed_preflight = actix_test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
-        .uri("/api/auth/auth0/login")
+        .uri("/api/v1/auth/auth0/login")
         .insert_header(("Origin", "http://localhost:3000"))
         .insert_header(("Access-Control-Request-Method", "POST"))
         .to_request();
@@ -1417,7 +1432,7 @@ async fn cors_preflight_respects_allowlist() {
 
     let denied_preflight = actix_test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
-        .uri("/api/auth/auth0/login")
+        .uri("/api/v1/auth/auth0/login")
         .insert_header(("Origin", "http://evil.example"))
         .insert_header(("Access-Control-Request-Method", "POST"))
         .to_request();
@@ -1442,7 +1457,7 @@ async fn auth_me_rejects_when_authorization_header_missing() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/auth/me")
+        .uri("/api/v1/auth/me")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -1507,7 +1522,7 @@ async fn renter_cannot_create_equipment() {
     let token = create_auth0_token(renter_id, "renter");
 
     let create_request = actix_test::TestRequest::post()
-        .uri("/api/equipment")
+        .uri("/api/v1/equipment")
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "category_id": Uuid::new_v4(),
@@ -1588,7 +1603,7 @@ async fn non_owner_cannot_update_equipment() {
     let token = create_auth0_token(other_user_id, "owner");
 
     let update_request = actix_test::TestRequest::put()
-        .uri(&format!("/api/equipment/{equipment_id}"))
+        .uri(&format!("/api/v1/equipment/{equipment_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "title": "Illegally Updated"
@@ -1644,7 +1659,7 @@ async fn admin_can_update_other_users_profile() {
     let token = create_auth0_token(admin_id, "admin");
 
     let update_request = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{target_id}"))
+        .uri(&format!("/api/v1/users/{target_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "full_name": "Updated By Admin"
@@ -1720,7 +1735,7 @@ async fn admin_can_update_foreign_equipment() {
     let token = create_auth0_token(admin_id, "admin");
 
     let update_request = actix_test::TestRequest::put()
-        .uri(&format!("/api/equipment/{equipment_id}"))
+        .uri(&format!("/api/v1/equipment/{equipment_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "title": "Admin Updated"
@@ -1776,7 +1791,7 @@ async fn non_admin_cannot_update_other_users_profile() {
     let token = create_auth0_token(actor_id, "renter");
 
     let update_request = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{target_id}"))
+        .uri(&format!("/api/v1/users/{target_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "full_name": "Should Fail"
@@ -1861,7 +1876,8 @@ async fn ready_endpoint_checks_dependencies() {
     if has_test_db_url {
         assert_eq!(response.status(), StatusCode::OK);
     } else {
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        // After fix: ready endpoint returns 503 ServiceUnavailable instead of 500
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
 
@@ -1906,7 +1922,7 @@ async fn create_conversation_succeeds() {
     let token = create_auth0_token(user_id, "renter");
 
     let create_request = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "participant_ids": [other_id]
@@ -1955,7 +1971,7 @@ async fn create_conversation_validates_min_participants() {
     let token = create_auth0_token(user_id, "renter");
 
     let create_request = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "participant_ids": []
@@ -2001,7 +2017,7 @@ async fn list_conversations_returns_empty_for_new_user() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2059,7 +2075,7 @@ async fn get_conversation_fails_for_non_participant() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2112,7 +2128,7 @@ async fn get_conversation_succeeds_for_participant() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2166,7 +2182,7 @@ async fn send_message_fails_for_non_participant() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "content": "Hello, world!"
@@ -2229,7 +2245,7 @@ async fn send_message_succeeds_for_participant() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "content": "Hello, world!"
@@ -2286,7 +2302,7 @@ async fn send_message_validates_content_length() {
     let token = create_auth0_token(user_id, "renter");
 
     let short_request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "content": ""
@@ -2297,7 +2313,7 @@ async fn send_message_validates_content_length() {
 
     let long_content = "x".repeat(5001);
     let long_request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "content": long_content
@@ -2365,7 +2381,7 @@ async fn list_messages_respects_pagination() {
 
     let request = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/conversations/{conversation_id}/messages?limit=5&offset=0"
+            "/api/v1/conversations/{conversation_id}/messages?limit=5&offset=0"
         ))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
@@ -2424,7 +2440,7 @@ async fn list_messages_fails_for_non_participant() {
     let token = create_auth0_token(user_id, "renter");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2451,7 +2467,7 @@ async fn conversation_requires_authentication() {
     let conversation_id = Uuid::new_v4();
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}"))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -2475,7 +2491,7 @@ async fn list_conversations_requires_authentication() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -2499,7 +2515,7 @@ async fn create_conversation_requires_authentication() {
     .await;
 
     let request = actix_test::TestRequest::post()
-        .uri("/api/conversations")
+        .uri("/api/v1/conversations")
         .set_json(serde_json::json!({
             "participant_ids": [Uuid::new_v4()]
         }))
@@ -2528,7 +2544,7 @@ async fn send_message_requires_authentication() {
     let conversation_id = Uuid::new_v4();
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .set_json(serde_json::json!({
             "content": "Hello, world!"
         }))
@@ -2584,7 +2600,7 @@ async fn admin_can_access_foreign_conversation() {
     let token = create_auth0_token(admin_id, "admin");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
@@ -2638,7 +2654,7 @@ async fn admin_can_send_message_to_foreign_conversation() {
     let token = create_auth0_token(admin_id, "admin");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "content": "Admin message"
@@ -2695,7 +2711,7 @@ async fn admin_can_list_foreign_conversation_messages() {
     let token = create_auth0_token(admin_id, "admin");
 
     let request = actix_test::TestRequest::get()
-        .uri(&format!("/api/conversations/{conversation_id}/messages"))
+        .uri(&format!("/api/v1/conversations/{conversation_id}/messages"))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .to_request();
     let response = actix_test::call_service(&app, request).await;

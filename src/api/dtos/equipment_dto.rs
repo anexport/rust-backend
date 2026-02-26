@@ -1,10 +1,11 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 use validator::Validate;
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateEquipmentRequest {
     pub category_id: Uuid,
 
@@ -33,7 +34,7 @@ pub struct CreateEquipmentRequest {
     pub coordinates: Option<Coordinates>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Validate)]
+#[derive(Debug, Deserialize, Serialize, Validate, ToSchema)]
 pub struct Coordinates {
     #[validate(range(min = -90.0, max = 90.0, message = "Latitude must be between -90 and 90"))]
     pub latitude: f64,
@@ -41,7 +42,7 @@ pub struct Coordinates {
     pub longitude: f64,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateEquipmentRequest {
     #[validate(length(
         min = 3,
@@ -70,7 +71,7 @@ pub struct UpdateEquipmentRequest {
     pub is_available: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema, IntoParams)]
 pub struct EquipmentQueryParams {
     #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub category_id: Option<Uuid>,
@@ -125,7 +126,7 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EquipmentResponse {
     pub id: Uuid,
     pub owner_id: Uuid,
@@ -141,7 +142,7 @@ pub struct EquipmentResponse {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EquipmentPhotoResponse {
     pub id: Uuid,
     pub photo_url: String,
@@ -149,7 +150,7 @@ pub struct EquipmentPhotoResponse {
     pub order_index: i32,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct AddPhotoRequest {
     #[validate(url)]
     pub photo_url: String,
@@ -164,3 +165,6 @@ pub struct PaginatedResponse<T> {
     pub limit: i64,
     pub total_pages: i64,
 }
+
+// Alias for OpenAPI compatibility
+pub type EquipmentDto = EquipmentResponse;
