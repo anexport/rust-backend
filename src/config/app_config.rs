@@ -13,7 +13,12 @@ pub enum ConfigError {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
-    pub app: ServerConfig,
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default = "default_environment")]
+    pub environment: String,
     pub database: DatabaseConfig,
     pub auth: AuthConfig,
     pub auth0: Auth0Config,
@@ -22,12 +27,12 @@ pub struct AppConfig {
     pub sentry: SentryConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct ServerConfig {
-    pub host: String,
-    pub port: u16,
-    #[serde(default = "default_environment")]
-    pub environment: String,
+fn default_host() -> String {
+    "0.0.0.0".to_string()
+}
+
+fn default_port() -> u16 {
+    8080
 }
 
 #[derive(Debug, Deserialize, Clone)]

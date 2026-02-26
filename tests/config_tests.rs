@@ -101,7 +101,7 @@ fn test_config_defaults() {
     let config = AppConfig::from_env().expect("Failed to load config");
 
     // Check some defaults from default.toml
-    assert_eq!(config.app.port, 8080);
+    assert_eq!(config.port, 8080);
     assert_eq!(config.security.login_max_failures, 5);
     assert!(config.security.metrics_allow_private_only);
 }
@@ -126,9 +126,9 @@ fn test_auth0_config_is_enabled() {
 #[test]
 fn test_invalid_env_types_fail() {
     let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
-    env::set_var("APP_APP__PORT", "not-a-number");
+    env::set_var("APP_PORT", "not-a-number");
     let result = AppConfig::from_env();
-    env::remove_var("APP_APP__PORT"); // Cleanup immediately
+    env::remove_var("APP_PORT"); // Cleanup immediately
     assert!(result.is_err());
 }
 
@@ -165,10 +165,10 @@ fn test_cors_origins_list_parsing() {
 fn test_config_override_by_env() {
     let _lock = SERIALIZE.lock().unwrap_or_else(|e| e.into_inner());
     // Default is 8080 (from default.toml probably)
-    env::set_var("APP_APP__PORT", "9090");
+    env::set_var("APP_PORT", "9090");
     let config = AppConfig::from_env().expect("Failed to load config");
-    assert_eq!(config.app.port, 9090);
-    env::remove_var("APP_APP__PORT");
+    assert_eq!(config.port, 9090);
+    env::remove_var("APP_PORT");
 }
 
 #[test]
@@ -209,9 +209,9 @@ fn test_invalid_url_format_fails() {
     assert!(result.is_err());
 
     // Set an invalid type for port (u16)
-    env::set_var("APP_APP__PORT", "invalid");
+    env::set_var("APP_PORT", "invalid");
     let result = AppConfig::from_env();
-    env::remove_var("APP_APP__PORT");
+    env::remove_var("APP_PORT");
     assert!(result.is_err());
 
     // Test that Auth0 with empty strings is treated as disabled (not a failure)

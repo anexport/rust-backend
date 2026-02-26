@@ -134,6 +134,64 @@ pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Er
     Ok(category_id)
 }
 
+#[allow(dead_code)]
+pub async fn setup_test_db() -> TestDb {
+    TestDb::new().await.expect("Test DB required")
+}
+
+#[allow(dead_code)]
+pub fn create_app_state(pool: PgPool) -> rust_backend::api::routes::AppState {
+    use rust_backend::application::{
+        AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    };
+    use rust_backend::config::SecurityConfig;
+    use rust_backend::infrastructure::repositories::{
+        AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
+        UserRepositoryImpl,
+    };
+    use rust_backend::observability::AppMetrics;
+    use rust_backend::security::LoginThrottle;
+    use std::sync::Arc;
+
+    let user_repo = Arc::new(UserRepositoryImpl::new(pool.clone()));
+    let auth_repo = Arc::new(AuthRepositoryImpl::new(pool.clone()));
+    let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(pool.clone()));
+    let message_repo = Arc::new(MessageRepositoryImpl::new(pool.clone()));
+    let category_repo = Arc::new(CategoryRepositoryImpl::new(pool.clone()));
+
+    let security = SecurityConfig {
+        cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+        metrics_allow_private_only: true,
+        metrics_admin_token: None,
+        login_max_failures: 5,
+        login_lockout_seconds: 300,
+        login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
+    };
+
+    rust_backend::api::routes::AppState {
+        auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
+        admin_service: Arc::new(AdminService::new(
+            user_repo.clone(),
+            equipment_repo.clone(),
+            category_repo.clone(),
+        )),
+        user_service: Arc::new(UserService::new(user_repo.clone(), equipment_repo.clone())),
+        category_service: Arc::new(CategoryService::new(category_repo)),
+        equipment_service: Arc::new(EquipmentService::new(user_repo.clone(), equipment_repo)),
+        message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
+        security: security.clone(),
+        login_throttle: Arc::new(LoginThrottle::new(&security)),
+        app_environment: "test".to_string(),
+        metrics: Arc::new(AppMetrics::default()),
+        db_pool: pool,
+        ws_hub: rust_backend::api::routes::ws::WsConnectionHub::default(),
+        auth0_api_client: Arc::new(rust_backend::infrastructure::auth0_api::DisabledAuth0ApiClient),
+    }
+}
+
 async fn reset_database(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"

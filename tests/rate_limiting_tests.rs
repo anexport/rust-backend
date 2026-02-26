@@ -138,7 +138,7 @@ async fn test_cors_middleware() {
     let app = actix_test::init_service(
         App::new()
             .wrap(cors)
-            .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
+            .route("/", actix_web::web::get().to(HttpResponse::Ok)),
     )
     .await;
 
@@ -239,7 +239,7 @@ async fn test_cors_disallowed_origin_returns_no_cors_headers() {
     let app = actix_test::init_service(
         App::new()
             .wrap(cors)
-            .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
+            .route("/", actix_web::web::get().to(HttpResponse::Ok)),
     )
     .await;
 

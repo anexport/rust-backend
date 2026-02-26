@@ -1,18 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 mod common;
 
 use crate::common::mocks::{MockEquipmentRepo, MockUserRepo};
 use actix_rt::test;
-use async_trait::async_trait;
 use chrono::Utc;
 use rust_backend::api::dtos::UpdateUserRequest;
 use rust_backend::application::UserService;
-use rust_backend::domain::{Condition, Equipment, EquipmentPhoto, Role, User};
-use rust_backend::error::{AppError, AppResult};
-use rust_backend::infrastructure::repositories::{
-    EquipmentRepository, EquipmentSearchParams, UserRepository,
-};
+use rust_backend::domain::{Condition, Equipment, Role, User};
+use rust_backend::error::AppError;
 use rust_decimal::Decimal;
 use uuid::Uuid;
 

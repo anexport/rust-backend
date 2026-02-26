@@ -1,9 +1,12 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+#![allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 
 mod common;
 
 use crate::common::mocks::{
-    haversine_km, MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
 use actix_rt::test;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
@@ -14,15 +17,13 @@ use rust_backend::api::routes::{self, AppState};
 use rust_backend::application::{
     AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
-use rust_backend::config::{Auth0Config, AuthConfig, SecurityConfig};
+use rust_backend::config::{Auth0Config, SecurityConfig};
 use rust_backend::domain::{
-    AuthIdentity, AuthProvider, Category, Condition, Conversation, Equipment, EquipmentPhoto,
-    Message, Role, User,
+    AuthIdentity, AuthProvider, Condition, Equipment, EquipmentPhoto, Role, User,
 };
 use rust_backend::infrastructure::auth0_api::{Auth0SignupResponse, Auth0TokenResponse};
 use rust_backend::infrastructure::repositories::{
-    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
-    MessageRepository, UserRepository,
+    AuthRepository, CategoryRepository, EquipmentRepository, UserRepository,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::observability::AppMetrics;
@@ -805,7 +806,7 @@ async fn geographic_search_with_radius_zero_returns_only_exact_matches() {
     let body: serde_json::Value = actix_test::read_body_json(response).await;
     let items = get_items_array(&body);
     // Should include both due to floating point proximity
-    assert!(items.len() >= 1);
+    assert!(!items.is_empty());
 }
 
 // =============================================================================

@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+#![allow(unused_imports)]
+use std::sync::Arc;
 
 mod common;
 
 use crate::common::mocks::{MockMessageRepo, MockUserRepo};
 use actix_rt::test;
-use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use rust_backend::api::dtos::{CreateConversationRequest, SendMessageRequest};
 use rust_backend::application::MessageService;

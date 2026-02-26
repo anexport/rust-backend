@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+#![allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 
 mod common;
@@ -8,15 +10,11 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, Header};
 use rust_backend::api::routes::{self, AppState};
-use rust_backend::config::{Auth0Config, AuthConfig};
-use rust_backend::domain::{
-    AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, Role,
-    User,
-};
+use rust_backend::config::Auth0Config;
+use rust_backend::domain::{Conversation, Equipment, Message, Role, User};
 use rust_backend::infrastructure::auth0_api::Auth0ApiClient;
 use rust_backend::infrastructure::repositories::{
-    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
-    MessageRepository, UserRepository,
+    CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::security::{cors_middleware, security_headers};
@@ -26,7 +24,7 @@ use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 use crate::common::mocks::{
-    haversine_km, MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
 
 fn security_config() -> rust_backend::config::SecurityConfig {

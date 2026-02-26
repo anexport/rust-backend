@@ -3,7 +3,13 @@ use std::time::Duration;
 
 use actix_web::{web, HttpRequest, HttpResponse};
 use futures_util::StreamExt;
+use serde::Deserialize;
 use serde_json::json;
+
+#[derive(Deserialize)]
+struct TokenQuery {
+    token: Option<String>,
+}
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -102,6 +108,12 @@ async fn authenticate_ws_user(
 }
 
 fn extract_ws_token(request: &HttpRequest) -> Option<String> {
+    if let Ok(query) = web::Query::<TokenQuery>::from_query(request.query_string()) {
+        if let Some(token) = &query.token {
+            return Some(token.clone());
+        }
+    }
+
     if let Some(header) = request
         .headers()
         .get("Authorization")

@@ -1,3 +1,6 @@
+#![cfg_attr(tarpaulin, skip)]
+#![allow(unused_variables)]
+
 use crate::domain::{
     AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, Role, User,
 };
