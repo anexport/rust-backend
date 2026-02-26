@@ -1,7 +1,7 @@
+use reqwest::StatusCode;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tokio::time::sleep;
-use reqwest::StatusCode;
 
 #[tokio::test]
 async fn test_application_boot_and_readiness() {
@@ -22,7 +22,10 @@ async fn test_application_boot_and_readiness() {
     let mut child = Command::new("./target/debug/rust-backend")
         .env("APP_PORT", port.to_string())
         .env("APP_DATABASE__URL", &database_url)
-        .env("APP_AUTH__JWT_SECRET", "test-secret-at-least-32-chars-long-needed")
+        .env(
+            "APP_AUTH__JWT_SECRET",
+            "test-secret-at-least-32-chars-long-needed",
+        )
         .env("RUST_LOG", "info")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -35,7 +38,8 @@ async fn test_application_boot_and_readiness() {
     let ready_url = format!("http://localhost:{}/ready", port);
 
     let mut success = false;
-    for _ in 0..45 { // Increased to 45 seconds to allow for migrations
+    for _ in 0..45 {
+        // Increased to 45 seconds to allow for migrations
         match client.get(&health_url).send().await {
             Ok(resp) if resp.status() == StatusCode::OK => {
                 // Now check readiness (DB check)
@@ -84,10 +88,13 @@ async fn test_application_boot_and_readiness() {
 
     // 5. Wait for exit
     let exit_status = child.wait().expect("failed to wait for child");
-    
+
     // In production, SIGTERM should result in graceful shutdown (exit code 0 usually)
     // On Unix, SIGTERM might result in signal 15 exit status.
-    assert!(success, "Application failed to become ready within 45 seconds");
+    assert!(
+        success,
+        "Application failed to become ready within 45 seconds"
+    );
     assert!(exit_status.success() || exit_status.code().is_none());
 }
 
@@ -103,7 +110,10 @@ async fn test_application_fails_fast_on_bad_config() {
     // 2. Spawn the process with malformed DATABASE_URL
     let child = Command::new("./target/debug/rust-backend")
         .env("APP_DATABASE__URL", "not-a-valid-url")
-        .env("APP_AUTH__JWT_SECRET", "test-secret-at-least-32-chars-long-needed")
+        .env(
+            "APP_AUTH__JWT_SECRET",
+            "test-secret-at-least-32-chars-long-needed",
+        )
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()

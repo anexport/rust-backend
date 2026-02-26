@@ -87,10 +87,10 @@ fn test_auth0_config() -> Auth0Config {
     }
 }
 
-async fn next_text_frame<S, E>(client: &mut S) -> String 
-where 
+async fn next_text_frame<S, E>(client: &mut S) -> String
+where
     S: futures_util::Stream<Item = Result<ws::Frame, E>> + Unpin,
-    E: std::fmt::Debug
+    E: std::fmt::Debug,
 {
     let frame = tokio::time::timeout(Duration::from_secs(5), client.next())
         .await
@@ -157,7 +157,10 @@ async fn test_ws_connection_initialization_and_auth() {
         .await
         .expect("Failed to connect to WS");
 
-    client.send(ws::Message::Text(r#"{"type":"ping","payload":{}}"#.into())).await.unwrap();
+    client
+        .send(ws::Message::Text(r#"{"type":"ping","payload":{}}"#.into()))
+        .await
+        .unwrap();
     let text = next_text_frame(&mut client).await;
     let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(resp["type"], "pong");
@@ -192,7 +195,8 @@ async fn test_ws_ping_pong_heartbeat() {
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider {
         key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
     });
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(StaticProvisioningService { user_id });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(StaticProvisioningService { user_id });
 
     let srv = actix_test::start(move || {
         App::new()
@@ -212,13 +216,19 @@ async fn test_ws_ping_pong_heartbeat() {
         .unwrap();
 
     // Test application-level ping
-    client.send(ws::Message::Text(r#"{"type":"ping","payload":{}}"#.into())).await.unwrap();
+    client
+        .send(ws::Message::Text(r#"{"type":"ping","payload":{}}"#.into()))
+        .await
+        .unwrap();
     let text = next_text_frame(&mut client).await;
     let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(resp["type"], "pong");
 
     // Test protocol-level ping
-    client.send(ws::Message::Ping("hello".into())).await.unwrap();
+    client
+        .send(ws::Message::Ping("hello".into()))
+        .await
+        .unwrap();
     let msg = client.next().await.unwrap().unwrap();
     match msg {
         ws::Frame::Pong(bytes) => assert_eq!(bytes, "hello"),
@@ -297,7 +307,8 @@ async fn test_ws_action_handlers() {
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider {
         key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
     });
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(StaticProvisioningService { user_id });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(StaticProvisioningService { user_id });
 
     let hub = state.ws_hub.clone();
     let srv = actix_test::start(move || {
@@ -321,15 +332,25 @@ async fn test_ws_action_handlers() {
     let mut other_rx = hub.register(other_user_id);
 
     // 1. Test Typing Event
-    client.send(ws::Message::Text(json!({
-        "type": "typing",
-        "payload": {
-            "conversation_id": conv_id,
-            "is_typing": true
-        }
-    }).to_string().into())).await.unwrap();
+    client
+        .send(ws::Message::Text(
+            json!({
+                "type": "typing",
+                "payload": {
+                    "conversation_id": conv_id,
+                    "is_typing": true
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
 
-    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv()).await.unwrap().unwrap();
+    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     let event: serde_json::Value = serde_json::from_str(&other_msg).unwrap();
     assert_eq!(event["type"], "typing");
     assert_eq!(event["payload"]["user_id"], user_id.to_string());
@@ -339,13 +360,20 @@ async fn test_ws_action_handlers() {
     let _ = next_text_frame(&mut client).await;
 
     // 2. Test Message Dispatch
-    client.send(ws::Message::Text(json!({
-        "type": "message",
-        "payload": {
-            "conversation_id": conv_id,
-            "content": "Hello via WS"
-        }
-    }).to_string().into())).await.unwrap();
+    client
+        .send(ws::Message::Text(
+            json!({
+                "type": "message",
+                "payload": {
+                    "conversation_id": conv_id,
+                    "content": "Hello via WS"
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
 
     // Both users should receive the message
     let text = next_text_frame(&mut client).await;
@@ -354,20 +382,33 @@ async fn test_ws_action_handlers() {
     assert_eq!(event["payload"]["content"], "Hello via WS");
     assert_eq!(event["payload"]["sender_id"], user_id.to_string());
 
-    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv()).await.unwrap().unwrap();
+    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     let event: serde_json::Value = serde_json::from_str(&other_msg).unwrap();
     assert_eq!(event["type"], "message");
     assert_eq!(event["payload"]["content"], "Hello via WS");
 
     // 3. Test Read Receipt
-    client.send(ws::Message::Text(json!({
-        "type": "read",
-        "payload": {
-            "conversation_id": conv_id
-        }
-    }).to_string().into())).await.unwrap();
+    client
+        .send(ws::Message::Text(
+            json!({
+                "type": "read",
+                "payload": {
+                    "conversation_id": conv_id
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
 
-    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv()).await.unwrap().unwrap();
+    let other_msg = tokio::time::timeout(Duration::from_secs(5), other_rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
     let event: serde_json::Value = serde_json::from_str(&other_msg).unwrap();
     assert_eq!(event["type"], "read");
     assert_eq!(event["payload"]["user_id"], user_id.to_string());
@@ -401,7 +442,8 @@ async fn test_ws_error_handling() {
     let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider {
         key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
     });
-    let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(StaticProvisioningService { user_id });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(StaticProvisioningService { user_id });
 
     let srv = actix_test::start(move || {
         App::new()
@@ -421,10 +463,17 @@ async fn test_ws_error_handling() {
         .unwrap();
 
     // 1. Unknown type
-    client.send(ws::Message::Text(json!({
-        "type": "unknown",
-        "payload": {}
-    }).to_string().into())).await.unwrap();
+    client
+        .send(ws::Message::Text(
+            json!({
+                "type": "unknown",
+                "payload": {}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
 
     let text = next_text_frame(&mut client).await;
     let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -432,14 +481,20 @@ async fn test_ws_error_handling() {
     assert_eq!(resp["payload"]["code"], "UNSUPPORTED_TYPE");
 
     // 2. Malformed JSON
-    client.send(ws::Message::Text("{not-json".into())).await.unwrap();
+    client
+        .send(ws::Message::Text("{not-json".into()))
+        .await
+        .unwrap();
     let text = next_text_frame(&mut client).await;
     let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(resp["type"], "error");
     assert_eq!(resp["payload"]["code"], "BAD_MESSAGE");
 
     // 3. Binary message
-    client.send(ws::Message::Binary("hello".into())).await.unwrap();
+    client
+        .send(ws::Message::Binary("hello".into()))
+        .await
+        .unwrap();
     let text = next_text_frame(&mut client).await;
     let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(resp["type"], "error");

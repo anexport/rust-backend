@@ -136,22 +136,26 @@ pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Er
 
 #[allow(dead_code)]
 pub async fn setup_test_db() -> PgPool {
-    TestDb::new().await.expect("Test DB required").pool().clone()
+    TestDb::new()
+        .await
+        .expect("Test DB required")
+        .pool()
+        .clone()
 }
 
 #[allow(dead_code)]
 pub fn create_app_state(pool: PgPool) -> rust_backend::api::routes::AppState {
-    use std::sync::Arc;
+    use rust_backend::application::{
+        AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
+    };
+    use rust_backend::config::SecurityConfig;
     use rust_backend::infrastructure::repositories::{
         AuthRepositoryImpl, CategoryRepositoryImpl, EquipmentRepositoryImpl, MessageRepositoryImpl,
         UserRepositoryImpl,
     };
-    use rust_backend::application::{
-        AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
-    };
-    use rust_backend::security::LoginThrottle;
     use rust_backend::observability::AppMetrics;
-    use rust_backend::config::SecurityConfig;
+    use rust_backend::security::LoginThrottle;
+    use std::sync::Arc;
 
     let user_repo = Arc::new(UserRepositoryImpl::new(pool.clone()));
     let auth_repo = Arc::new(AuthRepositoryImpl::new(pool.clone()));

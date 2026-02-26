@@ -1,14 +1,15 @@
+#![allow(dead_code)]
 use async_trait::async_trait;
 use chrono::Utc;
 use rust_backend::domain::{
-    AuthIdentity, AuthProvider, Category, Conversation, Equipment, EquipmentPhoto, Message, User,
+    AuthIdentity, Category, Conversation, Equipment, EquipmentPhoto, Message, User,
 };
 use rust_backend::error::AppResult;
 use rust_backend::infrastructure::repositories::{
     AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
     MessageRepository, UserRepository,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Default)]

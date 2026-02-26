@@ -101,7 +101,7 @@ fn test_config_defaults() {
     let config = AppConfig::from_env().expect("Failed to load config");
 
     // Check some defaults from default.toml
-    assert_eq!(config.app.port, 8080);
+    assert_eq!(config.port, 8080);
     assert_eq!(config.security.login_max_failures, 5);
     assert!(config.security.metrics_allow_private_only);
 }
@@ -167,7 +167,7 @@ fn test_config_override_by_env() {
     // Default is 8080 (from default.toml probably)
     env::set_var("APP_APP__PORT", "9090");
     let config = AppConfig::from_env().expect("Failed to load config");
-    assert_eq!(config.app.port, 9090);
+    assert_eq!(config.port, 9090);
     env::remove_var("APP_APP__PORT");
 }
 

@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+#![allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 
 mod common;
@@ -14,13 +16,10 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, Header};
 use rust_backend::api::routes::{self, AppState};
-use rust_backend::config::{Auth0Config, AuthConfig};
-use rust_backend::domain::{
-    Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, Role, User,
-};
+use rust_backend::config::Auth0Config;
+use rust_backend::domain::{Condition, Equipment, EquipmentPhoto, Role, User};
 use rust_backend::infrastructure::repositories::{
-    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
-    MessageRepository, UserRepository,
+    CategoryRepository, EquipmentRepository, UserRepository,
 };
 use rust_backend::middleware::auth::UserProvisioningService;
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext};
