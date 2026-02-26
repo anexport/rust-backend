@@ -182,15 +182,15 @@ async fn main() -> std::io::Result<()> {
         message_service: Arc::new(MessageService::new(user_repo.clone(), message_repo)),
         security: config.security.clone(),
         login_throttle: Arc::new(LoginThrottle::new(&config.security)),
-        app_environment: config.app.environment.clone(),
+        app_environment: config.environment.clone(),
         metrics: Arc::new(AppMetrics::default()),
         db_pool: pool.clone(),
         ws_hub: routes::ws::WsConnectionHub::default(),
         auth0_api_client,
     };
 
-    let bind_host = config.app.host.clone();
-    let bind_port = config.app.port;
+    let bind_host = config.host.clone();
+    let bind_port = config.port;
     let security_config = config.security.clone();
     let auth_config = config.auth.clone();
     let auth0_config = config.auth0.clone();
