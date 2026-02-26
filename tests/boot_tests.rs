@@ -1,4 +1,7 @@
+mod common;
+use common::setup_test_db;
 use reqwest::StatusCode;
+use std::net::TcpListener;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -12,16 +15,18 @@ async fn test_application_boot_and_readiness() {
         .expect("failed to build binary");
     assert!(status.success());
 
-    let port = 3015; // Switched to 3015
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/postgres".to_string());
+    // Allocate ephemeral port
+    let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind ephemeral port");
+    let port = listener.local_addr().expect("failed to get local addr").port();
+    drop(listener); // Release port for the application to bind to
+
+    let test_db = setup_test_db().await;
+    let database_url = test_db.url();
 
     // 2. Spawn the process
-    // Figment with Env::prefixed("APP_") will map APP_PORT to AppConfig.port
     let mut child = Command::new("./target/debug/rust-backend")
         .env("APP_PORT", port.to_string())
-        .env("APP_DATABASE__URL", &database_url)
+        .env("DATABASE_URL", database_url)
         .env(
             "APP_AUTH__JWT_SECRET",
             "test-secret-at-least-32-chars-long-needed",
@@ -39,35 +44,24 @@ async fn test_application_boot_and_readiness() {
 
     let mut success = false;
     for _ in 0..45 {
-        // Increased to 45 seconds to allow for migrations
         match client.get(&health_url).send().await {
             Ok(resp) if resp.status() == StatusCode::OK => {
-                // Now check readiness (DB check)
                 match client.get(&ready_url).send().await {
                     Ok(ready_resp) if ready_resp.status() == StatusCode::OK => {
                         success = true;
                         break;
                     }
-                    Ok(ready_resp) => {
-                        eprintln!("Ready check returned status: {}", ready_resp.status());
-                    }
-                    Err(_e) => {
-                        // eprintln!("Ready check failed: {}", _e);
-                    }
+                    _ => {}
                 }
             }
-            Ok(resp) => {
-                eprintln!("Health check returned status: {}", resp.status());
-            }
-            Err(_e) => {
-                // eprint!("(polling...) ");
-            }
+            _ => {}
         }
         sleep(Duration::from_secs(1)).await;
     }
 
     if !success {
-        // Print output for debugging
+        // Kill child before waiting for output to avoid hanging
+        child.kill().ok();
         let output = child.wait_with_output().expect("failed to wait for child");
         eprintln!("STDOUT: {}", String::from_utf8_lossy(&output.stdout));
         eprintln!("STDERR: {}", String::from_utf8_lossy(&output.stderr));
@@ -88,19 +82,13 @@ async fn test_application_boot_and_readiness() {
 
     // 5. Wait for exit
     let exit_status = child.wait().expect("failed to wait for child");
-
-    // In production, SIGTERM should result in graceful shutdown (exit code 0 usually)
-    // On Unix, SIGTERM might result in signal 15 exit status.
-    assert!(
-        success,
-        "Application failed to become ready within 45 seconds"
-    );
     assert!(exit_status.success() || exit_status.code().is_none());
 }
 
 #[tokio::test]
 async fn test_application_fails_fast_on_bad_config() {
     // 1. Build the binary
+    let _ = setup_test_db().await; // Ensure common is used
     let status = Command::new("cargo")
         .args(["build", "--bin", "rust-backend"])
         .status()

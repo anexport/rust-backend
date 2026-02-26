@@ -4,11 +4,9 @@ mod common;
 
 use crate::common::mocks::MockCategoryRepo;
 use actix_rt::test;
-use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use rust_backend::application::CategoryService;
 use rust_backend::domain::Category;
-use rust_backend::infrastructure::repositories::CategoryRepository;
 use uuid::Uuid;
 
 #[test]

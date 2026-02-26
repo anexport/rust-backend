@@ -135,12 +135,8 @@ pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Er
 }
 
 #[allow(dead_code)]
-pub async fn setup_test_db() -> PgPool {
-    TestDb::new()
-        .await
-        .expect("Test DB required")
-        .pool()
-        .clone()
+pub async fn setup_test_db() -> TestDb {
+    TestDb::new().await.expect("Test DB required")
 }
 
 #[allow(dead_code)]

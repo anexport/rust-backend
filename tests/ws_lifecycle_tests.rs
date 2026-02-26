@@ -15,7 +15,6 @@ use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext}
 use rust_backend::utils::auth0_jwks::JwksProvider;
 
 mod common;
-// use common::mocks::{MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo};
 
 const TEST_PRIVATE_KEY_PEM: &str = include_str!("test_private_key.pem");
 const TEST_PUBLIC_KEY_PEM: &str = include_str!("test_public_key.pem");
@@ -111,7 +110,8 @@ where
 
 #[actix_rt::test]
 async fn test_ws_connection_initialization_and_auth() {
-    let pool = common::setup_test_db().await;
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
     let state = common::create_app_state(pool.clone());
     let user_id = Uuid::new_v4();
     let now = Utc::now();
@@ -149,10 +149,10 @@ async fn test_ws_connection_initialization_and_auth() {
 
     let token = create_valid_auth0_token("auth0|ws-user");
 
-    // 1. Test successful upgrade
+    // 1. Test successful upgrade (via query param)
+    let ws_url = srv.url(&format!("/ws?token={}", token));
     let (_response, mut client) = awc::Client::new()
-        .ws(srv.url("/ws"))
-        .header("Authorization", format!("Bearer {}", token))
+        .ws(ws_url)
         .connect()
         .await
         .expect("Failed to connect to WS");
@@ -174,7 +174,8 @@ async fn test_ws_connection_initialization_and_auth() {
 
 #[actix_rt::test]
 async fn test_ws_ping_pong_heartbeat() {
-    let pool = common::setup_test_db().await;
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
     let state = common::create_app_state(pool.clone());
     let user_id = Uuid::new_v4();
     let now = Utc::now();
@@ -208,9 +209,9 @@ async fn test_ws_ping_pong_heartbeat() {
     });
 
     let token = create_valid_auth0_token("auth0|heartbeat");
+    let ws_url = srv.url(&format!("/ws?token={}", token));
     let (_response, mut client) = awc::Client::new()
-        .ws(srv.url("/ws"))
-        .header("Authorization", format!("Bearer {}", token))
+        .ws(ws_url)
         .connect()
         .await
         .unwrap();
@@ -240,7 +241,8 @@ async fn test_ws_ping_pong_heartbeat() {
 
 #[actix_rt::test]
 async fn test_ws_action_handlers() {
-    let pool = common::setup_test_db().await;
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
     let state = common::create_app_state(pool.clone());
     let user_id = Uuid::new_v4();
     let other_user_id = Uuid::new_v4();
@@ -321,9 +323,9 @@ async fn test_ws_action_handlers() {
     });
 
     let token = create_valid_auth0_token("auth0|actions");
+    let ws_url = srv.url(&format!("/ws?token={}", token));
     let (_response, mut client) = awc::Client::new()
-        .ws(srv.url("/ws"))
-        .header("Authorization", format!("Bearer {}", token))
+        .ws(ws_url)
         .connect()
         .await
         .unwrap();
@@ -421,7 +423,8 @@ async fn test_ws_action_handlers() {
 
 #[actix_rt::test]
 async fn test_ws_error_handling() {
-    let pool = common::setup_test_db().await;
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
     let state = common::create_app_state(pool.clone());
     let user_id = Uuid::new_v4();
     let now = Utc::now();
@@ -455,9 +458,9 @@ async fn test_ws_error_handling() {
     });
 
     let token = create_valid_auth0_token("auth0|errors");
+    let ws_url = srv.url(&format!("/ws?token={}", token));
     let (_response, mut client) = awc::Client::new()
-        .ws(srv.url("/ws"))
-        .header("Authorization", format!("Bearer {}", token))
+        .ws(ws_url)
         .connect()
         .await
         .unwrap();

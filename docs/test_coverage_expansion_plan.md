@@ -49,7 +49,7 @@ Create a new integration test file at `tests/ws_lifecycle_tests.rs`:
 Exhaustively test the `upsert_user_from_auth0` logic. This function bridges Auth0 JWT claims to our local PostgreSQL database. It contains complex drift-resolution logic (updating local data if Auth0 data changes) and race-condition fallbacks that are currently missed by standard API integration tests.
 
 **Technical Approach:**
-Create a dedicated unit test suite at `tests/auth_service_tests.rs`. Use the existing `mocks.rs` or connect to the isolated test database pool to precisely control repository responses.
+Create a dedicated unit test suite at `tests/auth_service_unit_tests.rs`. Use the existing `mocks.rs` or connect to the isolated test database pool to precisely control repository responses.
 
 **Specific Test Cases to Implement:**
 1.  **New User Creation (Happy Path):**

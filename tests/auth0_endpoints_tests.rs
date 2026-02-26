@@ -33,16 +33,9 @@ use rust_backend::application::{
     AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
 };
 use rust_backend::config::SecurityConfig;
-use rust_backend::domain::{
-    AuthIdentity, Category, Condition, Conversation, Equipment, EquipmentPhoto, Message, User,
-};
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::auth0_api::{
     Auth0ApiClient, Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse,
-};
-use rust_backend::infrastructure::repositories::{
-    AuthRepository, CategoryRepository, EquipmentRepository, EquipmentSearchParams,
-    MessageRepository, UserRepository,
 };
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::LoginThrottle;

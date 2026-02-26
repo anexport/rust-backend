@@ -11,7 +11,6 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use rust_backend::domain::{AuthIdentity, AuthProvider, Role, User};
 use rust_backend::error::{AppError, AppResult};
-use rust_backend::infrastructure::repositories::{AuthRepository, UserRepository};
 use rust_backend::middleware::auth::{
     Auth0AuthenticatedUser, JitUserProvisioningService, UserProvisioningService,
 };
