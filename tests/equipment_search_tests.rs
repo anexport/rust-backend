@@ -1,5 +1,10 @@
 use std::sync::{Arc, Mutex};
 
+mod common;
+
+use crate::common::mocks::{
+    haversine_km, MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+};
 use actix_rt::test;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
@@ -28,368 +33,6 @@ use rust_backend::utils::auth0_jwks::JwksProvider;
 use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
-
-// =============================================================================
-// Mock Repositories
-// =============================================================================
-
-#[derive(Default)]
-struct MockUserRepo {
-    users: Mutex<Vec<User>>,
-}
-
-impl MockUserRepo {
-    fn push(&self, user: User) {
-        self.users.lock().expect("users mutex poisoned").push(user);
-    }
-}
-
-#[async_trait]
-impl UserRepository for MockUserRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.id == id)
-            .cloned())
-    }
-
-    async fn find_by_email(&self, email: &str) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.email == email)
-            .cloned())
-    }
-
-    async fn find_by_username(
-        &self,
-        username: &str,
-    ) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.username.as_deref() == Some(username))
-            .cloned())
-    }
-
-    async fn create(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .push(user.clone());
-        Ok(user.clone())
-    }
-
-    async fn update(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        let mut users = self.users.lock().expect("users mutex poisoned");
-        if let Some(existing) = users.iter_mut().find(|existing| existing.id == user.id) {
-            *existing = user.clone();
-        }
-        Ok(user.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .retain(|user| user.id != id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockAuthRepo;
-
-#[async_trait]
-impl AuthRepository for MockAuthRepo {
-    async fn create_identity(
-        &self,
-        identity: &AuthIdentity,
-    ) -> rust_backend::error::AppResult<AuthIdentity> {
-        Ok(identity.clone())
-    }
-
-    async fn find_identity_by_user_id(
-        &self,
-        _user_id: Uuid,
-        _provider: &str,
-    ) -> rust_backend::error::AppResult<Option<AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn find_identity_by_provider_id(
-        &self,
-        _provider: &str,
-        _provider_id: &str,
-    ) -> rust_backend::error::AppResult<Option<AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn upsert_identity(
-        &self,
-        identity: &AuthIdentity,
-    ) -> rust_backend::error::AppResult<AuthIdentity> {
-        Ok(identity.clone())
-    }
-}
-
-#[derive(Default)]
-struct MockEquipmentRepo {
-    equipment: Mutex<Vec<Equipment>>,
-    photos: Mutex<Vec<EquipmentPhoto>>,
-}
-
-impl MockEquipmentRepo {
-    fn push(&self, equipment: Equipment) {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .push(equipment);
-    }
-
-    fn push_photo(&self, photo: EquipmentPhoto) {
-        self.photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .push(photo);
-    }
-}
-
-#[async_trait]
-impl EquipmentRepository for MockEquipmentRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .find(|equipment| equipment.id == id)
-            .cloned())
-    }
-
-    async fn find_all(
-        &self,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .clone())
-    }
-
-    async fn search(
-        &self,
-        params: &EquipmentSearchParams,
-        limit: i64,
-        offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        let mut rows: Vec<Equipment> = self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .clone()
-            .into_iter()
-            .filter(|item| {
-                params
-                    .category_id
-                    .is_none_or(|category_id| item.category_id == category_id)
-            })
-            .filter(|item| params.min_price.is_none_or(|min| item.daily_rate >= min))
-            .filter(|item| params.max_price.is_none_or(|max| item.daily_rate <= max))
-            .filter(|item| {
-                params
-                    .is_available
-                    .is_none_or(|available| item.is_available == available)
-            })
-            .collect();
-
-        if let Some(((lat, lng), radius_km)) =
-            params.latitude.zip(params.longitude).zip(params.radius_km)
-        {
-            rows.retain(|item| {
-                item.coordinates_tuple()
-                    .is_some_and(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng) <= radius_km)
-            });
-            rows.sort_by(|left, right| {
-                let left_distance = left
-                    .coordinates_tuple()
-                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
-                    .unwrap_or(f64::MAX);
-                let right_distance = right
-                    .coordinates_tuple()
-                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
-                    .unwrap_or(f64::MAX);
-                left_distance.total_cmp(&right_distance)
-            });
-        }
-
-        // Apply pagination
-        let start = offset as usize;
-        let end = (start + limit as usize).min(rows.len());
-        Ok(rows.get(start..end).unwrap_or(&[]).to_vec())
-    }
-
-    async fn find_by_owner(
-        &self,
-        owner_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .filter(|equipment| equipment.owner_id == owner_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn create(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .push(equipment.clone());
-        Ok(equipment.clone())
-    }
-
-    async fn update(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        let mut rows = self.equipment.lock().expect("equipment mutex poisoned");
-        if let Some(existing) = rows.iter_mut().find(|existing| existing.id == equipment.id) {
-            *existing = equipment.clone();
-        }
-        Ok(equipment.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .retain(|equipment| equipment.id != id);
-        Ok(())
-    }
-
-    async fn add_photo(
-        &self,
-        photo: &EquipmentPhoto,
-    ) -> rust_backend::error::AppResult<EquipmentPhoto> {
-        self.photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .push(photo.clone());
-        Ok(photo.clone())
-    }
-
-    async fn find_photos(
-        &self,
-        equipment_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<EquipmentPhoto>> {
-        Ok(self
-            .photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .iter()
-            .filter(|photo| photo.equipment_id == equipment_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn delete_photo(&self, photo_id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .retain(|photo| photo.id != photo_id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockMessageRepo;
-
-#[async_trait]
-impl MessageRepository for MockMessageRepo {
-    async fn find_conversation(
-        &self,
-        _id: Uuid,
-    ) -> rust_backend::error::AppResult<Option<Conversation>> {
-        Ok(None)
-    }
-
-    async fn find_user_conversations(
-        &self,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Conversation>> {
-        Ok(Vec::new())
-    }
-
-    async fn create_conversation(
-        &self,
-        _participant_ids: Vec<Uuid>,
-    ) -> rust_backend::error::AppResult<Conversation> {
-        Ok(Conversation {
-            id: Uuid::new_v4(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
-    }
-
-    async fn find_messages(
-        &self,
-        _conversation_id: Uuid,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Message>> {
-        Ok(Vec::new())
-    }
-
-    async fn create_message(&self, message: &Message) -> rust_backend::error::AppResult<Message> {
-        Ok(message.clone())
-    }
-
-    async fn is_participant(
-        &self,
-        _conversation_id: Uuid,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<bool> {
-        Ok(true)
-    }
-
-    async fn mark_as_read(
-        &self,
-        _conversation_id: Uuid,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockCategoryRepo;
-
-#[async_trait]
-impl CategoryRepository for MockCategoryRepo {
-    async fn find_all(&self) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-
-    async fn find_by_id(&self, _id: Uuid) -> rust_backend::error::AppResult<Option<Category>> {
-        Ok(None)
-    }
-
-    async fn find_children(
-        &self,
-        _parent_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-}
 
 // =============================================================================
 // Mock Auth0ApiClient
@@ -575,31 +218,6 @@ fn map_role_from_claim(claims: &Auth0Claims) -> String {
 // Helper Functions
 // =============================================================================
 
-fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
-    let earth_radius_km = 6_371.0_f64;
-    let dlat = (lat2 - lat1).to_radians();
-    let dlng = (lng2 - lng1).to_radians();
-    let lat1 = lat1.to_radians();
-    let lat2 = lat2.to_radians();
-
-    let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlng / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-    earth_radius_km * c
-}
-
-fn auth_config() -> AuthConfig {
-    AuthConfig {
-        jwt_secret: "integration-test-secret".to_string(),
-        jwt_kid: "v1".to_string(),
-        previous_jwt_secrets: Vec::new(),
-        previous_jwt_kids: Vec::new(),
-        jwt_expiration_seconds: 900,
-        refresh_token_expiration_days: 7,
-        issuer: "rust-backend-test".to_string(),
-        audience: "rust-backend-client".to_string(),
-    }
-}
-
 fn auth0_config() -> Auth0Config {
     Auth0Config {
         auth0_domain: Some("test.auth0.com".to_string()),
@@ -673,7 +291,11 @@ fn create_auth0_token(user_id: Uuid, role: &str) -> String {
 }
 
 fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo>) -> AppState {
-    app_state_with_provisioning(user_repo, equipment_repo, Arc::new(MockMessageRepo))
+    app_state_with_provisioning(
+        user_repo,
+        equipment_repo,
+        Arc::new(MockMessageRepo::default()),
+    )
 }
 
 fn app_state_with_provisioning(
@@ -681,8 +303,8 @@ fn app_state_with_provisioning(
     equipment_repo: Arc<MockEquipmentRepo>,
     message_repo: Arc<MockMessageRepo>,
 ) -> AppState {
-    let auth_repo = Arc::new(MockAuthRepo);
-    let category_repo = Arc::new(MockCategoryRepo);
+    let auth_repo = Arc::new(MockAuthRepo::default());
+    let category_repo = Arc::new(MockCategoryRepo::default());
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
 
     AppState {
@@ -717,9 +339,9 @@ fn app_with_auth0_data(
     web::Data<Arc<dyn JwksProvider>>,
     web::Data<Arc<dyn UserProvisioningService>>,
 ) {
-    let auth_repo = Arc::new(MockAuthRepo);
-    let category_repo = Arc::new(MockCategoryRepo);
-    let message_repo = Arc::new(MockMessageRepo);
+    let auth_repo = Arc::new(MockAuthRepo::default());
+    let category_repo = Arc::new(MockCategoryRepo::default());
+    let message_repo = Arc::new(MockMessageRepo::default());
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
     let provisioning_service = Arc::new(MockJitUserProvisioningService::new(
         user_repo.clone(),
@@ -914,7 +536,7 @@ async fn geographic_search_returns_equipment_within_radius() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1018,7 +640,7 @@ async fn geographic_search_results_sorted_by_distance() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1097,7 +719,7 @@ async fn geographic_search_excludes_equipment_without_coordinates() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1168,7 +790,7 @@ async fn geographic_search_with_radius_zero_returns_only_exact_matches() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1254,7 +876,7 @@ async fn search_combines_category_and_price_filters() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1367,7 +989,7 @@ async fn search_combines_all_filters_category_price_location_availability() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1451,7 +1073,7 @@ async fn search_filters_by_availability_only() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1536,7 +1158,7 @@ async fn search_with_min_price_only_includes_price_at_or_above_threshold() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1621,7 +1243,7 @@ async fn search_with_max_price_only_includes_price_at_or_below_threshold() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1689,7 +1311,7 @@ async fn pagination_respects_page_parameter() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1745,7 +1367,7 @@ async fn pagination_page_defaults_to_one() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1797,7 +1419,7 @@ async fn pagination_limit_defaults_to_twenty() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1849,7 +1471,7 @@ async fn pagination_limit_is_clamped_to_maximum_of_100() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1901,7 +1523,7 @@ async fn pagination_minimum_limit_is_one() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1953,7 +1575,7 @@ async fn pagination_negative_page_defaults_to_one() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2491,7 +2113,7 @@ async fn search_with_invalid_coordinates_returns_empty_results() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2544,7 +2166,7 @@ async fn search_ignores_undefined_optional_filters_in_query_string() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2602,7 +2224,7 @@ async fn search_with_zero_radius() {
 
     let app = actix_test::init_service(
         App::new()
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2651,7 +2273,7 @@ async fn search_pagination_beyond_bounds() {
 
     let app = actix_test::init_service(
         App::new()
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2705,7 +2327,7 @@ async fn search_with_invalid_category_id() {
 
     let app = actix_test::init_service(
         App::new()
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2768,7 +2390,7 @@ async fn search_with_partial_geo_params_returns_all_items() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2827,7 +2449,7 @@ async fn search_returns_empty_when_no_matching_results() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2884,7 +2506,7 @@ async fn search_without_filters_returns_all_equipment() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )

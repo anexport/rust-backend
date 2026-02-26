@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+mod common;
+
 use actix_rt::test;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
@@ -23,474 +25,9 @@ use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
-#[derive(Default)]
-struct MockUserRepo {
-    users: Mutex<Vec<User>>,
-}
-
-impl MockUserRepo {
-    fn push(&self, user: User) {
-        self.users.lock().expect("users mutex poisoned").push(user);
-    }
-}
-
-#[async_trait]
-impl UserRepository for MockUserRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.id == id)
-            .cloned())
-    }
-
-    async fn find_by_email(&self, email: &str) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.email == email)
-            .cloned())
-    }
-
-    async fn find_by_username(
-        &self,
-        username: &str,
-    ) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.username.as_deref() == Some(username))
-            .cloned())
-    }
-
-    async fn create(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .push(user.clone());
-        Ok(user.clone())
-    }
-
-    async fn update(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        let mut users = self.users.lock().expect("users mutex poisoned");
-        if let Some(existing) = users.iter_mut().find(|existing| existing.id == user.id) {
-            *existing = user.clone();
-        }
-        Ok(user.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .retain(|user| user.id != id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockAuthRepo {
-    identities: Mutex<Vec<AuthIdentity>>,
-}
-
-#[async_trait]
-impl AuthRepository for MockAuthRepo {
-    async fn create_identity(
-        &self,
-        identity: &AuthIdentity,
-    ) -> rust_backend::error::AppResult<AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
-    }
-
-    async fn find_identity_by_user_id(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> rust_backend::error::AppResult<Option<AuthIdentity>> {
-        Ok(self
-            .identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .iter()
-            .find(|identity| {
-                identity.user_id == user_id
-                    && identity.provider == AuthProvider::Auth0
-                    && provider == "auth0"
-            })
-            .cloned())
-    }
-
-    async fn find_identity_by_provider_id(
-        &self,
-        _provider: &str,
-        _provider_id: &str,
-    ) -> rust_backend::error::AppResult<Option<AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn upsert_identity(
-        &self,
-        identity: &AuthIdentity,
-    ) -> rust_backend::error::AppResult<AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
-    }
-}
-
-#[derive(Default)]
-struct MockEquipmentRepo {
-    equipment: Mutex<Vec<Equipment>>,
-}
-
-#[async_trait]
-impl EquipmentRepository for MockEquipmentRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .find(|equipment| equipment.id == id)
-            .cloned())
-    }
-
-    async fn find_all(
-        &self,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .clone())
-    }
-
-    async fn search(
-        &self,
-        params: &EquipmentSearchParams,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        let mut rows: Vec<Equipment> = self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .clone()
-            .into_iter()
-            .filter(|item| {
-                params
-                    .category_id
-                    .is_none_or(|category_id| item.category_id == category_id)
-            })
-            .filter(|item| params.min_price.is_none_or(|min| item.daily_rate >= min))
-            .filter(|item| params.max_price.is_none_or(|max| item.daily_rate <= max))
-            .filter(|item| {
-                params
-                    .is_available
-                    .is_none_or(|available| item.is_available == available)
-            })
-            .collect();
-
-        if let Some(((lat, lng), radius_km)) =
-            params.latitude.zip(params.longitude).zip(params.radius_km)
-        {
-            rows.retain(|item| {
-                item.coordinates_tuple()
-                    .is_some_and(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng) <= radius_km)
-            });
-            rows.sort_by(|left, right| {
-                let left_distance = left
-                    .coordinates_tuple()
-                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
-                    .unwrap_or(f64::MAX);
-                let right_distance = right
-                    .coordinates_tuple()
-                    .map(|(ilat, ilng)| haversine_km(lat, lng, ilat, ilng))
-                    .unwrap_or(f64::MAX);
-                left_distance.total_cmp(&right_distance)
-            });
-        }
-
-        Ok(rows)
-    }
-
-    async fn find_by_owner(
-        &self,
-        owner_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .filter(|equipment| equipment.owner_id == owner_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn create(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .push(equipment.clone());
-        Ok(equipment.clone())
-    }
-
-    async fn update(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        let mut rows = self.equipment.lock().expect("equipment mutex poisoned");
-        if let Some(existing) = rows.iter_mut().find(|existing| existing.id == equipment.id) {
-            *existing = equipment.clone();
-        }
-        Ok(equipment.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .retain(|equipment| equipment.id != id);
-        Ok(())
-    }
-
-    async fn add_photo(
-        &self,
-        photo: &EquipmentPhoto,
-    ) -> rust_backend::error::AppResult<EquipmentPhoto> {
-        Ok(photo.clone())
-    }
-
-    async fn find_photos(
-        &self,
-        _equipment_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<EquipmentPhoto>> {
-        Ok(Vec::new())
-    }
-
-    async fn delete_photo(&self, _photo_id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockMessageRepo {
-    conversations: Mutex<Vec<Conversation>>,
-    messages: Mutex<Vec<Message>>,
-    participants: Mutex<Vec<(Uuid, Uuid)>>, // (conversation_id, user_id)
-}
-
-impl MockMessageRepo {
-    fn add_conversation(&self, conv: Conversation) {
-        self.conversations
-            .lock()
-            .expect("conversations mutex poisoned")
-            .push(conv);
-    }
-
-    fn add_participant(&self, conversation_id: Uuid, user_id: Uuid) {
-        self.participants
-            .lock()
-            .expect("participants mutex poisoned")
-            .push((conversation_id, user_id));
-    }
-
-    fn add_message(&self, msg: Message) {
-        self.messages
-            .lock()
-            .expect("messages mutex poisoned")
-            .push(msg);
-    }
-}
-
-#[async_trait]
-impl MessageRepository for MockMessageRepo {
-    async fn find_conversation(
-        &self,
-        id: Uuid,
-    ) -> rust_backend::error::AppResult<Option<Conversation>> {
-        Ok(self
-            .conversations
-            .lock()
-            .expect("conversations mutex poisoned")
-            .iter()
-            .find(|conv| conv.id == id)
-            .cloned())
-    }
-
-    async fn find_user_conversations(
-        &self,
-        user_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Conversation>> {
-        let participants = self
-            .participants
-            .lock()
-            .expect("participants mutex poisoned");
-        let conversation_ids: Vec<Uuid> = participants
-            .iter()
-            .filter(|(_, uid)| *uid == user_id)
-            .map(|(cid, _)| *cid)
-            .collect();
-        drop(participants);
-
-        Ok(self
-            .conversations
-            .lock()
-            .expect("conversations mutex poisoned")
-            .iter()
-            .filter(|conv| conversation_ids.contains(&conv.id))
-            .cloned()
-            .collect())
-    }
-
-    async fn create_conversation(
-        &self,
-        participant_ids: Vec<Uuid>,
-    ) -> rust_backend::error::AppResult<Conversation> {
-        let conversation = Conversation {
-            id: Uuid::new_v4(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
-        let mut participants = self
-            .participants
-            .lock()
-            .expect("participants mutex poisoned");
-        for participant_id in participant_ids {
-            participants.push((conversation.id, participant_id));
-        }
-
-        let mut conversations = self
-            .conversations
-            .lock()
-            .expect("conversations mutex poisoned");
-        conversations.push(conversation.clone());
-
-        Ok(conversation)
-    }
-
-    async fn find_messages(
-        &self,
-        conversation_id: Uuid,
-        limit: i64,
-        offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Message>> {
-        let mut messages: Vec<Message> = self
-            .messages
-            .lock()
-            .expect("messages mutex poisoned")
-            .iter()
-            .filter(|msg| msg.conversation_id == conversation_id)
-            .cloned()
-            .collect();
-
-        messages.sort_unstable_by(|a, b| b.created_at.cmp(&a.created_at));
-        let offset = offset.max(0) as usize;
-        let limit = limit.max(0) as usize;
-
-        Ok(messages.into_iter().skip(offset).take(limit).collect())
-    }
-
-    async fn create_message(&self, message: &Message) -> rust_backend::error::AppResult<Message> {
-        let mut messages = self.messages.lock().expect("messages mutex poisoned");
-        messages.push(message.clone());
-        Ok(message.clone())
-    }
-
-    async fn find_participant_ids(
-        &self,
-        conversation_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Uuid>> {
-        Ok(self
-            .participants
-            .lock()
-            .expect("participants mutex poisoned")
-            .iter()
-            .filter(|(cid, _)| *cid == conversation_id)
-            .map(|(_, uid)| *uid)
-            .collect())
-    }
-
-    async fn is_participant(
-        &self,
-        conversation_id: Uuid,
-        user_id: Uuid,
-    ) -> rust_backend::error::AppResult<bool> {
-        Ok(self
-            .participants
-            .lock()
-            .expect("participants mutex poisoned")
-            .iter()
-            .any(|(cid, uid)| *cid == conversation_id && *uid == user_id))
-    }
-
-    async fn mark_as_read(
-        &self,
-        _conversation_id: Uuid,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockCategoryRepo;
-
-#[async_trait]
-impl CategoryRepository for MockCategoryRepo {
-    async fn find_all(&self) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-
-    async fn find_by_id(&self, _id: Uuid) -> rust_backend::error::AppResult<Option<Category>> {
-        Ok(None)
-    }
-
-    async fn find_children(
-        &self,
-        _parent_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-}
-
-fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
-    let earth_radius_km = 6_371.0_f64;
-    let dlat = (lat2 - lat1).to_radians();
-    let dlng = (lng2 - lng1).to_radians();
-    let lat1 = lat1.to_radians();
-    let lat2 = lat2.to_radians();
-
-    let a = (dlat / 2.0).sin().powi(2) + lat1.cos() * lat2.cos() * (dlng / 2.0).sin().powi(2);
-    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-    earth_radius_km * c
-}
-
-fn auth_config() -> AuthConfig {
-    AuthConfig {
-        jwt_secret: "integration-test-secret".to_string(),
-        jwt_kid: "v1".to_string(),
-        previous_jwt_secrets: Vec::new(),
-        previous_jwt_kids: Vec::new(),
-        jwt_expiration_seconds: 900,
-        refresh_token_expiration_days: 7,
-        issuer: "rust-backend-test".to_string(),
-        audience: "rust-backend-client".to_string(),
-    }
-}
+use crate::common::mocks::{
+    haversine_km, MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+};
 
 fn security_config() -> rust_backend::config::SecurityConfig {
     rust_backend::config::SecurityConfig {
@@ -785,7 +322,7 @@ fn app_with_auth0_data_and_message_repo(
     web::Data<Arc<dyn UserProvisioningService>>,
 ) {
     let auth_repo = Arc::new(MockAuthRepo::default());
-    let category_repo = Arc::new(MockCategoryRepo);
+    let category_repo = Arc::new(MockCategoryRepo::default());
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
 
     let provisioning_service: Arc<dyn UserProvisioningService> = Arc::new(
@@ -873,7 +410,7 @@ fn app_state_with_message_repo(
     message_repo: Arc<MockMessageRepo>,
 ) -> AppState {
     let auth_repo = Arc::new(MockAuthRepo::default());
-    let category_repo = Arc::new(MockCategoryRepo);
+    let category_repo = Arc::new(MockCategoryRepo::default());
     let auth0_api_client = Arc::new(MockAuth0ApiClient);
     let auth0_config = rust_backend::config::Auth0Config {
         auth0_domain: Some("test-tenant.auth0.com".to_string()),
@@ -963,7 +500,7 @@ async fn metrics_route_is_registered() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -997,7 +534,7 @@ async fn equipment_crud_flow_succeeds() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1166,7 +703,7 @@ async fn users_me_equipment_route_wins_over_dynamic_id_route() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1215,7 +752,7 @@ async fn get_users_id_returns_public_profile() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1330,7 +867,7 @@ async fn equipment_list_filters_by_price_category_and_radius() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1450,7 +987,7 @@ async fn auth_me_rejects_when_authorization_header_missing() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -1511,7 +1048,7 @@ async fn renter_cannot_create_equipment() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1592,7 +1129,7 @@ async fn non_owner_cannot_update_equipment() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1647,7 +1184,7 @@ async fn admin_can_update_other_users_profile() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1723,7 +1260,7 @@ async fn admin_can_update_foreign_equipment() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1779,7 +1316,7 @@ async fn non_admin_cannot_update_other_users_profile() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1910,7 +1447,7 @@ async fn create_conversation_succeeds() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1947,7 +1484,7 @@ async fn create_conversation_validates_min_participants() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -1993,7 +1530,7 @@ async fn list_conversations_returns_empty_for_new_user() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2063,7 +1600,7 @@ async fn get_conversation_fails_for_non_participant() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2116,7 +1653,7 @@ async fn get_conversation_succeeds_for_participant() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2170,7 +1707,7 @@ async fn send_message_fails_for_non_participant() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2233,7 +1770,7 @@ async fn send_message_succeeds_for_participant() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2290,7 +1827,7 @@ async fn send_message_validates_content_length() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2368,7 +1905,7 @@ async fn list_messages_respects_pagination() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2428,7 +1965,7 @@ async fn list_messages_fails_for_non_participant() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2458,7 +1995,7 @@ async fn conversation_requires_authentication() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2484,7 +2021,7 @@ async fn list_conversations_requires_authentication() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2508,7 +2045,7 @@ async fn create_conversation_requires_authentication() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2535,7 +2072,7 @@ async fn send_message_requires_authentication() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
@@ -2588,7 +2125,7 @@ async fn admin_can_access_foreign_conversation() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2642,7 +2179,7 @@ async fn admin_can_send_message_to_foreign_conversation() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)
@@ -2699,7 +2236,7 @@ async fn admin_can_list_foreign_conversation_messages() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
-            .app_data(web::Data::new(auth_config()))
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(state)
             .app_data(auth0_config_data)
             .app_data(jwks_client)

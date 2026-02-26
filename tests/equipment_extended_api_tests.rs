@@ -1,5 +1,11 @@
 use std::sync::{Arc, Mutex};
 
+mod common;
+
+use crate::common::mocks::{
+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+};
+
 // actix_rt::test is used via #[actix_rt::test] attribute
 #[allow(unused_imports)]
 use actix_rt::test;
@@ -25,293 +31,6 @@ use uuid::Uuid;
 // =============================================================================
 // Mocks (Reusing from core_api_tests.rs logic)
 // =============================================================================
-
-#[derive(Default)]
-struct MockUserRepo {
-    users: Mutex<Vec<User>>,
-}
-
-impl MockUserRepo {
-    fn push(&self, user: User) {
-        self.users.lock().expect("users mutex poisoned").push(user);
-    }
-}
-
-#[async_trait]
-impl UserRepository for MockUserRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.id == id)
-            .cloned())
-    }
-
-    async fn find_by_email(&self, email: &str) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.email == email)
-            .cloned())
-    }
-
-    async fn find_by_username(
-        &self,
-        _username: &str,
-    ) -> rust_backend::error::AppResult<Option<User>> {
-        Ok(None)
-    }
-
-    async fn create(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .push(user.clone());
-        Ok(user.clone())
-    }
-
-    async fn update(&self, user: &User) -> rust_backend::error::AppResult<User> {
-        let mut users = self.users.lock().expect("users mutex poisoned");
-        if let Some(existing) = users.iter_mut().find(|existing| existing.id == user.id) {
-            *existing = user.clone();
-        }
-        Ok(user.clone())
-    }
-
-    async fn delete(&self, _id: Uuid) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockAuthRepo {
-    identities: Mutex<Vec<rust_backend::domain::AuthIdentity>>,
-}
-
-#[async_trait]
-impl AuthRepository for MockAuthRepo {
-    async fn create_identity(
-        &self,
-        identity: &rust_backend::domain::AuthIdentity,
-    ) -> rust_backend::error::AppResult<rust_backend::domain::AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
-    }
-
-    async fn find_identity_by_user_id(
-        &self,
-        _user_id: Uuid,
-        _provider: &str,
-    ) -> rust_backend::error::AppResult<Option<rust_backend::domain::AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn find_identity_by_provider_id(
-        &self,
-        _provider: &str,
-        _provider_id: &str,
-    ) -> rust_backend::error::AppResult<Option<rust_backend::domain::AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn upsert_identity(
-        &self,
-        identity: &rust_backend::domain::AuthIdentity,
-    ) -> rust_backend::error::AppResult<rust_backend::domain::AuthIdentity> {
-        Ok(identity.clone())
-    }
-}
-
-#[derive(Default)]
-struct MockEquipmentRepo {
-    equipment: Mutex<Vec<Equipment>>,
-    photos: Mutex<Vec<EquipmentPhoto>>,
-}
-
-#[async_trait]
-impl EquipmentRepository for MockEquipmentRepo {
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .find(|e| e.id == id)
-            .cloned())
-    }
-
-    async fn find_all(
-        &self,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .clone())
-    }
-
-    async fn search(
-        &self,
-        _params: &EquipmentSearchParams,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(Vec::new())
-    }
-
-    async fn find_by_owner(
-        &self,
-        owner_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Equipment>> {
-        Ok(self
-            .equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .iter()
-            .filter(|e| e.owner_id == owner_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn create(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .push(equipment.clone());
-        Ok(equipment.clone())
-    }
-
-    async fn update(&self, equipment: &Equipment) -> rust_backend::error::AppResult<Equipment> {
-        let mut rows = self.equipment.lock().expect("equipment mutex poisoned");
-        if let Some(existing) = rows.iter_mut().find(|e| e.id == equipment.id) {
-            *existing = equipment.clone();
-        }
-        Ok(equipment.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.equipment
-            .lock()
-            .expect("equipment mutex poisoned")
-            .retain(|e| e.id != id);
-        Ok(())
-    }
-
-    async fn add_photo(
-        &self,
-        photo: &EquipmentPhoto,
-    ) -> rust_backend::error::AppResult<EquipmentPhoto> {
-        self.photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .push(photo.clone());
-        Ok(photo.clone())
-    }
-
-    async fn find_photos(
-        &self,
-        equipment_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<EquipmentPhoto>> {
-        Ok(self
-            .photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .iter()
-            .filter(|p| p.equipment_id == equipment_id)
-            .cloned()
-            .collect())
-    }
-
-    async fn delete_photo(&self, photo_id: Uuid) -> rust_backend::error::AppResult<()> {
-        self.photos
-            .lock()
-            .expect("photos mutex poisoned")
-            .retain(|p| p.id != photo_id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockMessageRepo;
-
-#[async_trait]
-impl MessageRepository for MockMessageRepo {
-    async fn find_conversation(
-        &self,
-        _id: Uuid,
-    ) -> rust_backend::error::AppResult<Option<Conversation>> {
-        Ok(None)
-    }
-    async fn find_user_conversations(
-        &self,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Conversation>> {
-        Ok(Vec::new())
-    }
-    async fn create_conversation(
-        &self,
-        _participant_ids: Vec<Uuid>,
-    ) -> rust_backend::error::AppResult<Conversation> {
-        Ok(Conversation {
-            id: Uuid::new_v4(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
-    }
-    async fn find_messages(
-        &self,
-        _conversation_id: Uuid,
-        _limit: i64,
-        _offset: i64,
-    ) -> rust_backend::error::AppResult<Vec<Message>> {
-        Ok(Vec::new())
-    }
-    async fn create_message(&self, message: &Message) -> rust_backend::error::AppResult<Message> {
-        Ok(message.clone())
-    }
-    async fn is_participant(
-        &self,
-        _conversation_id: Uuid,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<bool> {
-        Ok(true)
-    }
-    async fn mark_as_read(
-        &self,
-        _conversation_id: Uuid,
-        _user_id: Uuid,
-    ) -> rust_backend::error::AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockCategoryRepo;
-
-#[async_trait]
-impl CategoryRepository for MockCategoryRepo {
-    async fn find_all(&self) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-    async fn find_by_id(&self, _id: Uuid) -> rust_backend::error::AppResult<Option<Category>> {
-        Ok(None)
-    }
-    async fn find_children(
-        &self,
-        _parent_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-}
 
 // =============================================================================
 // Helpers
@@ -344,19 +63,6 @@ fn test_equipment(id: Uuid, owner_id: Uuid) -> Equipment {
         is_available: true,
         created_at: Utc::now(),
         updated_at: Utc::now(),
-    }
-}
-
-fn auth_config() -> AuthConfig {
-    AuthConfig {
-        jwt_secret: "integration-test-secret".to_string(),
-        jwt_kid: "v1".to_string(),
-        previous_jwt_secrets: Vec::new(),
-        previous_jwt_kids: Vec::new(),
-        jwt_expiration_seconds: 900,
-        refresh_token_expiration_days: 7,
-        issuer: "rust-backend-test".to_string(),
-        audience: "rust-backend-client".to_string(),
     }
 }
 
@@ -485,8 +191,8 @@ fn app_with_auth0_data(
     web::Data<Arc<dyn UserProvisioningService>>,
 ) {
     let auth_repo = Arc::new(MockAuthRepo::default());
-    let category_repo = Arc::new(MockCategoryRepo);
-    let message_repo = Arc::new(MockMessageRepo);
+    let category_repo = Arc::new(MockCategoryRepo::default());
+    let message_repo = Arc::new(MockMessageRepo::default());
     let provisioning_service: Arc<dyn UserProvisioningService> =
         Arc::new(MockJitUserProvisioningService {
             _user_repo: user_repo.clone(),

@@ -21,7 +21,7 @@ This guide is for Claude Code working on the Rust Backend & Next.js Frontend mon
 
 ### Backend Layer Structure (Clean Architecture)
 
-```
+```text
 src/
 ├── api/              # Presentation layer - HTTP routes, DTOs, OpenAPI
 ├── application/      # Application services - business logic orchestration
@@ -44,7 +44,7 @@ src/
 
 ### Frontend Architecture
 
-```
+```text
 frontend/src/
 ├── app/              # Next.js App Router pages (server + client components)
 ├── components/        # React components (UI + business logic)
@@ -298,6 +298,7 @@ frontend/src/
 **Connection:** `ws://localhost:8080/ws?token=<jwt_token>`
 
 **Messages:**
+
 - Client → Server: `{ "conversation_id": "uuid", "content": "string" }`
 - Server → Client: `{ "id": "uuid", "conversation_id": "uuid", "sender_id": "uuid", "content": "string", "created_at": "iso8601" }`
 

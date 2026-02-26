@@ -258,7 +258,7 @@ use rust_backend::api::routes::AppState;
 async fn test_my_feature() {
     // 1. Setup test app with test DB
     let pool = setup_test_db().await;
-    let app = test::init_service(
+    let app = actix_test::init_service(
         App::new().app_data(web::Data::new(create_app_state(pool)))
     ).await;
 

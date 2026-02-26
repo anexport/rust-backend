@@ -24,7 +24,7 @@ Next.js 16.1.6 frontend for the equipment rental platform, using App Router, Typ
 
 ## Project Structure
 
-```
+```text
 frontend/
 ├── src/
 │   ├── app/                    # Next.js App Router pages
@@ -146,7 +146,7 @@ Use `fetchClient()` in Client Components:
 ```tsx
 'use client';
 import { fetchClient } from '@/lib/api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function Component() {
   const [data, setData] = useState(null);
@@ -501,7 +501,7 @@ export default async function AdminPage() {
 
 ```tsx
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function DataComponent() {
   const [loading, setLoading] = useState(true);

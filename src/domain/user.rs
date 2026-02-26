@@ -45,9 +45,10 @@ pub struct User {
 impl Default for User {
     fn default() -> Self {
         let now = Utc::now();
+        let id = Uuid::new_v4();
         Self {
-            id: Uuid::new_v4(),
-            email: "default@example.com".to_string(),
+            id,
+            email: format!("user-{}@example.com", id),
             role: Role::default(),
             username: None,
             full_name: None,
@@ -58,11 +59,32 @@ impl Default for User {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, Default)]
 #[sqlx(type_name = "auth_provider", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum AuthProvider {
+    Email,
+    Google,
+    Github,
+    #[default]
     Auth0,
+}
+
+impl AuthProvider {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Google => "google",
+            Self::Github => "github",
+            Self::Auth0 => "auth0",
+        }
+    }
+}
+
+impl fmt::Display for AuthProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -116,6 +138,18 @@ mod tests {
     #[test]
     fn auth_provider_serializes_to_lowercase() {
         assert_eq!(
+            serde_json::to_string(&AuthProvider::Email).unwrap(),
+            "\"email\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AuthProvider::Google).unwrap(),
+            "\"google\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AuthProvider::Github).unwrap(),
+            "\"github\""
+        );
+        assert_eq!(
             serde_json::to_string(&AuthProvider::Auth0).unwrap(),
             "\"auth0\""
         );
@@ -123,6 +157,18 @@ mod tests {
 
     #[test]
     fn auth_provider_deserializes_from_lowercase() {
+        assert_eq!(
+            serde_json::from_str::<AuthProvider>("\"email\"").unwrap(),
+            AuthProvider::Email
+        );
+        assert_eq!(
+            serde_json::from_str::<AuthProvider>("\"google\"").unwrap(),
+            AuthProvider::Google
+        );
+        assert_eq!(
+            serde_json::from_str::<AuthProvider>("\"github\"").unwrap(),
+            AuthProvider::Github
+        );
         assert_eq!(
             serde_json::from_str::<AuthProvider>("\"auth0\"").unwrap(),
             AuthProvider::Auth0

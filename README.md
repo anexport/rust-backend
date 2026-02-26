@@ -8,7 +8,7 @@ A full-stack equipment rental platform with a Rust backend (Actix-web), Next.js 
 
 | Document | Purpose |
 |----------|---------|
-| [CLAUDE.md](./CLAUDE.md) | Comprehensive development guide for Claude Code |
+| [claude.md](./claude.md) | Comprehensive development guide for Claude Code |
 | [AGENTS.md](./AGENTS.md) | AI agent specific development guidelines |
 | [gemini.md](./gemini.md) | Google Gemini AI development guide |
 | [frontend/README.md](./frontend/README.md) | Frontend-specific documentation |
