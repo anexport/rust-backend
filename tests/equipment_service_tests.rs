@@ -113,7 +113,11 @@ impl EquipmentRepository for MockEquipmentRepo {
     }
 
     async fn count_search(&self, _params: &EquipmentSearchParams) -> AppResult<i64> {
-        Ok(self.equipment.lock().expect("equipment mutex poisoned").len() as i64)
+        Ok(self
+            .equipment
+            .lock()
+            .expect("equipment mutex poisoned")
+            .len() as i64)
     }
 
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>> {
@@ -413,7 +417,7 @@ async fn delete_equipment_authorization() {
     user_repo.push(test_user(admin_id, Role::Admin));
 
     let eq_id = Uuid::new_v4();
-    
+
     // Test owner delete
     equipment_repo.push(test_equipment(eq_id, owner_id));
     let result = service.delete(owner_id, eq_id).await;

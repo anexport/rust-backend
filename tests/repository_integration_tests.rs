@@ -393,9 +393,15 @@ async fn equipment_repository_negative_and_edge_cases() {
     let created_category = create_category(&db, &category).await.unwrap();
 
     // 1. find_by_owner/count_by_owner returns 0 for new owner
-    let found = equipment_repo.find_by_owner(created_owner.id).await.unwrap();
+    let found = equipment_repo
+        .find_by_owner(created_owner.id)
+        .await
+        .unwrap();
     assert!(found.is_empty());
-    let count = equipment_repo.count_by_owner(created_owner.id).await.unwrap();
+    let count = equipment_repo
+        .count_by_owner(created_owner.id)
+        .await
+        .unwrap();
     assert_eq!(count, 0);
 
     // 2. create with None coordinates
@@ -404,11 +410,18 @@ async fn equipment_repository_negative_and_edge_cases() {
     let created = equipment_repo.create(&equipment).await.unwrap();
     assert!(created.coordinates.is_none());
 
-    let found = equipment_repo.find_by_id(created.id).await.unwrap().unwrap();
+    let found = equipment_repo
+        .find_by_id(created.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(found.coordinates.is_none());
-    
+
     // 3. count_by_owner returns 1 after creation
-    let count = equipment_repo.count_by_owner(created_owner.id).await.unwrap();
+    let count = equipment_repo
+        .count_by_owner(created_owner.id)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
 }
 

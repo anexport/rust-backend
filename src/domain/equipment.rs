@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn set_coordinates_rejects_out_of_range() {
         let mut equipment = create_test_equipment();
-        
+
         // Latitude too high
         assert!(equipment.set_coordinates(90.1, 0.0).is_err());
         // Latitude too low
@@ -239,7 +239,7 @@ mod tests {
         assert!(equipment.set_coordinates(0.0, 180.1).is_err());
         // Longitude too low
         assert!(equipment.set_coordinates(0.0, -180.1).is_err());
-        
+
         // Exact boundaries should pass
         assert!(equipment.set_coordinates(90.0, 180.0).is_ok());
         assert!(equipment.set_coordinates(-90.0, -180.0).is_ok());
