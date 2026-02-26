@@ -226,11 +226,29 @@ async fn test_ws_ping_pong_heartbeat() {
         .send(ws::Message::Ping("hello".into()))
         .await
         .unwrap();
-    let msg = client.next().await.unwrap().unwrap();
-    match msg {
-        ws::Frame::Pong(bytes) => assert_eq!(bytes, "hello"),
-        _ => panic!("Expected pong message, got {:?}", msg),
+
+    let mut pong_received = false;
+    for _ in 0..5 {
+        let msg = tokio::time::timeout(Duration::from_secs(5), client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+            
+        match msg {
+            ws::Frame::Pong(bytes) => {
+                assert_eq!(bytes, "hello");
+                pong_received = true;
+                break;
+            }
+            ws::Frame::Ping(_) => {
+                // Ignore server heartbeats (e.g. Ping(b"ping"))
+                continue;
+            }
+            _ => panic!("Expected pong or ping message, got {:?}", msg),
+        }
     }
+    assert!(pong_received, "Did not receive expected Pong message");
 
     client.close().await.unwrap();
 }
