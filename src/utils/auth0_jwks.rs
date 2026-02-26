@@ -215,10 +215,13 @@ pub async fn validate_auth0_token(
         AppError::Unauthorized
     })?;
 
-    let decoding_key = client
-        .get_decoding_key(&kid)
-        .await
-        .map_err(|_| AppError::Unauthorized)?;
+    let decoding_key = client.get_decoding_key(&kid).await.map_err(|e| {
+        if matches!(e, AppError::ServiceUnavailable { .. }) {
+            e
+        } else {
+            AppError::Unauthorized
+        }
+    })?;
 
     let expected_issuer = config
         .issuer()

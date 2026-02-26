@@ -28,7 +28,7 @@ This is a well-structured Rust backend using **actix-web** with a clean layered 
 | Severity | Location | Issue |
 |----------|----------|-------|
 | **MEDIUM** | `src/lib.rs` | Library exports all modules publicly - consider selective exports for better API boundaries |
-| **LOW** | `src/api/routes/ws/mod.rs` (lines 949 lines) | WebSocket module has extensive inline test code (500+ lines) - consider moving to separate test files |
+| **LOW** | `src/api/routes/ws/mod.rs` (949 lines) | WebSocket module has extensive inline test code (500+ lines) - consider moving to separate test files |
 
 ---
 
@@ -76,7 +76,7 @@ This is a well-structured Rust backend using **actix-web** with a clean layered 
 |----------|----------|-------|
 | **HIGH** | `migrations/20240101000000_init.up.sql:101` | Partial index `WHERE is_available = TRUE` but no index on `is_available` alone - could cause full table scan |
 | **MEDIUM** | `src/infrastructure/repositories/equipment_repository.rs:85-98` | Search query duplicates logic in `count_search()` - could extract to shared function |
-| **MEDIUM** | `src/infrastructure/repositories/user_repository.rs:112` | ILIKE with leading wildcard (texttext) prevents index usage - consider full-text search |
+| **MEDIUM** | `src/infrastructure/repositories/user_repository.rs:112` | ILIKE with leading wildcard (`'\%'\| $3 \| '\%'`) prevents index usage - consider full-text search |
 | **LOW** | `src/infrastructure/repositories/equipment_repository.rs` | No N+1 protection for photos in search results - photos loaded separately in `get_by_id` |
 
 ---
@@ -91,13 +91,14 @@ This is a well-structured Rust backend using **actix-web** with a clean layered 
 | **Error Responses** | Consistent JSON error format with error codes (`src/error/app_error.rs`) |
 | **Validation** | Detailed validation with field-level error messages via `validator` crate |
 | **Pagination** | Consistent pagination with `PaginatedResponse<T>` in DTOs |
-| **Rate Limiting** | Per-endpoint rate limiting via `LoginThrottle` |
+| **API Versioning** | Implemented at `/api/v1/` prefix (`src/api/routes/mod.rs:41`) |
+| **OpenAPI/Swagger** | Wire up utoipa in main.rs with Swagger UI (`src/main.rs:343`) |
+| **Rate Limiting** | Global rate limiting for all endpoints via `actix-governor` (`src/security/mod.rs:50-88`) |
 
 ### Issues Found
 
 | Severity | Location | Issue |
 |----------|----------|-------|
-| **MEDIUM** | N/A | No OpenAPI/Swagger UI enabled - utoipa is in dependencies but not wired up in main.rs |
 | **LOW** | `src/api/routes/equipment.rs:34-40` | Public list endpoint has rate limiting but is applied per-IP which could affect legitimate users on shared IPs |
 
 ---
@@ -194,7 +195,7 @@ cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
 
 | Severity | Location | Issue |
 |----------|----------|-------|
-| **LOW** | `src/domain/equipment.rs:52-63` | Coordinates parsing using string split - consider using serdedeserialize directly |
+| **LOW** | `src/domain/equipment.rs:52-63` | Coordinates parsing using string split - consider using serde deserialize directly |
 | **LOW** | `src/api/routes/equipment.rs` | Duplicate code in `map_coordinates()` helper called in multiple places |
 
 ---
@@ -217,13 +218,10 @@ cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
 
 | # | Issue | Location | Risk |
 |---|-------|----------|------|
-| 1 | **No API versioning** - Breaking changes affect all clients | API routes | Client breakage |
-| 2 | **Auth0 error info leak** - Exposes Auth0 error descriptions to clients | `src/infrastructure/auth0/client.rs:40` | Information disclosure |
-| 3 | **Missing global rate limiting** - Only login endpoints are rate-limited | API layer | Vulnerable to abuse |
-| 4 | **Missing test coverage** - Most business logic untested | Service/domain layers | Regression risk |
-| 5 | **Enable OpenAPI/Swagger** - Wire up utoipa in main.rs for API documentation | `src/main.rs` | Poor API discoverability |
-| 6 | **Improve password validation** - Add complexity requirements beyond just length | `src/api/routes/auth.rs:61-66` | Weak passwords accepted |
-| 7 | **Add request logging middleware** - More detailed audit trail | Middleware | Poor debugging capability |
+| 1 | **Auth0 error info leak** - Exposes Auth0 error descriptions to clients | `src/infrastructure/auth0/client.rs:40` | Information disclosure |
+| 2 | **Missing test coverage** - Most business logic untested | Service/domain layers | Regression risk |
+| 3 | **Improve password validation** - Add complexity requirements beyond just length | `src/api/routes/auth.rs:61-66` | Weak passwords accepted |
+| 4 | **Add request logging middleware** - More detailed audit trail | Middleware | Poor debugging capability |
 
 ### Medium (Plan for Next Sprint)
 
@@ -232,10 +230,9 @@ cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
 | 1 | **No response caching** - Frequent queries hit DB every time | Service layer | Performance under load |
 | 2 | **Potential N+1 queries** - Equipment listing may cause issues at scale | `src/infrastructure/repositories/equipment_repository.rs:325-350` | Performance degradation |
 | 3 | **Missing circuit breakers** - No resilience for external service failures | External service calls | Cascading failures |
-| 4 | **No health checks** - Missing dependency health endpoints | Infrastructure | Poor observability |
-| 5 | **Optimize equipment search** - Combine search and count queries | `src/application/equipment_service.rs:54-55` | Unnecessary DB round-trips |
-| 6 | **Fix ILIKE performance** - Leading wildcard prevents index usage | `src/infrastructure/repositories/user_repository.rs:112` | Slow searches |
-| 7 | **Clean up test utilities** - Remove dead code warnings | `tests/common/mod.rs` | Code hygiene |
+| 4 | **Optimize equipment search** - Combine search and count queries | `src/application/equipment_service.rs:54-55` | Unnecessary DB round-trips |
+| 5 | **Fix ILIKE performance** - Leading wildcard prevents index usage | `src/infrastructure/repositories/user_repository.rs:112` | Slow searches |
+| 6 | **Clean up test utilities** - Remove dead code warnings | `tests/common/mod.rs` | Code hygiene |
 
 ### Low (Nice to Have)
 
@@ -264,7 +261,6 @@ cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
 
 | Area | Finding | Impact |
 |------|---------|--------|
-| **API Versioning** | No versioning strategy | Breaking changes affect all clients |
 | **Caching Strategy** | Only JWKS cached | Unnecessary DB load for frequent queries |
 | **Circuit Breakers** | Not implemented | Cascading failures on external service issues |
 
@@ -303,12 +299,9 @@ Priority: HIGH
 Timeline: Before first production deployment
 
 Tasks:
-├── [1] Implement API versioning (/api/v1/)
-├── [2] Add global rate limiting for all API endpoints
-├── [3] Fix Auth0 error info leak
-├── [4] Add core business logic tests (service/domain layers)
-├── [5] Enable OpenAPI/Swagger documentation
-└── [6] Improve password validation with complexity requirements
+├── [1] Fix Auth0 error info leak
+├── [2] Add core business logic tests (service/domain layers)
+└── [3] Improve password validation with complexity requirements
 ```
 
 ### Phase 3: Performance & Resilience
@@ -321,9 +314,8 @@ Tasks:
 ├── [1] Add response caching layer (Redis or in-memory)
 ├── [2] Fix potential N+1 queries in repositories
 ├── [3] Implement circuit breakers for external services
-├── [4] Add health check endpoints for all dependencies
-├── [5] Optimize equipment search (combine search + count)
-└── [6] Consider full-text search with pg_trgm
+├── [4] Optimize equipment search (combine search + count)
+└── [5] Consider full-text search with pg_trgm
 ```
 
 ### Phase 4: Code Quality & Maintenance
@@ -353,7 +345,7 @@ This is a **well-architected Rust backend** with solid foundations, but it has *
 | **Architecture** | ✅ Strong | Continue current patterns |
 | **Security** | ⚠️ Good with gaps | Fix panic! calls, secure defaults |
 | **Database** | ⚠️ Good with gaps | Add missing indexes |
-| **API Design** | ⚠️ Needs versioning | Implement /api/v1/ |
+| **API Design** | ✅ Good | Versioning and OpenAPI implemented |
 | **Testing** | ⚠️ Good coverage, gaps in services | Add service layer tests |
 | **Operations** | ❌ Not ready | Graceful shutdown, circuit breakers |
 

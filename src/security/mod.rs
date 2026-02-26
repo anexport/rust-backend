@@ -45,7 +45,7 @@ pub fn security_headers() -> DefaultHeaders {
 /// The default configuration is used for anonymous requests.
 ///
 /// # Configuration
-/// - `global_rate_limit_per_minute`: Requests per minute (must be > 0)
+/// - `global_rate_limit_per_minute`: Requests per minute (must be > 0 and <= 60,000)
 /// - `global_rate_limit_burst_size`: Burst capacity (allows short-term spikes)
 pub fn global_rate_limiting(
     security_config: &SecurityConfig,
@@ -55,6 +55,12 @@ pub fn global_rate_limiting(
     if rate_limit_per_minute == 0 {
         panic!(
             "global_rate_limit_per_minute must be greater than 0, got {}",
+            rate_limit_per_minute
+        );
+    }
+    if rate_limit_per_minute > 60_000 {
+        panic!(
+            "global_rate_limit_per_minute must not exceed 60,000 (to allow valid per-millisecond conversion), got {}",
             rate_limit_per_minute
         );
     }
@@ -298,5 +304,53 @@ mod tests {
 
         let result = std::panic::catch_unwind(|| throttle.record_failure(&key));
         assert!(result.is_ok(), "record_failure must not panic on overflow");
+    }
+
+    #[test]
+    fn global_rate_limiting_panics_when_rate_limit_exceeds_60000() {
+        let config = SecurityConfig {
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            metrics_allow_private_only: true,
+            metrics_admin_token: None,
+            login_max_failures: 3,
+            login_lockout_seconds: 300,
+            login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 60_001, // Exceeds 60,000
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            global_rate_limiting(&config);
+        });
+
+        assert!(
+            result.is_err(),
+            "global_rate_limiting should panic when rate_limit_per_minute > 60,000"
+        );
+    }
+
+    #[test]
+    fn global_rate_limiting_succeeds_at_max_valid_rate_limit() {
+        let config = SecurityConfig {
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            metrics_allow_private_only: true,
+            metrics_admin_token: None,
+            login_max_failures: 3,
+            login_lockout_seconds: 300,
+            login_backoff_base_ms: 200,
+            global_rate_limit_per_minute: 60_000, // Maximum valid value
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
+        };
+
+        let result = std::panic::catch_unwind(|| {
+            global_rate_limiting(&config);
+        });
+
+        assert!(
+            result.is_ok(),
+            "global_rate_limiting should succeed when rate_limit_per_minute = 60,000"
+        );
     }
 }
