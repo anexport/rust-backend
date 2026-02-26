@@ -104,9 +104,7 @@ impl AuthRepository for MockAuthRepo {
             .lock()
             .expect("identities mutex poisoned")
             .iter()
-            .find(|identity| {
-                identity.user_id == user_id && identity.provider.as_str() == provider
-            })
+            .find(|identity| identity.user_id == user_id && identity.provider.as_str() == provider)
             .cloned())
     }
 
