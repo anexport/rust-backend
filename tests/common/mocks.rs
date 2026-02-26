@@ -110,18 +110,34 @@ impl AuthRepository for MockAuthRepo {
 
     async fn find_identity_by_provider_id(
         &self,
-        _provider: &str,
-        _provider_id: &str,
+        provider: &str,
+        provider_id: &str,
     ) -> AppResult<Option<AuthIdentity>> {
-        Ok(None)
+        Ok(self
+            .identities
+            .lock()
+            .expect("identities mutex poisoned")
+            .iter()
+            .find(|identity| {
+                identity.provider.as_str() == provider
+                    && identity.provider_id.as_deref() == Some(provider_id)
+            })
+            .cloned())
     }
 
     async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
+        let mut identities = self.identities.lock().expect("identities mutex poisoned");
+        if let Some(existing) = identities.iter_mut().find(|i| {
+            i.provider == identity.provider
+                && i.provider_id == identity.provider_id
+                && i.provider_id.is_some()
+        }) {
+            existing.verified = identity.verified;
+            Ok(existing.clone())
+        } else {
+            identities.push(identity.clone());
+            Ok(identity.clone())
+        }
     }
 }
 
