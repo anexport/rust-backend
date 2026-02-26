@@ -228,14 +228,15 @@ impl AppConfig {
 
     pub fn validate(&self) -> Result<(), ConfigError> {
         // Validate JWT_SECRET is set and not a placeholder
-        if self.auth.jwt_secret.trim().is_empty() {
+        let jwt_secret = self.auth.jwt_secret.trim();
+        if jwt_secret.is_empty() {
             return Err(ConfigError::Auth0Config(
                 "JWT_SECRET must be set via environment variable".to_string(),
             ));
         }
 
-        // Reject the insecure default placeholder
-        if self.auth.jwt_secret == "change-me-in-production" {
+        // Reject the insecure default placeholder (trim to catch spaces around it)
+        if jwt_secret == "change-me-in-production" {
             return Err(ConfigError::Auth0Config(
                 "JWT_SECRET must be set to a secure value, not the default placeholder".to_string(),
             ));

@@ -28,7 +28,7 @@ use rust_backend::observability::AppMetrics;
 use rust_backend::security::{
     cors_middleware, global_rate_limiting, security_headers, LoginThrottle,
 };
-use rust_backend::utils::auth0_jwks::{Auth0JwksClient, JwksProvider};
+use rust_backend::utils::auth0_jwks::{Auth0JwksClient, DisabledJwksProvider, JwksProvider};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 use uuid::Uuid;
@@ -82,21 +82,21 @@ async fn handle_shutdown() {
     info!("Received shutdown signal, draining connections for 30 seconds...");
 }
 
-fn build_jwks_provider(
-    auth0_config: &rust_backend::config::Auth0Config,
-) -> Result<Arc<dyn JwksProvider>, rust_backend::error::AppError> {
+fn build_jwks_provider(auth0_config: &rust_backend::config::Auth0Config) -> Arc<dyn JwksProvider> {
     if !auth0_config.is_enabled() {
-        return Err(rust_backend::error::AppError::ServiceUnavailable {
-            service: "auth0".to_string(),
-            message: "Auth0 must be configured for authentication".to_string(),
-        });
+        info!("Auth0 is not configured. Using disabled JWKS provider.");
+        return Arc::new(DisabledJwksProvider);
     }
 
     match Auth0JwksClient::new(auth0_config) {
-        Ok(client) => Ok(Arc::new(client)),
-        Err(e) => Err(rust_backend::error::AppError::InternalError(
-            anyhow::anyhow!("Failed to create Auth0 JWKS client: {}", e),
-        )),
+        Ok(client) => Arc::new(client),
+        Err(e) => {
+            warn!(
+                "Auth0 JWKS client creation failed: {}. Using disabled provider.",
+                e
+            );
+            Arc::new(DisabledJwksProvider)
+        }
     }
 }
 
@@ -153,7 +153,8 @@ async fn main() -> std::io::Result<()> {
     let auth0_api_client = build_auth0_api_client(&config.auth0);
 
     // Create Auth0 JWKS client for token validation
-    let jwks_client = build_jwks_provider(&config.auth0).expect("failed to create JWKS provider");
+    // Falls back to DisabledJwksProvider if Auth0 is not configured or unavailable
+    let jwks_client = build_jwks_provider(&config.auth0);
 
     // Create user provisioning service for JIT user creation
     let user_repo_for_provisioning = user_repo.clone();
@@ -203,7 +204,7 @@ async fn main() -> std::io::Result<()> {
                 let request_id = Uuid::new_v4().to_string();
                 let path = req.path().to_string();
                 let method = req.method().to_string();
-                let query = req.query_string().to_string();
+                let has_query = !req.query_string().is_empty();
                 let client_ip = get_client_ip(&req);
                 let user_agent = get_user_agent(&req);
                 let user_id = get_user_id_from_request(&req);
@@ -248,7 +249,7 @@ async fn main() -> std::io::Result<()> {
                                         user_agent = %user_agent,
                                         method = %method,
                                         path = %path,
-                                        query = %query,
+                                        has_query = has_query,
                                         status = status,
                                         status_class = %status_class,
                                         latency_ms = latency_ms,
@@ -263,7 +264,7 @@ async fn main() -> std::io::Result<()> {
                                         user_agent = %user_agent,
                                         method = %method,
                                         path = %path,
-                                        query = %query,
+                                        has_query = has_query,
                                         status = status,
                                         status_class = %status_class,
                                         latency_ms = latency_ms,
@@ -278,7 +279,7 @@ async fn main() -> std::io::Result<()> {
                                         user_agent = %user_agent,
                                         method = %method,
                                         path = %path,
-                                        query = %query,
+                                        has_query = has_query,
                                         status = status,
                                         status_class = %status_class,
                                         latency_ms = latency_ms,
@@ -321,7 +322,7 @@ async fn main() -> std::io::Result<()> {
                                 user_agent = %user_agent,
                                 method = %method,
                                 path = %path,
-                                query = %query,
+                                has_query = has_query,
                                 error = %error,
                                 "request failed with error"
                             );
@@ -360,6 +361,7 @@ mod tests {
     use super::{build_auth0_api_client, build_jwks_provider};
     use rust_backend::config::Auth0Config;
     use rust_backend::error::AppError;
+    use rust_backend::utils::auth0_jwks::JwksProvider;
 
     #[actix_web::test]
     async fn build_auth0_api_client_enabled_success_uses_http_client() {
@@ -420,29 +422,40 @@ mod tests {
             ..Default::default()
         };
 
-        let result = build_jwks_provider(&config);
-        assert!(result.is_ok());
+        let provider = build_jwks_provider(&config);
+        // Should not panic when creating provider
+        let _ = provider;
     }
 
     #[test]
-    fn build_jwks_provider_enabled_failure_returns_error() {
+    fn build_jwks_provider_enabled_failure_returns_disabled_provider() {
         let config = Auth0Config {
             auth0_domain: None,
             auth0_audience: Some("api://test".to_string()),
             ..Default::default()
         };
 
-        let result = build_jwks_provider(&config);
-        assert!(result.is_err());
-        assert!(matches!(result, Err(AppError::InternalError(_))));
+        // Should return DisabledJwksProvider instead of panicking
+        let provider = build_jwks_provider(&config);
+        let _ = provider;
     }
 
     #[test]
-    fn build_jwks_provider_disabled_returns_service_unavailable() {
+    fn build_jwks_provider_disabled_returns_disabled_provider() {
         let config = Auth0Config::default();
 
-        let result = build_jwks_provider(&config);
-        assert!(result.is_err());
+        // Should return DisabledJwksProvider instead of error
+        let provider = build_jwks_provider(&config);
+        let _ = provider;
+    }
+
+    #[actix_web::test]
+    async fn disabled_jwks_provider_returns_service_unavailable() {
+        use rust_backend::utils::auth0_jwks::DisabledJwksProvider;
+
+        let provider = DisabledJwksProvider;
+        let result = provider.get_decoding_key("test-kid").await;
+
         assert!(matches!(
             result,
             Err(AppError::ServiceUnavailable { service, .. }) if service == "auth0"

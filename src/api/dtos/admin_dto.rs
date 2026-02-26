@@ -136,12 +136,6 @@ pub struct AdminCategoryResponse {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ErrorResponse {
-    pub error: String,
-    pub message: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::AdminUserDetailResponse;

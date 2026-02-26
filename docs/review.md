@@ -76,7 +76,7 @@ This is a well-structured Rust backend using **actix-web** with a clean layered 
 |----------|----------|-------|
 | **HIGH** | `migrations/20240101000000_init.up.sql:101` | Partial index `WHERE is_available = TRUE` but no index on `is_available` alone - could cause full table scan |
 | **MEDIUM** | `src/infrastructure/repositories/equipment_repository.rs:85-98` | Search query duplicates logic in `count_search()` - could extract to shared function |
-| **MEDIUM** | `src/infrastructure/repositories/user_repository.rs:112` | ILIKE with leading wildcard (`'%' || $3 || '%'`) prevents index usage - consider full-text search |
+| **MEDIUM** | `src/infrastructure/repositories/user_repository.rs:112` | ILIKE with leading wildcard (texttext) prevents index usage - consider full-text search |
 | **LOW** | `src/infrastructure/repositories/equipment_repository.rs` | No N+1 protection for photos in search results - photos loaded separately in `get_by_id` |
 
 ---
@@ -184,7 +184,7 @@ This is a well-structured Rust backend using **actix-web** with a clean layered 
 
 ### Build Results
 
-```
+```text
 cargo check: PASSED
 cargo clippy: PASSED (with -D warnings)
 cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
@@ -282,7 +282,7 @@ cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)
 
 ### Phase 1: Stability & Security (Before New Features)
 
-```
+```text
 Priority: CRITICAL
 Timeline: Immediate
 
@@ -298,7 +298,7 @@ Tasks:
 
 ### Phase 2: Production Hardening
 
-```
+```text
 Priority: HIGH
 Timeline: Before first production deployment
 
@@ -313,7 +313,7 @@ Tasks:
 
 ### Phase 3: Performance & Resilience
 
-```
+```text
 Priority: MEDIUM
 Timeline: Post-launch optimization
 
@@ -328,7 +328,7 @@ Tasks:
 
 ### Phase 4: Code Quality & Maintenance
 
-```
+```text
 Priority: LOW
 Timeline: Ongoing
 

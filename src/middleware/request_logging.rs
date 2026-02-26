@@ -15,23 +15,20 @@ pub fn get_user_id_from_request(req: &ServiceRequest) -> String {
         .unwrap_or_else(|| "anonymous".to_string())
 }
 
-/// Get client IP address from request, checking X-Forwarded-For header first
+/// Get client IP address from request.
+///
+/// Uses realip_remote_addr() which respects Forwarded/X-Forwarded-For only when
+/// configured via ACTIX_FORWARDED or similar trusted proxy settings.
+///
+/// SECURITY NOTE: We do NOT directly parse X-Forwarded-For here as it can be spoofed
+/// by malicious clients. The realip_remote_addr() method uses actix-web's built-in
+/// trusted proxy detection which only considers Forwarded headers when explicitly
+/// configured via environment variables like ACTIX_FORWARDED.
 pub fn get_client_ip(req: &ServiceRequest) -> String {
-    req.headers()
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .map(|s| {
-            s.split(',')
-                .next()
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| s.to_string())
-        })
-        .unwrap_or_else(|| {
-            req.connection_info()
-                .realip_remote_addr()
-                .map(|addr| addr.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        })
+    req.connection_info()
+        .realip_remote_addr()
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Get user agent from request headers

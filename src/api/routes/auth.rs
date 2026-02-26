@@ -1,7 +1,7 @@
 use actix_web::{web, HttpRequest, HttpResponse};
-use serde::{Deserialize, Serialize};
 use validator::Validate;
 
+use crate::api::dtos::auth_dto::{Auth0LoginRequestDto, Auth0LoginResponse, Auth0SignupRequestDto};
 use crate::api::routes::AppState;
 use crate::config::{Auth0Config, AuthConfig};
 use crate::error::{AppError, AppResult};
@@ -71,7 +71,7 @@ fn validate_password(password: &str) -> Result<(), String> {
         .chars()
         .collect::<std::collections::HashSet<_>>()
         .len()
-        < password.len() / 2
+        < password.chars().count() / 2
     {
         return Err("Password contains too many repeated characters.".to_string());
     }
@@ -100,19 +100,6 @@ async fn me(state: web::Data<AppState>, auth: Auth0AuthenticatedUser) -> AppResu
 ///
 /// This endpoint creates a user in Auth0 using a Database Connection.
 /// The user can then authenticate using /auth/auth0/login.
-#[derive(Debug, Deserialize, Validate, utoipa::ToSchema)]
-pub struct Auth0SignupRequestDto {
-    #[serde(alias = "email")]
-    #[validate(length(min = 1, message = "Email is required"))]
-    #[validate(email(message = "Invalid email format"))]
-    pub email: String,
-    #[serde(alias = "password")]
-    pub password: String,
-    #[serde(alias = "username")]
-    pub username: Option<String>,
-    #[serde(alias = "full_name")]
-    pub _full_name: Option<String>,
-}
 
 #[utoipa::path(
     post,
@@ -131,8 +118,7 @@ async fn auth0_signup(
     payload: web::Json<Auth0SignupRequestDto>,
 ) -> AppResult<HttpResponse> {
     tracing::info!(
-        email = %payload.email,
-        username = ?payload.username,
+        has_username = payload.username.is_some(),
         "Processing Auth0 signup request"
     );
 
@@ -224,22 +210,6 @@ fn provisioning_claims(
 ///
 /// This endpoint authenticates a user using Auth0 Password Grant flow.
 /// Returns Auth0 access token and ID token which can be used with the API.
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct Auth0LoginRequestDto {
-    #[serde(alias = "email")]
-    pub email: String,
-    #[serde(alias = "password")]
-    pub password: String,
-}
-
-#[derive(Debug, Serialize, utoipa::ToSchema)]
-pub struct Auth0LoginResponse {
-    access_token: String,
-    id_token: String,
-    refresh_token: Option<String>,
-    expires_in: u64,
-    token_type: String,
-}
 
 #[utoipa::path(
     post,
@@ -271,15 +241,13 @@ async fn auth0_login(
 
     state.login_throttle.record_success(&throttle_key);
 
-    let response = Auth0LoginResponse {
+    Ok(HttpResponse::Ok().json(Auth0LoginResponse {
         access_token: auth0_response.access_token.clone(),
-        id_token: auth0_response.id_token.clone(),
         refresh_token: auth0_response.refresh_token.clone(),
-        expires_in: auth0_response.expires_in,
+        id_token: auth0_response.id_token.clone(),
         token_type: auth0_response.token_type,
-    };
-
-    Ok(HttpResponse::Ok().json(response))
+        expires_in: auth0_response.expires_in,
+    }))
 }
 
 fn client_ip(request: &HttpRequest) -> Option<String> {
@@ -382,7 +350,7 @@ mod tests {
             email: "@.".to_string(),
             password: "SecurePassword123!".to_string(),
             username: None,
-            _full_name: None,
+            full_name: None,
         };
 
         let result = validator::Validate::validate(&dto);

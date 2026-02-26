@@ -95,8 +95,8 @@ impl UserProvisioningService for MockProvisioningService {
         // This is a simplification for tests: we expect the user to already exist in the DB
         // if we are testing with a specific UUID in the sub.
         // If sub is "auth0|uuid", we use that UUID.
-        let user_id = if sub.starts_with("auth0|") {
-            Uuid::parse_str(&sub[6..]).unwrap_or_else(|_| Uuid::new_v4())
+        let user_id = if let Some(id_part) = sub.strip_prefix("auth0|") {
+            Uuid::parse_str(id_part).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         };

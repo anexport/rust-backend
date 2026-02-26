@@ -496,13 +496,13 @@ fn extract_ws_token_prefers_authorization_header() {
 }
 
 #[test]
-fn extract_ws_token_rejects_lowercase_bearer_prefix_in_authorization_header() {
+fn extract_ws_token_accepts_lowercase_bearer_prefix_in_authorization_header() {
     let request = awtest::TestRequest::default()
         .insert_header(("Authorization", "bearer lower-token"))
         .to_http_request();
 
     let token = super::extract_ws_token(&request);
-    assert!(token.is_none());
+    assert_eq!(token.as_deref(), Some("lower-token"));
 }
 
 #[test]

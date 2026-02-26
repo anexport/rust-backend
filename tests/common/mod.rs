@@ -22,11 +22,30 @@ pub struct TestDb {
 }
 
 impl TestDb {
+    /// Creates a new test database connection.
+    /// Returns `None` if DATABASE_URL is not set (skips test locally).
+    /// Panics in CI environments to catch configuration issues.
     pub async fn new() -> Option<Self> {
         dotenvy::dotenv().ok();
         let url = env::var("TEST_DATABASE_URL")
             .ok()
-            .or_else(|| env::var("DATABASE_URL").ok())?;
+            .or_else(|| env::var("DATABASE_URL").ok());
+
+        let url = match url {
+            Some(u) => u,
+            None => {
+                // In CI, panic to catch missing DB configuration
+                if env::var("CI").is_ok() {
+                    panic!(
+                        "DATABASE_URL or TEST_DATABASE_URL not set in CI. \
+                        Integration tests require a database connection."
+                    );
+                }
+                // Locally, skip silently
+                eprintln!("Skipping test: DATABASE_URL or TEST_DATABASE_URL not set (run locally)");
+                return None;
+            }
+        };
 
         let lock = Lazy::force(&TEST_DB_MUTEX).lock().await;
 

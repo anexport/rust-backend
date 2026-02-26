@@ -107,7 +107,13 @@ fn extract_ws_token(request: &HttpRequest) -> Option<String> {
         .get("Authorization")
         .and_then(|value| value.to_str().ok())
     {
-        if let Some(token) = header.strip_prefix("Bearer ") {
+        // Case-insensitive "Bearer" prefix (accepts "Bearer", "bearer", "BEARER", etc.)
+        let header_lower = header.trim_start();
+        if let Some(token) = header_lower
+            .to_ascii_lowercase()
+            .strip_prefix("bearer ")
+            .map(|_| header_lower.split_at(7).1)
+        {
             return Some(token.to_string());
         }
     }

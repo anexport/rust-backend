@@ -1,6 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::Validate;
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UserResponse {
@@ -34,16 +35,24 @@ pub struct Auth0SignupUserResponse {
 }
 
 // Auth0 signup DTO for API documentation
-#[derive(Debug, serde::Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct Auth0SignupRequestDto {
+    #[serde(alias = "email")]
+    #[validate(length(min = 1, message = "Email is required"))]
+    #[validate(email(message = "Invalid email format"))]
     pub email: String,
+    #[serde(alias = "password")]
     pub password: String,
+    #[serde(alias = "username")]
     pub username: Option<String>,
+    #[serde(alias = "full_name")]
     pub full_name: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct Auth0LoginRequestDto {
+    #[serde(alias = "email")]
     pub email: String,
+    #[serde(alias = "password")]
     pub password: String,
 }

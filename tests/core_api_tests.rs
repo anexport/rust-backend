@@ -1876,7 +1876,8 @@ async fn ready_endpoint_checks_dependencies() {
     if has_test_db_url {
         assert_eq!(response.status(), StatusCode::OK);
     } else {
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        // After fix: ready endpoint returns 503 ServiceUnavailable instead of 500
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }
 

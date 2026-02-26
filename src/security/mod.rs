@@ -37,7 +37,6 @@ pub fn security_headers() -> DefaultHeaders {
             "Content-Security-Policy",
             "default-src 'self'; frame-ancestors 'none'; object-src 'none'",
         ))
-        .add(("X-RateLimit-Limit", "1")) // Placeholder for rate limit info header
 }
 
 /// Create a global rate limiting middleware
@@ -46,17 +45,41 @@ pub fn security_headers() -> DefaultHeaders {
 /// The default configuration is used for anonymous requests.
 ///
 /// # Configuration
-/// - `global_rate_limit_per_minute`: Requests per minute
+/// - `global_rate_limit_per_minute`: Requests per minute (must be > 0)
 /// - `global_rate_limit_burst_size`: Burst capacity (allows short-term spikes)
 pub fn global_rate_limiting(
     security_config: &SecurityConfig,
 ) -> Governor<actix_governor::PeerIpKeyExtractor, NoOpMiddleware> {
+    // Validate rate limit configuration to prevent division by zero and unreasonable values
+    let rate_limit_per_minute = security_config.global_rate_limit_per_minute;
+    if rate_limit_per_minute == 0 {
+        panic!(
+            "global_rate_limit_per_minute must be greater than 0, got {}",
+            rate_limit_per_minute
+        );
+    }
+
+    // Burst size should be reasonable (between 1 and 1000)
+    let burst_size = security_config.global_rate_limit_burst_size;
+    if burst_size == 0 {
+        panic!(
+            "global_rate_limit_burst_size must be greater than 0, got {}",
+            burst_size
+        );
+    }
+    if burst_size > 1000 {
+        tracing::warn!(
+            burst_size,
+            "global_rate_limit_burst_size is unusually high; consider reducing to avoid abuse"
+        );
+    }
+
     // Create governor configuration
     // Use per_millisecond since actix-governor expects u64
-    let requests_per_millisecond = (60_000 / security_config.global_rate_limit_per_minute) as u64;
+    let requests_per_millisecond = (60_000 / rate_limit_per_minute) as u64;
     let governor_config = GovernorConfigBuilder::default()
         .per_millisecond(requests_per_millisecond)
-        .burst_size(security_config.global_rate_limit_burst_size)
+        .burst_size(burst_size)
         .finish()
         .expect("Failed to build governor config");
 

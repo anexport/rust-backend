@@ -2,9 +2,9 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 // Re-export the auth DTOs for OpenAPI compatibility
-pub use crate::api::routes::auth::Auth0LoginRequestDto;
-pub use crate::api::routes::auth::Auth0LoginResponse;
-pub use crate::api::routes::auth::Auth0SignupRequestDto;
+pub use crate::api::dtos::auth_dto::{
+    Auth0LoginRequestDto, Auth0LoginResponse, Auth0SignupRequestDto,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -36,7 +36,7 @@ pub use crate::api::routes::auth::Auth0SignupRequestDto;
             crate::api::dtos::equipment_dto::EquipmentDto,
             crate::api::dtos::equipment_dto::EquipmentQueryParams,
             crate::api::dtos::category_dto::CategoryDto,
-            crate::api::dtos::admin_dto::ErrorResponse,
+            crate::api::dtos::ErrorResponse,
         )
     ),
     tags(

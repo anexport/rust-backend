@@ -43,7 +43,9 @@ export async function fetchServer(path: string, options: RequestInit = {}): Prom
   const fetchOptions: RequestInit = {
     ...options,
     headers: reqHeadersForFetch,
-    signal: AbortSignal.timeout(10000),
+    signal: options.signal ?
+      AbortSignal.any([options.signal, AbortSignal.timeout(10000)]) :
+      AbortSignal.timeout(10000),
   };
 
   return fetch(upstreamUrl, fetchOptions);

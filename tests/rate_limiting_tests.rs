@@ -205,7 +205,7 @@ async fn test_security_headers_detailed() {
     let app = actix_test::init_service(
         App::new()
             .wrap(security_headers())
-            .route("/", actix_web::web::get().to(|| HttpResponse::Ok())),
+            .route("/", actix_web::web::get().to(HttpResponse::Ok)),
     )
     .await;
 

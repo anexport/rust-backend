@@ -68,8 +68,8 @@ impl UserProvisioningService for MockProvisioningService {
         let user_repo = UserRepositoryImpl::new(self.db_pool.clone());
         let sub = &claims.sub;
 
-        let user_id = if sub.starts_with("auth0|") {
-            Uuid::parse_str(&sub[6..]).unwrap_or_else(|_| Uuid::new_v4())
+        let user_id = if let Some(id_part) = sub.strip_prefix("auth0|") {
+            Uuid::parse_str(id_part).unwrap_or_else(|_| Uuid::new_v4())
         } else {
             Uuid::new_v4()
         };

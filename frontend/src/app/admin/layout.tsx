@@ -45,9 +45,13 @@ export default async function AdminLayout({ children }: { children: ReactNode })
                 <span className="shrink-0">Signed in as:</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="truncate font-medium cursor-help">
+                    <button
+                      type="button"
+                      className="truncate font-medium cursor-help text-left bg-transparent border-0 p-0 text-inherit text-xs"
+                      tabIndex={0}
+                    >
                       {user.email ?? 'unknown'}
-                    </span>
+                    </button>
                   </TooltipTrigger>
                   <TooltipContent side="top" className="max-w-none">
                     <p>{user.email ?? 'unknown'}</p>
