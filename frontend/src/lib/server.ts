@@ -40,8 +40,11 @@ export async function fetchServer(path: string, options: RequestInit = {}): Prom
 
   const upstreamUrl = new URL(path, API_BASE_URL);
 
-  return fetch(upstreamUrl, {
+  const fetchOptions: RequestInit = {
     ...options,
     headers: reqHeadersForFetch,
-  });
+    signal: AbortSignal.timeout(10000),
+  };
+
+  return fetch(upstreamUrl, fetchOptions);
 }

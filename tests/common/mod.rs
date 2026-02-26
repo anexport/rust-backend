@@ -13,6 +13,7 @@ pub mod fixtures;
 
 static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
+#[allow(dead_code)]
 pub struct TestDb {
     pool: PgPool,
     url: String,
@@ -54,10 +55,12 @@ impl TestDb {
         })
     }
 
+    #[allow(dead_code)]
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 
+    #[allow(dead_code)]
     pub(crate) fn url(&self) -> &str {
         &self.url
     }

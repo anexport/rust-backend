@@ -75,34 +75,36 @@ impl Auth0ErrorResponse {
         let code = self.code_or_error();
         let description = self.description_or_error_description();
 
+        // Log the full error details server-side for debugging
+        error!(
+            code = %self.code,
+            description = %description,
+            "Auth0 API error"
+        );
+
         match code {
             "auth_id_already_exists" | "user_exists" | "email_already_exists" => {
-                AppError::Conflict(description.to_string())
+                AppError::Conflict("Email already registered".to_string())
             }
 
             "invalid_password"
             | "password_not_strong_enough"
             | "password_same_as_email"
-            | "password_too_common" => AppError::BadRequest(description.to_string()),
+            | "password_too_common" => {
+                AppError::BadRequest("Password does not meet security requirements".to_string())
+            }
 
             "invalid_grant" | "invalid_user_password" | "wrong_email_or_password" => {
                 AppError::Unauthorized
             }
 
             "invalid_signup" | "bad_request" | "invalid_request" | "invalid_body" => {
-                AppError::BadRequest(description.to_string())
+                AppError::BadRequest("Invalid request".to_string())
             }
 
             "access_denied" | "unauthorized" => AppError::Unauthorized,
 
-            _ => {
-                error!(
-                    code = %self.code,
-                    description = %description,
-                    "Unexpected Auth0 error"
-                );
-                AppError::InternalError(anyhow::anyhow!("Auth0 error: {} - {}", code, description))
-            }
+            _ => AppError::InternalError(anyhow::anyhow!("Authentication service error")),
         }
     }
 }
@@ -198,8 +200,8 @@ impl HttpAuth0ApiClient {
         let error_body = match response.json::<Auth0ErrorResponse>().await {
             Ok(err) => {
                 let description = err.description_or_error_description().to_string();
-                let mapped = err.to_app_error();
 
+                // Log full Auth0 error details server-side for debugging
                 error!(
                     status = %status,
                     code = %err.code_or_error(),
@@ -207,21 +209,8 @@ impl HttpAuth0ApiClient {
                     "Auth0 API error response"
                 );
 
-                if matches!(mapped, AppError::InternalError(_)) {
-                    match status.as_u16() {
-                        400 => AppError::BadRequest(description),
-                        401 | 403 => AppError::Unauthorized,
-                        409 => AppError::Conflict(description),
-                        429 => AppError::RateLimited,
-                        500..=599 => AppError::ServiceUnavailable {
-                            service: "Auth0".to_string(),
-                            message: description,
-                        },
-                        _ => mapped,
-                    }
-                } else {
-                    mapped
-                }
+                // Map to generic error messages to avoid info leak
+                err.to_app_error()
             }
             Err(_) => {
                 // If we can't parse the error, return a generic error
@@ -229,10 +218,16 @@ impl HttpAuth0ApiClient {
                     status = %status,
                     "Auth0 API request failed with unparsable error"
                 );
-                AppError::InternalError(anyhow::anyhow!(
-                    "Auth0 API request failed with status: {}",
-                    status
-                ))
+                match status.as_u16() {
+                    401 | 403 => AppError::Unauthorized,
+                    409 => AppError::Conflict("Resource already exists".to_string()),
+                    429 => AppError::RateLimited,
+                    500..=599 => AppError::ServiceUnavailable {
+                        service: "Auth0".to_string(),
+                        message: "Authentication service temporarily unavailable".to_string(),
+                    },
+                    _ => AppError::BadRequest("Invalid request".to_string()),
+                }
             }
         };
 
@@ -538,7 +533,10 @@ mod tests {
         let result = client.handle_error(response).await;
         server.await.expect("server task should complete");
 
-        assert!(matches!(result, AppError::InternalError(_)));
+        // 5xx errors now map to ServiceUnavailable with generic message
+        assert!(
+            matches!(result, AppError::ServiceUnavailable { service, .. } if service == "Auth0")
+        );
     }
 
     #[tokio::test]
@@ -577,7 +575,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            AppError::BadRequest(message) if message == "Custom Auth0 validation failure"
+            AppError::InternalError(_) // Unknown codes now map to InternalError with generic message
         ));
     }
 }

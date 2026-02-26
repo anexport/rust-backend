@@ -1,7 +1,8 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct UserResponse {
     pub id: Uuid,
     pub email: String,
@@ -12,7 +13,7 @@ pub struct UserResponse {
 }
 
 /// Response for Auth0 password grant login
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct Auth0LoginResponse {
     pub access_token: String,
     pub refresh_token: Option<String>,
@@ -30,4 +31,19 @@ pub struct Auth0SignupUserResponse {
     pub username: Option<String>,
     pub picture: Option<String>,
     pub name: Option<String>,
+}
+
+// Auth0 signup DTO for API documentation
+#[derive(Debug, serde::Deserialize, ToSchema)]
+pub struct Auth0SignupRequestDto {
+    pub email: String,
+    pub password: String,
+    pub username: Option<String>,
+    pub full_name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, ToSchema)]
+pub struct Auth0LoginRequestDto {
+    pub email: String,
+    pub password: String,
 }

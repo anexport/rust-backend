@@ -518,7 +518,7 @@ async fn user_provisioning_creates_new_user_when_none_exist() {
 }
 
 #[test]
-async fn user_provisioning_without_email_creates_placeholder_email() {
+async fn user_provisioning_without_email_returns_bad_request() {
     let user_repo = Arc::new(MockUserRepo::default());
     let auth_repo = Arc::new(MockAuthRepo::default());
 
@@ -543,19 +543,15 @@ async fn user_provisioning_without_email_creates_placeholder_email() {
         custom_claims: std::collections::HashMap::new(),
     };
 
-    let user_context = provisioning_service
-        .provision_user(&claims)
-        .await
-        .expect("Should provision user without email");
+    let result = provisioning_service.provision_user(&claims).await;
+    assert!(matches!(
+        result,
+        Err(AppError::BadRequest(message)) if message == "Email is required from Auth0"
+    ));
 
-    assert_eq!(user_context.auth0_sub, "auth0|no-email");
-    assert_eq!(user_context.role, "renter"); // Default role
-    assert!(user_context.email.is_none()); // Email should be None
-
-    // Verify the placeholder email was created
+    // Verify no user was created when email is missing.
     let users = user_repo.users.lock().expect("users mutex poisoned");
-    assert_eq!(users.len(), 1);
-    assert_eq!(users[0].email, "auth0|no-email@auth0.placeholder");
+    assert!(users.is_empty());
 }
 
 #[test]

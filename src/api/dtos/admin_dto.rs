@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -21,7 +22,7 @@ pub struct AdminStatsResponse {
     pub total_categories: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct AdminUserRow {
     pub id: Uuid,
     pub email: String,
@@ -46,7 +47,7 @@ impl fmt::Debug for AdminUserRow {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AdminUserListResponse {
     pub users: Vec<AdminUserRow>,
     pub total: i64,
@@ -54,7 +55,7 @@ pub struct AdminUserListResponse {
     pub per_page: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct AdminUserDetailResponse {
     pub id: Uuid,
     pub email: String,
@@ -92,7 +93,7 @@ pub struct AdminUpdateRoleRequest {
     pub role: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AdminEquipmentRow {
     pub id: Uuid,
     pub title: String,
@@ -103,7 +104,7 @@ pub struct AdminEquipmentRow {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AdminEquipmentListResponse {
     pub equipment: Vec<AdminEquipmentRow>,
     pub total: i64,
@@ -133,6 +134,12 @@ pub struct AdminCategoryResponse {
     pub name: String,
     pub parent_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorResponse {
+    pub error: String,
+    pub message: String,
 }
 
 #[cfg(test)]

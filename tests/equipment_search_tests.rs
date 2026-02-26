@@ -620,6 +620,9 @@ fn security_config() -> SecurityConfig {
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     }
 }
 
@@ -918,7 +921,7 @@ async fn geographic_search_returns_equipment_within_radius() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=40.7829&lng=-73.9654&radius_km=5")
+        .uri("/api/v1/equipment?lat=40.7829&lng=-73.9654&radius_km=5")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1022,7 +1025,7 @@ async fn geographic_search_results_sorted_by_distance() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=40.7327&lng=-73.9914&radius_km=10")
+        .uri("/api/v1/equipment?lat=40.7327&lng=-73.9914&radius_km=10")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1101,7 +1104,7 @@ async fn geographic_search_excludes_equipment_without_coordinates() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=40.7128&lng=-74.0060&radius_km=50")
+        .uri("/api/v1/equipment?lat=40.7128&lng=-74.0060&radius_km=50")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1172,7 +1175,7 @@ async fn geographic_search_with_radius_zero_returns_only_exact_matches() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=40.7128&lng=-74.0060&radius_km=0")
+        .uri("/api/v1/equipment?lat=40.7128&lng=-74.0060&radius_km=0")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1259,7 +1262,7 @@ async fn search_combines_category_and_price_filters() {
 
     let request = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/equipment?category_id={}&min_price=30&max_price=50",
+            "/api/v1/equipment?category_id={}&min_price=30&max_price=50",
             cameras_id
         ))
         .to_request();
@@ -1372,7 +1375,7 @@ async fn search_combines_all_filters_category_price_location_availability() {
 
     let request = actix_test::TestRequest::get()
         .uri(&format!(
-            "/api/equipment?category_id={}&min_price=30&max_price=60&lat=40.7128&lng=-74.0060&radius_km=10&is_available=true",
+            "/api/v1/equipment?category_id={}&min_price=30&max_price=60&lat=40.7128&lng=-74.0060&radius_km=10&is_available=true",
             category_id
         ))
         .to_request();
@@ -1455,7 +1458,7 @@ async fn search_filters_by_availability_only() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?is_available=true")
+        .uri("/api/v1/equipment?is_available=true")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1540,7 +1543,7 @@ async fn search_with_min_price_only_includes_price_at_or_above_threshold() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?min_price=50")
+        .uri("/api/v1/equipment?min_price=50")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1625,7 +1628,7 @@ async fn search_with_max_price_only_includes_price_at_or_below_threshold() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?max_price=50")
+        .uri("/api/v1/equipment?max_price=50")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1693,7 +1696,7 @@ async fn pagination_respects_page_parameter() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?page=1&limit=2")
+        .uri("/api/v1/equipment?page=1&limit=2")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1749,7 +1752,7 @@ async fn pagination_page_defaults_to_one() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment")
+        .uri("/api/v1/equipment")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1801,7 +1804,7 @@ async fn pagination_limit_defaults_to_twenty() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment")
+        .uri("/api/v1/equipment")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1853,7 +1856,7 @@ async fn pagination_limit_is_clamped_to_maximum_of_100() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?limit=200")
+        .uri("/api/v1/equipment?limit=200")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1905,7 +1908,7 @@ async fn pagination_minimum_limit_is_one() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?limit=0")
+        .uri("/api/v1/equipment?limit=0")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -1957,7 +1960,7 @@ async fn pagination_negative_page_defaults_to_one() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?page=-1")
+        .uri("/api/v1/equipment?page=-1")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -2019,7 +2022,7 @@ async fn owner_can_add_photo_to_equipment() {
     let token = create_auth0_token(owner_id, "owner");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo1.jpg",
@@ -2104,7 +2107,7 @@ async fn owner_can_delete_photo_from_equipment() {
 
     let request = actix_test::TestRequest::delete()
         .uri(&format!(
-            "/api/equipment/{}/photos/{}",
+            "/api/v1/equipment/{}/photos/{}",
             equipment_id, photo_id
         ))
         .insert_header(("Authorization", format!("Bearer {token}")))
@@ -2173,7 +2176,7 @@ async fn non_owner_cannot_add_photo_to_equipment() {
     let token = create_auth0_token(other_id, "owner");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo.jpg",
@@ -2244,7 +2247,7 @@ async fn admin_can_add_photo_to_other_users_equipment() {
     let token = create_auth0_token(admin_id, "admin");
 
     let request = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo.jpg",
@@ -2305,7 +2308,7 @@ async fn photo_order_index_increments_with_each_addition() {
 
     // Add first photo
     let request1 = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo1.jpg",
@@ -2323,7 +2326,7 @@ async fn photo_order_index_increments_with_each_addition() {
 
     // Add second photo
     let request2 = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo2.jpg",
@@ -2341,7 +2344,7 @@ async fn photo_order_index_increments_with_each_addition() {
 
     // Add third photo
     let request3 = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}/photos", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/photo3.jpg",
@@ -2412,7 +2415,7 @@ async fn owner_can_toggle_equipment_availability() {
 
     // Make unavailable
     let request = actix_test::TestRequest::put()
-        .uri(&format!("/api/equipment/{}", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "is_available": false
@@ -2430,7 +2433,7 @@ async fn owner_can_toggle_equipment_availability() {
 
     // Make available again
     let request2 = actix_test::TestRequest::put()
-        .uri(&format!("/api/equipment/{}", equipment_id))
+        .uri(&format!("/api/v1/equipment/{}", equipment_id))
         .insert_header(("Authorization", format!("Bearer {token}")))
         .set_json(serde_json::json!({
             "is_available": true
@@ -2496,7 +2499,7 @@ async fn search_with_invalid_coordinates_returns_empty_results() {
 
     // Invalid latitude (outside -90 to 90)
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=91&lng=0&radius_km=10")
+        .uri("/api/v1/equipment?lat=91&lng=0&radius_km=10")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -2548,7 +2551,7 @@ async fn search_ignores_undefined_optional_filters_in_query_string() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=undefined&lng=undefined&is_available=undefined")
+        .uri("/api/v1/equipment?lat=undefined&lng=undefined&is_available=undefined")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
 
@@ -2611,7 +2614,7 @@ async fn search_with_partial_geo_params_returns_all_items() {
 
     // Only latitude provided (no lng or radius)
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?lat=40.7128")
+        .uri("/api/v1/equipment?lat=40.7128")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -2670,7 +2673,7 @@ async fn search_returns_empty_when_no_matching_results() {
 
     // Search for equipment with max_price 10, but cheapest is 150
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment?max_price=10")
+        .uri("/api/v1/equipment?max_price=10")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -2726,7 +2729,7 @@ async fn search_without_filters_returns_all_equipment() {
     .await;
 
     let request = actix_test::TestRequest::get()
-        .uri("/api/equipment")
+        .uri("/api/v1/equipment")
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);

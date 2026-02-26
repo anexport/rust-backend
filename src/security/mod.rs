@@ -1,4 +1,5 @@
 use actix_cors::Cors;
+use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};
 use actix_web::middleware::DefaultHeaders;
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
@@ -36,6 +37,31 @@ pub fn security_headers() -> DefaultHeaders {
             "Content-Security-Policy",
             "default-src 'self'; frame-ancestors 'none'; object-src 'none'",
         ))
+        .add(("X-RateLimit-Limit", "1")) // Placeholder for rate limit info header
+}
+
+/// Create a global rate limiting middleware
+///
+/// This middleware applies rate limiting to all API endpoints based on IP address.
+/// The default configuration is used for anonymous requests.
+///
+/// # Configuration
+/// - `global_rate_limit_per_minute`: Requests per minute
+/// - `global_rate_limit_burst_size`: Burst capacity (allows short-term spikes)
+pub fn global_rate_limiting(
+    security_config: &SecurityConfig,
+) -> Governor<actix_governor::PeerIpKeyExtractor, NoOpMiddleware> {
+    // Create governor configuration
+    // Use per_millisecond since actix-governor expects u64
+    let requests_per_millisecond = (60_000 / security_config.global_rate_limit_per_minute) as u64;
+    let governor_config = GovernorConfigBuilder::default()
+        .per_millisecond(requests_per_millisecond)
+        .burst_size(security_config.global_rate_limit_burst_size)
+        .finish()
+        .expect("Failed to build governor config");
+
+    // Create Governor with default key extractor (PeerIpKeyExtractor) and middleware (NoOpMiddleware)
+    Governor::new(&governor_config)
 }
 
 pub struct LoginThrottle {
@@ -60,9 +86,10 @@ impl LoginThrottle {
     }
 
     fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
-        self.entries
-            .write()
-            .expect("login throttle write lock poisoned")
+        self.entries.write().unwrap_or_else(|e| {
+            tracing::warn!("Login throttle lock was poisoned, recovering the lock");
+            e.into_inner()
+        })
     }
 
     fn cleanup_expired_entries(
@@ -174,6 +201,9 @@ mod tests {
             login_max_failures: 3,
             login_lockout_seconds: lockout_seconds,
             login_backoff_base_ms: 1,
+            global_rate_limit_per_minute: 300,
+            global_rate_limit_burst_size: 30,
+            global_rate_limit_authenticated_per_minute: 1000,
         }
     }
 

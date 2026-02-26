@@ -176,6 +176,9 @@ async fn setup_app(
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     };
 
     let state = AppState {
@@ -231,7 +234,7 @@ async fn test_admin_stats_authorization() {
 
     // 1. Unauthenticated (401)
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/stats")
+        .uri("/api/v1/admin/stats")
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -243,10 +246,10 @@ async fn test_admin_stats_authorization() {
     let token = create_auth0_token(renter.id, "renter");
 
     let routes = vec![
-        "/api/admin/stats",
-        "/api/admin/users",
-        "/api/admin/equipment",
-        "/api/admin/categories",
+        "/api/v1/admin/stats",
+        "/api/v1/admin/users",
+        "/api/v1/admin/equipment",
+        "/api/v1/admin/categories",
     ];
 
     for route in routes {
@@ -278,7 +281,7 @@ async fn test_admin_cannot_demote_self() {
 
     // Try to demote self to renter
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/users/{}/role", admin.id))
+        .uri(&format!("/api/v1/admin/users/{}/role", admin.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "role": "renter" }))
         .to_request();
@@ -306,7 +309,7 @@ async fn test_admin_update_role_owner_to_admin() {
     let token = create_auth0_token(admin.id, "admin");
 
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/users/{}/role", owner.id))
+        .uri(&format!("/api/v1/admin/users/{}/role", owner.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "role": "admin" }))
         .to_request();
@@ -331,7 +334,7 @@ async fn test_get_stats_empty_db() {
     let token = create_auth0_token(admin.id, "admin");
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/stats")
+        .uri("/api/v1/admin/stats")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
 
@@ -360,7 +363,7 @@ async fn test_admin_category_hierarchy_validation() {
 
     // 1. Create child with parent
     let req = actix_test::TestRequest::post()
-        .uri("/api/admin/categories")
+        .uri("/api/v1/admin/categories")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "name": "Child Category",
@@ -375,7 +378,7 @@ async fn test_admin_category_hierarchy_validation() {
     // 2. Prevent self-parenting
     let child_id = child["id"].as_str().unwrap();
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/categories/{}", child_id))
+        .uri(&format!("/api/v1/admin/categories/{}", child_id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "name": "Self Parent",
@@ -408,7 +411,7 @@ async fn test_admin_toggle_foreign_equipment_availability() {
     equipment_repo.create(&eq).await.unwrap();
 
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/equipment/{}/availability", eq.id))
+        .uri(&format!("/api/v1/admin/equipment/{}/availability", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "is_available": false }))
         .to_request();
@@ -436,7 +439,7 @@ async fn test_user_management_flow() {
 
     // 1. List users
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/users")
+        .uri("/api/v1/admin/users")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -445,7 +448,7 @@ async fn test_user_management_flow() {
 
     // 2. Update role (renter -> owner)
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/users/{}/role", renter.id))
+        .uri(&format!("/api/v1/admin/users/{}/role", renter.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "role": "owner" }))
         .to_request();
@@ -457,7 +460,7 @@ async fn test_user_management_flow() {
 
     // 3. Delete user
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/admin/users/{}", renter.id))
+        .uri(&format!("/api/v1/admin/users/{}", renter.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -490,7 +493,7 @@ async fn test_equipment_management_flow() {
 
     // 1. Toggle availability
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/equipment/{}/availability", eq.id))
+        .uri(&format!("/api/v1/admin/equipment/{}/availability", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "is_available": false }))
         .to_request();
@@ -502,7 +505,7 @@ async fn test_equipment_management_flow() {
 
     // 2. Force delete equipment
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/admin/equipment/{}", eq.id))
+        .uri(&format!("/api/v1/admin/equipment/{}", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -527,7 +530,7 @@ async fn test_category_management_flow() {
 
     // 1. Create category
     let req = actix_test::TestRequest::post()
-        .uri("/api/admin/categories")
+        .uri("/api/v1/admin/categories")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "name": "New Category" }))
         .to_request();
@@ -538,7 +541,7 @@ async fn test_category_management_flow() {
 
     // 2. Update category
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/categories/{}", cat_id))
+        .uri(&format!("/api/v1/admin/categories/{}", cat_id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "name": "Updated Category" }))
         .to_request();
@@ -550,7 +553,7 @@ async fn test_category_management_flow() {
 
     // 3. Delete category
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/admin/categories/{}", cat_id))
+        .uri(&format!("/api/v1/admin/categories/{}", cat_id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -593,7 +596,7 @@ async fn test_stats_includes_available_equipment_count() {
     equipment_repo.create(&eq3).await.unwrap();
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/stats")
+        .uri("/api/v1/admin/stats")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
 
@@ -620,7 +623,7 @@ async fn test_get_user_detail_by_id() {
 
     // Get user detail
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/admin/users/{}", renter.id))
+        .uri(&format!("/api/v1/admin/users/{}", renter.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -631,7 +634,7 @@ async fn test_get_user_detail_by_id() {
 
     // Non-existent user
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/admin/users/{}", Uuid::new_v4()))
+        .uri(&format!("/api/v1/admin/users/{}", Uuid::new_v4()))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -658,7 +661,7 @@ async fn test_user_list_pagination() {
 
     // Page 1
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/users?page=1&per_page=5")
+        .uri("/api/v1/admin/users?page=1&per_page=5")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -668,7 +671,7 @@ async fn test_user_list_pagination() {
 
     // Page 2
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/users?page=2&per_page=5")
+        .uri("/api/v1/admin/users?page=2&per_page=5")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -677,7 +680,7 @@ async fn test_user_list_pagination() {
 
     // Page 3
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/users?page=3&per_page=5")
+        .uri("/api/v1/admin/users?page=3&per_page=5")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -708,7 +711,7 @@ async fn test_delete_user_cascades_to_equipment() {
 
     // Delete user
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/admin/users/{}", owner.id))
+        .uri(&format!("/api/v1/admin/users/{}", owner.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -747,7 +750,7 @@ async fn test_category_list_with_hierarchy() {
     category_repo.create(&child).await.unwrap();
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/admin/categories")
+        .uri("/api/v1/admin/categories")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -780,7 +783,7 @@ async fn test_admin_can_demote_other_admin_role() {
 
     // Try to change admin2's role to renter
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/admin/users/{}/role", admin2.id))
+        .uri(&format!("/api/v1/admin/users/{}/role", admin2.id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .set_json(serde_json::json!({ "role": "renter" }))
         .to_request();

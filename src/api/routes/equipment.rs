@@ -26,6 +26,15 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/equipment",
+    params(EquipmentQueryParams),
+    responses(
+        (status = 200, description = "Equipment list retrieved", body = Vec<EquipmentDto>),
+    ),
+    tag = "equipment"
+)]
 async fn list_equipment(
     state: web::Data<AppState>,
     request: HttpRequest,
@@ -43,6 +52,18 @@ async fn list_equipment(
     Ok(HttpResponse::Ok().json(result))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/equipment/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Equipment ID")
+    ),
+    responses(
+        (status = 200, description = "Equipment details", body = EquipmentDto),
+        (status = 404, description = "Equipment not found"),
+    ),
+    tag = "equipment"
+)]
 async fn get_equipment(
     state: web::Data<AppState>,
     path: web::Path<Uuid>,
@@ -51,6 +72,20 @@ async fn get_equipment(
     Ok(HttpResponse::Ok().json(result))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/equipment",
+    security(
+        ("bearer_auth" = [])
+    ),
+    request_body = CreateEquipmentRequest,
+    responses(
+        (status = 201, description = "Equipment created", body = EquipmentDto),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - not an owner"),
+    ),
+    tag = "equipment"
+)]
 async fn create_equipment(
     state: web::Data<AppState>,
     auth: Auth0AuthenticatedUser,
@@ -69,6 +104,24 @@ async fn create_equipment(
     Ok(HttpResponse::Created().json(result))
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v1/equipment/{id}",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = Uuid, Path, description = "Equipment ID")
+    ),
+    request_body = UpdateEquipmentRequest,
+    responses(
+        (status = 200, description = "Equipment updated", body = EquipmentDto),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - not the owner"),
+        (status = 404, description = "Equipment not found"),
+    ),
+    tag = "equipment"
+)]
 async fn update_equipment(
     state: web::Data<AppState>,
     auth: Auth0AuthenticatedUser,
@@ -83,6 +136,23 @@ async fn update_equipment(
     Ok(HttpResponse::Ok().json(result))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/equipment/{id}",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("id" = Uuid, Path, description = "Equipment ID")
+    ),
+    responses(
+        (status = 204, description = "Equipment deleted"),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - not the owner"),
+        (status = 404, description = "Equipment not found"),
+    ),
+    tag = "equipment"
+)]
 async fn delete_equipment(
     state: web::Data<AppState>,
     auth: Auth0AuthenticatedUser,
@@ -124,11 +194,31 @@ async fn delete_photo(
     Ok(HttpResponse::NoContent().finish())
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/categories",
+    responses(
+        (status = 200, description = "Categories list", body = Vec<crate::api::dtos::category_dto::CategoryDto>),
+    ),
+    tag = "equipment"
+)]
 async fn list_categories(state: web::Data<AppState>) -> AppResult<HttpResponse> {
     let result = state.category_service.list().await?;
     Ok(HttpResponse::Ok().json(result))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/categories/{id}",
+    params(
+        ("id" = Uuid, Path, description = "Category ID")
+    ),
+    responses(
+        (status = 200, description = "Category details", body = crate::api::dtos::category_dto::CategoryDto),
+        (status = 404, description = "Category not found"),
+    ),
+    tag = "equipment"
+)]
 async fn get_category(
     state: web::Data<AppState>,
     path: web::Path<Uuid>,

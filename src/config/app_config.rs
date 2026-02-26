@@ -140,6 +140,13 @@ pub struct SecurityConfig {
     pub login_lockout_seconds: u64,
     #[serde(default = "default_login_backoff_base_ms")]
     pub login_backoff_base_ms: u64,
+    // Global rate limiting configuration
+    #[serde(default = "default_global_rate_limit_per_minute")]
+    pub global_rate_limit_per_minute: u32,
+    #[serde(default = "default_global_rate_limit_burst_size")]
+    pub global_rate_limit_burst_size: u32,
+    #[serde(default = "default_global_rate_limit_authenticated_per_minute")]
+    pub global_rate_limit_authenticated_per_minute: u32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -220,6 +227,20 @@ impl AppConfig {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        // Validate JWT_SECRET is set and not a placeholder
+        if self.auth.jwt_secret.trim().is_empty() {
+            return Err(ConfigError::Auth0Config(
+                "JWT_SECRET must be set via environment variable".to_string(),
+            ));
+        }
+
+        // Reject the insecure default placeholder
+        if self.auth.jwt_secret == "change-me-in-production" {
+            return Err(ConfigError::Auth0Config(
+                "JWT_SECRET must be set to a secure value, not the default placeholder".to_string(),
+            ));
+        }
+
         self.auth0.validate()
     }
 }
@@ -270,6 +291,18 @@ fn default_db_test_before_acquire() -> bool {
 
 fn default_auth0_connection() -> String {
     "Username-Password-Authentication".to_string()
+}
+
+fn default_global_rate_limit_per_minute() -> u32 {
+    300 // 300 requests per minute for anonymous users
+}
+
+fn default_global_rate_limit_burst_size() -> u32 {
+    30 // Allow burst of up to 30 requests
+}
+
+fn default_global_rate_limit_authenticated_per_minute() -> u32 {
+    1000 // 1000 requests per minute for authenticated users (higher limit)
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {

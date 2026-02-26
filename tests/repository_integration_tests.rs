@@ -26,7 +26,10 @@ use common::TestDb;
 
 #[tokio::test]
 async fn user_repository_create_and_find() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let user = fixtures::test_user();
@@ -43,7 +46,10 @@ async fn user_repository_create_and_find() {
 
 #[tokio::test]
 async fn user_repository_find_by_email_case_sensitivity() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let user = fixtures::test_user();
@@ -64,7 +70,10 @@ async fn user_repository_find_by_email_case_sensitivity() {
 
 #[tokio::test]
 async fn user_repository_find_by_username_positive_and_negative() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let mut user = fixtures::test_user();
@@ -81,7 +90,10 @@ async fn user_repository_find_by_username_positive_and_negative() {
 
 #[tokio::test]
 async fn user_repository_update_partial_fields() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let user = fixtures::test_user();
@@ -111,7 +123,10 @@ async fn user_repository_update_partial_fields() {
 
 #[tokio::test]
 async fn user_repository_update_avatar_url() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let user = fixtures::test_user();
@@ -132,7 +147,10 @@ async fn user_repository_update_avatar_url() {
 
 #[tokio::test]
 async fn user_repository_delete_cascade_auth_identities() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
 
@@ -180,7 +198,10 @@ async fn user_repository_delete_cascade_auth_identities() {
 
 #[tokio::test]
 async fn user_repository_delete_non_existent_id_is_noop() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = UserRepositoryImpl::new(db.pool().clone());
 
     let non_existent_id = Uuid::new_v4();
@@ -192,7 +213,10 @@ async fn user_repository_delete_non_existent_id_is_noop() {
 
 #[tokio::test]
 async fn auth_repository_create_identity() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
 
@@ -210,7 +234,10 @@ async fn auth_repository_create_identity() {
 
 #[tokio::test]
 async fn auth_repository_rejects_duplicate_auth0_identity_for_same_user() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
 
@@ -243,7 +270,10 @@ async fn auth_repository_rejects_duplicate_auth0_identity_for_same_user() {
 
 #[tokio::test]
 async fn auth_repository_upsert_identity_conflict_handling() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let auth_repo = AuthRepositoryImpl::new(db.pool().clone());
 
@@ -288,7 +318,10 @@ async fn auth_repository_upsert_identity_conflict_handling() {
 
 #[tokio::test]
 async fn equipment_repository_create_with_coordinates() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -313,7 +346,10 @@ async fn equipment_repository_create_with_coordinates() {
 
 #[tokio::test]
 async fn equipment_repository_geographic_search_queries() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -355,7 +391,10 @@ async fn equipment_repository_geographic_search_queries() {
 
 #[tokio::test]
 async fn equipment_repository_postgis_coordinate_queries() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -383,7 +422,10 @@ async fn equipment_repository_postgis_coordinate_queries() {
 
 #[tokio::test]
 async fn equipment_repository_search_filter_combinations() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -434,7 +476,10 @@ async fn equipment_repository_search_filter_combinations() {
 
 #[tokio::test]
 async fn equipment_repository_pagination_with_large_dataset() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -480,7 +525,10 @@ async fn equipment_repository_pagination_with_large_dataset() {
 
 #[tokio::test]
 async fn equipment_repository_photo_crud_operations() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -542,7 +590,10 @@ async fn equipment_repository_photo_crud_operations() {
 
 #[tokio::test]
 async fn equipment_repository_hard_delete() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let _category_repo = CategoryRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
@@ -570,7 +621,10 @@ async fn equipment_repository_hard_delete() {
 
 #[tokio::test]
 async fn equipment_repository_set_availability_atomic_updates_state() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
 
@@ -600,7 +654,10 @@ async fn equipment_repository_set_availability_atomic_updates_state() {
 
 #[tokio::test]
 async fn equipment_repository_count_by_owners_groups_counts() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
 
@@ -627,7 +684,10 @@ async fn equipment_repository_count_by_owners_groups_counts() {
 
 #[tokio::test]
 async fn message_repository_conversation_participant_management() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(db.pool().clone());
 
@@ -682,7 +742,10 @@ async fn message_repository_conversation_participant_management() {
 
 #[tokio::test]
 async fn message_repository_message_ordering() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(db.pool().clone());
 
@@ -740,7 +803,10 @@ async fn message_repository_message_ordering() {
 
 #[tokio::test]
 async fn message_repository_read_receipt_updates() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(db.pool().clone());
 
@@ -788,7 +854,10 @@ async fn message_repository_read_receipt_updates() {
 
 #[tokio::test]
 async fn message_repository_conversation_privacy_queries() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(db.pool().clone());
 
@@ -846,7 +915,10 @@ async fn message_repository_conversation_privacy_queries() {
 
 #[tokio::test]
 async fn message_repository_non_participant_access_blocked() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let user_repo = UserRepositoryImpl::new(db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(db.pool().clone());
 
@@ -887,7 +959,10 @@ async fn message_repository_non_participant_access_blocked() {
 
 #[tokio::test]
 async fn category_repository_find_all() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let cat1 = Category {
@@ -912,7 +987,10 @@ async fn category_repository_find_all() {
 
 #[tokio::test]
 async fn category_repository_hierarchy_queries() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let parent = Category {
@@ -947,7 +1025,10 @@ async fn category_repository_hierarchy_queries() {
 
 #[tokio::test]
 async fn category_repository_orphan_category_prevention() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let parent = Category {
@@ -980,7 +1061,10 @@ async fn category_repository_orphan_category_prevention() {
 
 #[tokio::test]
 async fn category_repository_tree_structure_validation() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let root = Category {
@@ -1022,7 +1106,10 @@ async fn category_repository_tree_structure_validation() {
 
 #[tokio::test]
 async fn category_repository_create_duplicate_key_maps_to_conflict() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let first = Category {
@@ -1049,7 +1136,10 @@ async fn category_repository_create_duplicate_key_maps_to_conflict() {
 
 #[tokio::test]
 async fn category_repository_delete_parent_with_references_maps_to_conflict() {
-    let db = TestDb::new().await.expect("Failed to create test database");
+    let Some(db) = TestDb::new().await else {
+        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
+        return;
+    };
     let repo = CategoryRepositoryImpl::new(db.pool().clone());
 
     let parent = Category {

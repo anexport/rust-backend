@@ -184,6 +184,9 @@ async fn setup_app(
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     };
 
     let state = AppState {
@@ -238,7 +241,7 @@ async fn test_get_user_profile_not_found() {
     let app = setup_app(test_db.pool().clone()).await;
 
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/users/{}", Uuid::new_v4()))
+        .uri(&format!("/api/v1/users/{}", Uuid::new_v4()))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -261,7 +264,7 @@ async fn test_update_profile_partial() {
 
     // Update only username, full_name should remain
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "username": "new_user"
@@ -284,7 +287,7 @@ async fn test_my_equipment_unauthorized() {
     let app = setup_app(test_db.pool().clone()).await;
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/users/me/equipment")
+        .uri("/api/v1/users/me/equipment")
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -303,7 +306,7 @@ async fn test_update_own_profile() {
     let token = create_auth0_token(user.id, "renter");
 
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "full_name": "Updated Name",
@@ -335,7 +338,7 @@ async fn test_cannot_update_other_profile() {
     let token = create_auth0_token(user1.id, "renter");
 
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user2.id))
+        .uri(&format!("/api/v1/users/{}", user2.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "full_name": "Hacker" }))
         .to_request();
@@ -375,7 +378,7 @@ async fn test_my_equipment_listing() {
     let token = create_auth0_token(owner.id, "owner");
 
     let req = actix_test::TestRequest::get()
-        .uri("/api/users/me/equipment")
+        .uri("/api/v1/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
 
@@ -399,7 +402,7 @@ async fn test_profile_viewing_excludes_sensitive_data() {
     user_repo.create(&user).await.unwrap();
 
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -436,7 +439,7 @@ async fn test_profile_update_username_constraints() {
 
     // 1. Username too short (min=3)
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "username": "ab" }))
         .to_request();
@@ -446,7 +449,7 @@ async fn test_profile_update_username_constraints() {
     // 2. Username too long (max=50)
     let long_username = "a".repeat(51);
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "username": long_username }))
         .to_request();
@@ -479,7 +482,7 @@ async fn test_my_equipment_ordered_by_creation_date() {
 
     let token = create_auth0_token(owner.id, "owner");
     let req = actix_test::TestRequest::get()
-        .uri("/api/users/me/equipment")
+        .uri("/api/v1/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
 
@@ -504,7 +507,7 @@ async fn test_get_public_profile_anonymous() {
     user_repo.create(&user).await.unwrap();
 
     let req = actix_test::TestRequest::get()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -524,7 +527,7 @@ async fn test_profile_update_email_validation() {
 
     // 1. Try update with valid username (email-like format should work as username)
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "username": "testuser123"
@@ -538,7 +541,7 @@ async fn test_profile_update_email_validation() {
 
     // 2. Verify valid username update still works after previous update
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "username": "another.valid.username"
@@ -552,7 +555,7 @@ async fn test_profile_update_email_validation() {
 
     // 3. Invalid username format (too short)
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/users/{}", user.id))
+        .uri(&format!("/api/v1/users/{}", user.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({ "username": "ab" }))
         .to_request();
@@ -588,7 +591,7 @@ async fn test_my_equipment_pagination() {
 
     // Test that all items are returned (current behavior)
     let req = actix_test::TestRequest::get()
-        .uri("/api/users/me/equipment")
+        .uri("/api/v1/users/me/equipment")
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
 

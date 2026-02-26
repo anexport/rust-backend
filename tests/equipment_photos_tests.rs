@@ -175,6 +175,9 @@ async fn setup_app(
         login_max_failures: 5,
         login_lockout_seconds: 300,
         login_backoff_base_ms: 200,
+        global_rate_limit_per_minute: 300,
+        global_rate_limit_burst_size: 30,
+        global_rate_limit_authenticated_per_minute: 1000,
     };
 
     let state = AppState {
@@ -250,7 +253,7 @@ async fn test_equipment_photo_authorization() {
 
     // 1. Other user cannot add photo
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", other_token)))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/hacker.jpg",
@@ -262,7 +265,7 @@ async fn test_equipment_photo_authorization() {
 
     // 2. Owner can add photo
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", owner_token)))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/owner.jpg",
@@ -276,7 +279,7 @@ async fn test_equipment_photo_authorization() {
 
     // 3. Admin can add photo
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", admin_token)))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/admin.jpg",
@@ -288,7 +291,7 @@ async fn test_equipment_photo_authorization() {
 
     // 4. Other user cannot delete photo
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{}/photos/{}", eq.id, photo_id))
+        .uri(&format!("/api/v1/equipment/{}/photos/{}", eq.id, photo_id))
         .insert_header(("Authorization", format!("Bearer {}", other_token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -296,7 +299,7 @@ async fn test_equipment_photo_authorization() {
 
     // 5. Owner can delete photo
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{}/photos/{}", eq.id, photo_id))
+        .uri(&format!("/api/v1/equipment/{}/photos/{}", eq.id, photo_id))
         .insert_header(("Authorization", format!("Bearer {}", owner_token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -325,7 +328,7 @@ async fn test_equipment_multiple_photos() {
     // Add 3 photos
     for i in 1..=3 {
         let req = actix_test::TestRequest::post()
-            .uri(&format!("/api/equipment/{}/photos", eq.id))
+            .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "photo_url": format!("https://example.com/p{}.jpg", i),
@@ -364,7 +367,7 @@ async fn test_admin_photo_management() {
 
     // Admin adds photo to owner's equipment
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", admin_token)))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/admin_added.jpg",
@@ -379,7 +382,7 @@ async fn test_admin_photo_management() {
 
     // Admin deletes photo
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{}/photos/{}", eq.id, photo_id))
+        .uri(&format!("/api/v1/equipment/{}/photos/{}", eq.id, photo_id))
         .insert_header(("Authorization", format!("Bearer {}", admin_token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -407,7 +410,7 @@ async fn test_photo_persistence_verification() {
     let photo_url = "https://example.com/persistence_test.jpg";
 
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "photo_url": photo_url,
@@ -447,7 +450,7 @@ async fn test_photo_associated_with_correct_equipment() {
 
     // Add photo to eq1
     let req = actix_test::TestRequest::post()
-        .uri(&format!("/api/equipment/{}/photos", eq1.id))
+        .uri(&format!("/api/v1/equipment/{}/photos", eq1.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({
             "photo_url": "https://example.com/eq1.jpg",
@@ -484,7 +487,7 @@ async fn test_delete_equipment_cascades_to_photos() {
     // Add 3 photos
     for i in 1..=3 {
         let req = actix_test::TestRequest::post()
-            .uri(&format!("/api/equipment/{}/photos", eq.id))
+            .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "photo_url": format!("https://example.com/cascade{}.jpg", i),
@@ -497,7 +500,7 @@ async fn test_delete_equipment_cascades_to_photos() {
 
     // Delete equipment
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{}", eq.id))
+        .uri(&format!("/api/v1/equipment/{}", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -531,7 +534,7 @@ async fn test_delete_photo_leaves_other_photos_intact() {
     let mut photo_ids = Vec::new();
     for i in 1..=3 {
         let req = actix_test::TestRequest::post()
-            .uri(&format!("/api/equipment/{}/photos", eq.id))
+            .uri(&format!("/api/v1/equipment/{}/photos", eq.id))
             .insert_header(("Authorization", format!("Bearer {}", token)))
             .set_json(serde_json::json!({
                 "photo_url": format!("https://example.com/intact{}.jpg", i),
@@ -545,7 +548,7 @@ async fn test_delete_photo_leaves_other_photos_intact() {
 
     // Delete 1 photo
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/equipment/{}/photos/{}", eq.id, photo_ids[0]))
+        .uri(&format!("/api/v1/equipment/{}/photos/{}", eq.id, photo_ids[0]))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
