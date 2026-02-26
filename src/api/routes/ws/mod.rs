@@ -108,7 +108,7 @@ async fn authenticate_ws_user(
 }
 
 fn extract_ws_token(request: &HttpRequest) -> Option<String> {
-    if let Some(query) = web::Query::<TokenQuery>::from_query(request.query_string()).ok() {
+    if let Ok(query) = web::Query::<TokenQuery>::from_query(request.query_string()) {
         if let Some(token) = &query.token {
             return Some(token.clone());
         }

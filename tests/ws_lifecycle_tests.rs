@@ -210,11 +210,7 @@ async fn test_ws_ping_pong_heartbeat() {
 
     let token = create_valid_auth0_token("auth0|heartbeat");
     let ws_url = srv.url(&format!("/ws?token={}", token));
-    let (_response, mut client) = awc::Client::new()
-        .ws(ws_url)
-        .connect()
-        .await
-        .unwrap();
+    let (_response, mut client) = awc::Client::new().ws(ws_url).connect().await.unwrap();
 
     // Test application-level ping
     client
@@ -324,11 +320,7 @@ async fn test_ws_action_handlers() {
 
     let token = create_valid_auth0_token("auth0|actions");
     let ws_url = srv.url(&format!("/ws?token={}", token));
-    let (_response, mut client) = awc::Client::new()
-        .ws(ws_url)
-        .connect()
-        .await
-        .unwrap();
+    let (_response, mut client) = awc::Client::new().ws(ws_url).connect().await.unwrap();
 
     // Register second user in hub to receive broadcasts
     let mut other_rx = hub.register(other_user_id);
@@ -459,11 +451,7 @@ async fn test_ws_error_handling() {
 
     let token = create_valid_auth0_token("auth0|errors");
     let ws_url = srv.url(&format!("/ws?token={}", token));
-    let (_response, mut client) = awc::Client::new()
-        .ws(ws_url)
-        .connect()
-        .await
-        .unwrap();
+    let (_response, mut client) = awc::Client::new().ws(ws_url).connect().await.unwrap();
 
     // 1. Unknown type
     client

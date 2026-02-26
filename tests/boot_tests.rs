@@ -17,7 +17,10 @@ async fn test_application_boot_and_readiness() {
 
     // Allocate ephemeral port
     let listener = TcpListener::bind("127.0.0.1:0").expect("failed to bind ephemeral port");
-    let port = listener.local_addr().expect("failed to get local addr").port();
+    let port = listener
+        .local_addr()
+        .expect("failed to get local addr")
+        .port();
     drop(listener); // Release port for the application to bind to
 
     let test_db = setup_test_db().await;
