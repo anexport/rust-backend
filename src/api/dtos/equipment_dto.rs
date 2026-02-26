@@ -34,7 +34,7 @@ pub struct CreateEquipmentRequest {
     pub coordinates: Option<Coordinates>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Validate, ToSchema)]
+#[derive(Debug, Deserialize, Serialize, Validate, ToSchema, Clone)]
 pub struct Coordinates {
     #[validate(range(min = -90.0, max = 90.0, message = "Latitude must be between -90 and 90"))]
     pub latitude: f64,
@@ -42,7 +42,7 @@ pub struct Coordinates {
     pub longitude: f64,
 }
 
-#[derive(Debug, Deserialize, Validate, ToSchema)]
+#[derive(Debug, Deserialize, Validate, ToSchema, Default, Clone)]
 pub struct UpdateEquipmentRequest {
     #[validate(length(
         min = 3,
@@ -71,7 +71,7 @@ pub struct UpdateEquipmentRequest {
     pub is_available: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Validate, ToSchema, IntoParams)]
+#[derive(Debug, Deserialize, Validate, ToSchema, IntoParams, Default, Clone)]
 pub struct EquipmentQueryParams {
     #[serde(default, deserialize_with = "deserialize_optional_query_value")]
     pub category_id: Option<Uuid>,

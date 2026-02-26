@@ -300,7 +300,7 @@ async fn equipment_repository_create_with_coordinates() {
     let created_category = create_category(&db, &category).await.unwrap();
 
     let mut equipment = fixtures::test_equipment(created_user.id, created_category.id);
-    equipment.set_coordinates(40.7128, -74.0060);
+    equipment.set_coordinates(40.7128, -74.0060).unwrap();
 
     let created = equipment_repo.create(&equipment).await.unwrap();
 
@@ -326,13 +326,13 @@ async fn equipment_repository_geographic_search_queries() {
 
     // Create equipment in New York
     let mut eq1 = fixtures::test_equipment(created_user.id, created_category.id);
-    eq1.set_coordinates(40.7128, -74.0060); // NYC
+    eq1.set_coordinates(40.7128, -74.0060).unwrap(); // NYC
     eq1.title = "NYC Equipment".to_string();
     equipment_repo.create(&eq1).await.unwrap();
 
     // Create equipment in Boston (about 300km away)
     let mut eq2 = fixtures::test_equipment(created_user.id, created_category.id);
-    eq2.set_coordinates(42.3601, -71.0589); // Boston
+    eq2.set_coordinates(42.3601, -71.0589).unwrap(); // Boston
     eq2.title = "Boston Equipment".to_string();
     equipment_repo.create(&eq2).await.unwrap();
 
@@ -367,7 +367,7 @@ async fn equipment_repository_postgis_coordinate_queries() {
     let created_category = create_category(&db, &category).await.unwrap();
 
     let mut equipment = fixtures::test_equipment(created_user.id, created_category.id);
-    equipment.set_coordinates(37.7749, -122.4194); // San Francisco
+    equipment.set_coordinates(37.7749, -122.4194).unwrap(); // San Francisco
 
     let created = equipment_repo.create(&equipment).await.unwrap();
 
@@ -379,6 +379,50 @@ async fn equipment_repository_postgis_coordinate_queries() {
         .unwrap();
     // Coordinates are stored in PostGIS geography format, returned as WKT string
     assert!(found.coordinates.is_some());
+}
+
+#[tokio::test]
+async fn equipment_repository_negative_and_edge_cases() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let equipment_repo = EquipmentRepositoryImpl::new(db.pool().clone());
+
+    let owner = fixtures::test_owner();
+    let created_owner = user_repo.create(&owner).await.unwrap();
+    let category = fixtures::test_category();
+    let created_category = create_category(&db, &category).await.unwrap();
+
+    // 1. find_by_owner/count_by_owner returns 0 for new owner
+    let found = equipment_repo
+        .find_by_owner(created_owner.id)
+        .await
+        .unwrap();
+    assert!(found.is_empty());
+    let count = equipment_repo
+        .count_by_owner(created_owner.id)
+        .await
+        .unwrap();
+    assert_eq!(count, 0);
+
+    // 2. create with None coordinates
+    let mut equipment = fixtures::test_equipment(created_owner.id, created_category.id);
+    equipment.coordinates = None;
+    let created = equipment_repo.create(&equipment).await.unwrap();
+    assert!(created.coordinates.is_none());
+
+    let found = equipment_repo
+        .find_by_id(created.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(found.coordinates.is_none());
+
+    // 3. count_by_owner returns 1 after creation
+    let count = equipment_repo
+        .count_by_owner(created_owner.id)
+        .await
+        .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]

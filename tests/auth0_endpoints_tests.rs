@@ -15,6 +15,12 @@
 
 use std::sync::{Arc, Mutex};
 
+mod common;
+
+use crate::common::mocks::{
+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+};
+
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -219,265 +225,6 @@ impl Auth0ApiClient for MockAuth0ApiClient {
 }
 
 // =============================================================================
-// Mock Repositories
-// =============================================================================
-
-#[derive(Default)]
-struct MockUserRepo {
-    users: Mutex<Vec<User>>,
-}
-
-#[async_trait]
-impl UserRepository for MockUserRepo {
-    async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|u| u.id == id)
-            .cloned())
-    }
-
-    async fn find_by_email(&self, email: &str) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|u| u.email == email)
-            .cloned())
-    }
-
-    async fn find_by_username(&self, username: &str) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|u| u.username.as_deref() == Some(username))
-            .cloned())
-    }
-
-    async fn create(&self, user: &User) -> AppResult<User> {
-        self.users.lock().unwrap().push(user.clone());
-        Ok(user.clone())
-    }
-
-    async fn update(&self, user: &User) -> AppResult<User> {
-        let mut users = self.users.lock().unwrap();
-        if let Some(existing) = users.iter_mut().find(|u| u.id == user.id) {
-            *existing = user.clone();
-        }
-        Ok(user.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> AppResult<()> {
-        self.users.lock().unwrap().retain(|u| u.id != id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockAuthRepo {
-    identities: Mutex<Vec<AuthIdentity>>,
-}
-
-#[async_trait]
-impl AuthRepository for MockAuthRepo {
-    async fn create_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
-        self.identities.lock().unwrap().push(identity.clone());
-        Ok(identity.clone())
-    }
-
-    async fn find_identity_by_user_id(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> AppResult<Option<AuthIdentity>> {
-        Ok(self
-            .identities
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|i| i.user_id == user_id && provider == "auth0")
-            .cloned())
-    }
-
-    async fn find_identity_by_provider_id(
-        &self,
-        _provider: &str,
-        _provider_id: &str,
-    ) -> AppResult<Option<AuthIdentity>> {
-        Ok(None)
-    }
-
-    async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
-        let mut identities = self.identities.lock().unwrap();
-        if let Some(existing) = identities
-            .iter_mut()
-            .find(|i| i.provider == identity.provider && i.provider_id == identity.provider_id)
-        {
-            *existing = identity.clone();
-        } else {
-            identities.push(identity.clone());
-        }
-        Ok(identity.clone())
-    }
-}
-
-#[derive(Clone)]
-struct MockCategoryRepo;
-
-#[async_trait]
-impl CategoryRepository for MockCategoryRepo {
-    async fn find_by_id(&self, _id: Uuid) -> AppResult<Option<Category>> {
-        Ok(None)
-    }
-
-    async fn find_all(&self) -> AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-
-    async fn find_children(&self, _parent_id: Uuid) -> AppResult<Vec<Category>> {
-        Ok(Vec::new())
-    }
-}
-
-#[derive(Clone)]
-struct MockEquipmentRepo;
-
-#[async_trait]
-impl EquipmentRepository for MockEquipmentRepo {
-    async fn find_by_id(&self, _id: Uuid) -> AppResult<Option<Equipment>> {
-        Ok(None)
-    }
-
-    async fn find_all(&self, _limit: i64, _offset: i64) -> AppResult<Vec<Equipment>> {
-        Ok(Vec::new())
-    }
-
-    async fn search(
-        &self,
-        _params: &EquipmentSearchParams,
-        _limit: i64,
-        _offset: i64,
-    ) -> AppResult<Vec<Equipment>> {
-        Ok(Vec::new())
-    }
-
-    async fn find_by_owner(&self, _owner_id: Uuid) -> AppResult<Vec<Equipment>> {
-        Ok(Vec::new())
-    }
-
-    async fn create(&self, _equipment: &Equipment) -> AppResult<Equipment> {
-        Ok(Equipment {
-            id: Uuid::new_v4(),
-            owner_id: Uuid::new_v4(),
-            category_id: Uuid::new_v4(),
-            title: "Mock Equipment".to_string(),
-            description: None,
-            daily_rate: rust_decimal::Decimal::from(100),
-            condition: Condition::New,
-            location: None,
-            coordinates: None,
-            is_available: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
-    }
-
-    async fn update(&self, _equipment: &Equipment) -> AppResult<Equipment> {
-        Ok(Equipment {
-            id: Uuid::new_v4(),
-            owner_id: Uuid::new_v4(),
-            category_id: Uuid::new_v4(),
-            title: "Mock Equipment".to_string(),
-            description: None,
-            daily_rate: rust_decimal::Decimal::from(100),
-            condition: Condition::New,
-            location: None,
-            coordinates: None,
-            is_available: true,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
-    }
-
-    async fn delete(&self, _id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn add_photo(&self, _photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
-        Ok(EquipmentPhoto {
-            id: Uuid::new_v4(),
-            equipment_id: Uuid::new_v4(),
-            photo_url: "https://example.com/photo.jpg".to_string(),
-            is_primary: true,
-            order_index: 0,
-            created_at: Utc::now(),
-        })
-    }
-
-    async fn find_photos(&self, _equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {
-        Ok(Vec::new())
-    }
-
-    async fn delete_photo(&self, _photo_id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct MockMessageRepo;
-
-#[async_trait]
-impl MessageRepository for MockMessageRepo {
-    async fn find_conversation(&self, _id: Uuid) -> AppResult<Option<Conversation>> {
-        Ok(None)
-    }
-
-    async fn find_user_conversations(&self, _user_id: Uuid) -> AppResult<Vec<Conversation>> {
-        Ok(Vec::new())
-    }
-
-    async fn create_conversation(&self, _participant_ids: Vec<Uuid>) -> AppResult<Conversation> {
-        Ok(Conversation {
-            id: Uuid::new_v4(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        })
-    }
-
-    async fn create_message(&self, _message: &Message) -> AppResult<Message> {
-        Ok(Message {
-            id: Uuid::new_v4(),
-            conversation_id: Uuid::new_v4(),
-            sender_id: Uuid::new_v4(),
-            content: "Test message".to_string(),
-            created_at: Utc::now(),
-        })
-    }
-
-    async fn find_messages(
-        &self,
-        _conversation_id: Uuid,
-        _limit: i64,
-        _offset: i64,
-    ) -> AppResult<Vec<Message>> {
-        Ok(Vec::new())
-    }
-
-    async fn mark_as_read(&self, _conversation_id: Uuid, _user_id: Uuid) -> AppResult<()> {
-        Ok(())
-    }
-
-    async fn is_participant(&self, _conversation_id: Uuid, _user_id: Uuid) -> AppResult<bool> {
-        Ok(true)
-    }
-}
-
-// =============================================================================
 // Helper Functions
 // =============================================================================
 
@@ -498,9 +245,9 @@ fn security_config() -> SecurityConfig {
 fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
     let user_repo = Arc::new(MockUserRepo::default());
     let auth_repo = Arc::new(MockAuthRepo::default());
-    let category_repo = Arc::new(MockCategoryRepo);
-    let equipment_repo = Arc::new(MockEquipmentRepo);
-    let message_repo = Arc::new(MockMessageRepo);
+    let category_repo = Arc::new(MockCategoryRepo::default());
+    let equipment_repo = Arc::new(MockEquipmentRepo::default());
+    let message_repo = Arc::new(MockMessageRepo::default());
 
     AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),

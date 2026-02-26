@@ -1,5 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+mod common;
+
+use crate::common::mocks::{MockAuthRepo, MockUserRepo};
 use actix_rt::test;
 use actix_web::{dev::Payload, http::header::AUTHORIZATION, test as actix_test, web, FromRequest};
 use async_trait::async_trait;
@@ -15,134 +18,6 @@ use rust_backend::middleware::auth::{
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
 use rust_backend::utils::auth0_jwks::{Jwk, Jwks, JwksProvider};
 use uuid::Uuid;
-
-#[derive(Default)]
-struct MockUserRepo {
-    users: Mutex<Vec<User>>,
-}
-
-impl MockUserRepo {
-    fn push(&self, user: User) {
-        self.users.lock().expect("users mutex poisoned").push(user);
-    }
-}
-
-#[async_trait]
-impl UserRepository for MockUserRepo {
-    async fn find_by_id(&self, id: Uuid) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.id == id)
-            .cloned())
-    }
-
-    async fn find_by_email(&self, email: &str) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.email == email)
-            .cloned())
-    }
-
-    async fn find_by_username(&self, username: &str) -> AppResult<Option<User>> {
-        Ok(self
-            .users
-            .lock()
-            .expect("users mutex poisoned")
-            .iter()
-            .find(|user| user.username.as_deref() == Some(username))
-            .cloned())
-    }
-
-    async fn create(&self, user: &User) -> AppResult<User> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .push(user.clone());
-        Ok(user.clone())
-    }
-
-    async fn update(&self, user: &User) -> AppResult<User> {
-        let mut users = self.users.lock().expect("users mutex poisoned");
-        if let Some(existing) = users.iter_mut().find(|existing| existing.id == user.id) {
-            *existing = user.clone();
-        }
-        Ok(user.clone())
-    }
-
-    async fn delete(&self, id: Uuid) -> AppResult<()> {
-        self.users
-            .lock()
-            .expect("users mutex poisoned")
-            .retain(|user| user.id != id);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockAuthRepo {
-    identities: Mutex<Vec<AuthIdentity>>,
-}
-
-#[async_trait]
-impl AuthRepository for MockAuthRepo {
-    async fn create_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
-    }
-
-    async fn find_identity_by_user_id(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> AppResult<Option<AuthIdentity>> {
-        Ok(self
-            .identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .iter()
-            .find(|identity| {
-                identity.user_id == user_id
-                    && identity.provider == AuthProvider::Auth0
-                    && provider == "auth0"
-            })
-            .cloned())
-    }
-
-    async fn find_identity_by_provider_id(
-        &self,
-        provider: &str,
-        provider_id: &str,
-    ) -> AppResult<Option<AuthIdentity>> {
-        Ok(self
-            .identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .iter()
-            .find(|identity| {
-                identity.provider == AuthProvider::Auth0
-                    && provider == "auth0"
-                    && identity.provider_id.as_deref() == Some(provider_id)
-            })
-            .cloned())
-    }
-
-    async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
-        self.identities
-            .lock()
-            .expect("identities mutex poisoned")
-            .push(identity.clone());
-        Ok(identity.clone())
-    }
-}
 
 // Mock JWKS client for testing
 struct MockJwksClient {

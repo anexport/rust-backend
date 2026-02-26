@@ -1,5 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+mod common;
+
+use crate::common::mocks::MockCategoryRepo;
 use actix_rt::test;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -7,42 +10,6 @@ use rust_backend::application::CategoryService;
 use rust_backend::domain::Category;
 use rust_backend::infrastructure::repositories::CategoryRepository;
 use uuid::Uuid;
-
-#[derive(Default)]
-struct MockCategoryRepo {
-    categories: Mutex<Vec<Category>>,
-}
-
-#[async_trait]
-impl CategoryRepository for MockCategoryRepo {
-    async fn find_all(&self) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(self.categories.lock().unwrap().clone())
-    }
-
-    async fn find_by_id(&self, id: Uuid) -> rust_backend::error::AppResult<Option<Category>> {
-        Ok(self
-            .categories
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|category| category.id == id)
-            .cloned())
-    }
-
-    async fn find_children(
-        &self,
-        parent_id: Uuid,
-    ) -> rust_backend::error::AppResult<Vec<Category>> {
-        Ok(self
-            .categories
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|category| category.parent_id == Some(parent_id))
-            .cloned()
-            .collect())
-    }
-}
 
 #[test]
 async fn get_by_id_returns_category_with_children() {

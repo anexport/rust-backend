@@ -10,6 +10,7 @@ use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 pub mod fixtures;
+pub mod mocks;
 
 static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
