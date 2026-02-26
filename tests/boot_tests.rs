@@ -100,6 +100,8 @@ async fn test_application_fails_fast_on_bad_config() {
 
     // 2. Spawn the process with malformed DATABASE_URL
     let child = Command::new("./target/debug/rust-backend")
+        .env_remove("DATABASE_URL")
+        .env_remove("TEST_DATABASE_URL")
         .env("APP_DATABASE__URL", "not-a-valid-url")
         .env(
             "APP_AUTH__JWT_SECRET",
