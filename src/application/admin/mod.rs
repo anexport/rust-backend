@@ -10,11 +10,14 @@ use crate::api::dtos::{
     AdminStatsResponse, AdminUpdateRoleRequest, AdminUserDetailResponse, AdminUserListResponse,
     AdminUserRow,
 };
-use crate::domain::{Category, Role, User};
+use crate::domain::{Category, Role};
 use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{
     CategoryRepository, EquipmentRepository, EquipmentSearchParams, UserRepository,
 };
+
+pub mod category;
+pub mod mapper;
 
 #[derive(Clone)]
 pub struct AdminService {
@@ -63,8 +66,8 @@ impl AdminService {
         search: Option<String>,
         role: Option<String>,
     ) -> AppResult<AdminUserListResponse> {
-        let (page, per_page, offset) = normalize_pagination(page, per_page);
-        let role = parse_optional_role(role.as_deref())?;
+        let (page, per_page, offset) = mapper::normalize_pagination(page, per_page);
+        let role = mapper::parse_optional_role(role.as_deref())?;
         let users = self
             .user_repo
             .list_all(per_page, offset, search.as_deref(), role)
@@ -103,7 +106,7 @@ impl AdminService {
             .ok_or_else(|| AppError::NotFound("user not found".to_string()))?;
         let equipment_count = self.equipment_repo.count_by_owner(user.id).await?;
 
-        Ok(map_user_detail(user, equipment_count))
+        Ok(mapper::map_user_detail(user, equipment_count))
     }
 
     pub async fn update_user_role(
@@ -113,7 +116,7 @@ impl AdminService {
         payload: AdminUpdateRoleRequest,
     ) -> AppResult<AdminUserDetailResponse> {
         payload.validate()?;
-        let new_role = parse_role(&payload.role)?;
+        let new_role = mapper::parse_role(&payload.role)?;
 
         if actor_id == target_id && new_role != Role::Admin {
             return Err(AppError::Forbidden(
@@ -129,7 +132,7 @@ impl AdminService {
         );
         let user = self.user_repo.update_role(target_id, new_role).await?;
         let equipment_count = self.equipment_repo.count_by_owner(user.id).await?;
-        Ok(map_user_detail(user, equipment_count))
+        Ok(mapper::map_user_detail(user, equipment_count))
     }
 
     pub async fn delete_user(&self, actor_id: Uuid, target_id: Uuid) -> AppResult<()> {
@@ -153,7 +156,7 @@ impl AdminService {
         per_page: i64,
         search: Option<String>,
     ) -> AppResult<AdminEquipmentListResponse> {
-        let (page, per_page, offset) = normalize_pagination(page, per_page);
+        let (page, per_page, offset) = mapper::normalize_pagination(page, per_page);
         let rows = self
             .equipment_repo
             .list_all_with_owner(per_page, offset, search.as_deref())
@@ -207,7 +210,7 @@ impl AdminService {
 
     pub async fn list_categories(&self) -> AppResult<Vec<AdminCategoryResponse>> {
         let categories = self.category_repo.find_all().await?;
-        Ok(categories.into_iter().map(map_category).collect())
+        Ok(categories.into_iter().map(mapper::map_category).collect())
     }
 
     pub async fn create_category(
@@ -216,7 +219,7 @@ impl AdminService {
         payload: AdminCategoryRequest,
     ) -> AppResult<AdminCategoryResponse> {
         payload.validate()?;
-        self.validate_category_parent(None, payload.parent_id)
+        category::validate_category_parent(&*self.category_repo, None, payload.parent_id)
             .await?;
         info!(
             actor = %actor_id,
@@ -231,7 +234,7 @@ impl AdminService {
             created_at: Utc::now(),
         };
         let created = self.category_repo.create(&category).await?;
-        Ok(map_category(created))
+        Ok(mapper::map_category(created))
     }
 
     pub async fn update_category(
@@ -247,7 +250,7 @@ impl AdminService {
             .find_by_id(id)
             .await?
             .ok_or_else(|| AppError::NotFound("category not found".to_string()))?;
-        self.validate_category_parent(Some(id), payload.parent_id)
+        category::validate_category_parent(&*self.category_repo, Some(id), payload.parent_id)
             .await?;
 
         info!(
@@ -267,7 +270,7 @@ impl AdminService {
             })
             .await?;
 
-        Ok(map_category(updated))
+        Ok(mapper::map_category(updated))
     }
 
     pub async fn delete_category(&self, actor_id: Uuid, id: Uuid) -> AppResult<()> {
@@ -277,94 +280,5 @@ impl AdminService {
             target = %id
         );
         self.category_repo.delete(id).await
-    }
-
-    async fn validate_category_parent(
-        &self,
-        category_id: Option<Uuid>,
-        parent_id: Option<Uuid>,
-    ) -> AppResult<()> {
-        let Some(mut cursor) = parent_id else {
-            return Ok(());
-        };
-
-        if Some(cursor) == category_id {
-            return Err(AppError::BadRequest(
-                "category cannot be its own parent".to_string(),
-            ));
-        }
-
-        let mut visited = std::collections::HashSet::new();
-
-        loop {
-            if !visited.insert(cursor) {
-                return Err(AppError::BadRequest(
-                    "category hierarchy contains a cycle".to_string(),
-                ));
-            }
-
-            let parent = self
-                .category_repo
-                .find_by_id(cursor)
-                .await?
-                .ok_or_else(|| AppError::BadRequest("parent category not found".to_string()))?;
-
-            if Some(parent.id) == category_id {
-                return Err(AppError::BadRequest(
-                    "category parent relationship would create a cycle".to_string(),
-                ));
-            }
-
-            let Some(next_cursor) = parent.parent_id else {
-                return Ok(());
-            };
-
-            cursor = next_cursor;
-        }
-    }
-}
-
-fn normalize_pagination(page: i64, per_page: i64) -> (i64, i64, i64) {
-    let page = page.max(1);
-    let per_page = per_page.clamp(1, 100);
-    let offset = (page - 1) * per_page;
-    (page, per_page, offset)
-}
-
-fn parse_role(input: &str) -> AppResult<Role> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "renter" => Ok(Role::Renter),
-        "owner" => Ok(Role::Owner),
-        "admin" => Ok(Role::Admin),
-        _ => Err(AppError::BadRequest(
-            "Role must be one of: renter, owner, admin".to_string(),
-        )),
-    }
-}
-
-fn parse_optional_role(input: Option<&str>) -> AppResult<Option<Role>> {
-    input.map(parse_role).transpose()
-}
-
-fn map_category(category: Category) -> AdminCategoryResponse {
-    AdminCategoryResponse {
-        id: category.id,
-        name: category.name,
-        parent_id: category.parent_id,
-        created_at: category.created_at,
-    }
-}
-
-fn map_user_detail(user: User, equipment_count: i64) -> AdminUserDetailResponse {
-    AdminUserDetailResponse {
-        id: user.id,
-        email: user.email,
-        role: user.role.to_string(),
-        username: user.username,
-        full_name: user.full_name,
-        avatar_url: user.avatar_url,
-        created_at: user.created_at,
-        updated_at: user.updated_at,
-        equipment_count,
     }
 }

@@ -1,226 +1,19 @@
-use actix_cors::Cors;
-use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};
-use actix_web::middleware::DefaultHeaders;
-use chrono::{DateTime, Duration, Utc};
-use std::collections::HashMap;
-use std::sync::RwLock;
+pub mod cors;
+pub mod headers;
+pub mod login_throttle;
+pub mod rate_limit;
 
-use crate::config::SecurityConfig;
-use crate::error::{AppError, AppResult};
-
-pub fn cors_middleware(config: &SecurityConfig) -> Cors {
-    let allowlist = config.cors_allowed_origins.clone();
-
-    Cors::default()
-        .supports_credentials()
-        .allow_any_header()
-        .allowed_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
-        .allowed_origin_fn(move |origin, _| {
-            origin
-                .to_str()
-                .ok()
-                .map(|value| allowlist.iter().any(|allowed| allowed == value))
-                .unwrap_or(false)
-        })
-}
-
-pub fn security_headers() -> DefaultHeaders {
-    DefaultHeaders::new()
-        .add((
-            "Strict-Transport-Security",
-            "max-age=31536000; includeSubDomains",
-        ))
-        .add(("X-Content-Type-Options", "nosniff"))
-        .add(("X-Frame-Options", "DENY"))
-        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
-        .add((
-            "Content-Security-Policy",
-            "default-src 'self'; frame-ancestors 'none'; object-src 'none'",
-        ))
-}
-
-/// Create a global rate limiting middleware
-///
-/// This middleware applies rate limiting to all API endpoints based on IP address.
-/// The default configuration is used for anonymous requests.
-///
-/// # Configuration
-/// - `global_rate_limit_per_minute`: Requests per minute (must be > 0 and <= 60,000)
-/// - `global_rate_limit_burst_size`: Burst capacity (allows short-term spikes)
-pub fn global_rate_limiting(
-    security_config: &SecurityConfig,
-) -> Governor<actix_governor::PeerIpKeyExtractor, NoOpMiddleware> {
-    // Validate rate limit configuration to prevent division by zero and unreasonable values
-    let rate_limit_per_minute = security_config.global_rate_limit_per_minute;
-    if rate_limit_per_minute == 0 {
-        panic!(
-            "global_rate_limit_per_minute must be greater than 0, got {}",
-            rate_limit_per_minute
-        );
-    }
-    if rate_limit_per_minute > 60_000 {
-        panic!(
-            "global_rate_limit_per_minute must not exceed 60,000 (to allow valid per-millisecond conversion), got {}",
-            rate_limit_per_minute
-        );
-    }
-
-    // Burst size should be reasonable (between 1 and 1000)
-    let burst_size = security_config.global_rate_limit_burst_size;
-    if burst_size == 0 {
-        panic!(
-            "global_rate_limit_burst_size must be greater than 0, got {}",
-            burst_size
-        );
-    }
-    if burst_size > 1000 {
-        tracing::warn!(
-            burst_size,
-            "global_rate_limit_burst_size is unusually high; consider reducing to avoid abuse"
-        );
-    }
-
-    // Create governor configuration
-    // Use per_millisecond since actix-governor expects u64
-    let requests_per_millisecond = (60_000 / rate_limit_per_minute) as u64;
-    let governor_config = GovernorConfigBuilder::default()
-        .per_millisecond(requests_per_millisecond)
-        .burst_size(burst_size)
-        .finish()
-        .expect("Failed to build governor config");
-
-    // Create Governor with default key extractor (PeerIpKeyExtractor) and middleware (NoOpMiddleware)
-    Governor::new(&governor_config)
-}
-
-pub struct LoginThrottle {
-    entries: RwLock<HashMap<String, LoginAttemptState>>,
-    max_failures: u32,
-    lockout_seconds: u64,
-    backoff_base_ms: u64,
-}
-
-impl LoginThrottle {
-    pub fn new(config: &SecurityConfig) -> Self {
-        Self {
-            entries: RwLock::new(HashMap::new()),
-            max_failures: config.login_max_failures,
-            lockout_seconds: config.login_lockout_seconds,
-            backoff_base_ms: config.login_backoff_base_ms,
-        }
-    }
-
-    pub fn key(email: &str, ip: Option<&str>) -> String {
-        format!("{email}|{}", ip.unwrap_or("unknown"))
-    }
-
-    fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
-        self.entries.write().unwrap_or_else(|e| {
-            tracing::warn!("Login throttle lock was poisoned, recovering the lock");
-            e.into_inner()
-        })
-    }
-
-    fn cleanup_expired_entries(
-        entries: &mut HashMap<String, LoginAttemptState>,
-        now: DateTime<Utc>,
-    ) {
-        entries.retain(|_, state| {
-            let latest_block = state
-                .locked_until
-                .into_iter()
-                .chain(state.next_allowed_at)
-                .max();
-            latest_block.is_some_and(|until| until > now)
-        });
-    }
-
-    pub fn enforce_fixed_window(
-        &self,
-        key: &str,
-        max_requests: u32,
-        window_seconds: u64,
-    ) -> AppResult<()> {
-        let now = Utc::now();
-        let mut entries = self.write_entries();
-        Self::cleanup_expired_entries(&mut entries, now);
-        let mut entry = entries.get(key).cloned().unwrap_or_default();
-
-        if let Some(window_end) = entry.locked_until {
-            if window_end <= now {
-                entry.failures = 0;
-                entry.locked_until = None;
-            }
-        }
-
-        if entry.locked_until.is_none() {
-            entry.locked_until = Some(now + Duration::seconds(window_seconds as i64));
-        }
-
-        entry.failures = entry.failures.saturating_add(1);
-        entries.insert(key.to_string(), entry.clone());
-
-        if entry.failures > max_requests {
-            return Err(AppError::RateLimited);
-        }
-
-        Ok(())
-    }
-
-    pub fn ensure_allowed(&self, key: &str) -> AppResult<()> {
-        let now = Utc::now();
-        let mut entries = self.write_entries();
-        Self::cleanup_expired_entries(&mut entries, now);
-        if let Some(state) = entries.get(key) {
-            if state.locked_until.is_some_and(|until| until > now) {
-                return Err(AppError::RateLimited);
-            }
-            if state.next_allowed_at.is_some_and(|next| next > now) {
-                return Err(AppError::RateLimited);
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn record_success(&self, key: &str) {
-        let mut entries = self.write_entries();
-        entries.remove(key);
-    }
-
-    pub fn record_failure(&self, key: &str) -> AppError {
-        let now = Utc::now();
-        let mut entries = self.write_entries();
-        Self::cleanup_expired_entries(&mut entries, now);
-        let mut entry = entries.get(key).cloned().unwrap_or_default();
-        entry.failures = entry.failures.saturating_add(1);
-
-        let exponent = (entry.failures.saturating_sub(1)).min(8);
-        let backoff_ms = self.backoff_base_ms.saturating_mul(1_u64 << exponent);
-        entry.next_allowed_at = Some(now + Duration::milliseconds(backoff_ms as i64));
-
-        if entry.failures >= self.max_failures {
-            entry.failures = 0;
-            entry.locked_until = Some(now + Duration::seconds(self.lockout_seconds as i64));
-            entries.insert(key.to_string(), entry);
-            return AppError::RateLimited;
-        }
-
-        entries.insert(key.to_string(), entry);
-        AppError::Unauthorized
-    }
-}
-
-#[derive(Clone, Default)]
-struct LoginAttemptState {
-    failures: u32,
-    locked_until: Option<DateTime<Utc>>,
-    next_allowed_at: Option<DateTime<Utc>>,
-}
+pub use cors::cors_middleware;
+pub use headers::security_headers;
+pub use login_throttle::LoginThrottle;
+pub use rate_limit::global_rate_limiting;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::SecurityConfig;
+    use crate::error::AppError;
+    use chrono::{Duration, Utc};
 
     fn test_security_config(lockout_seconds: u64) -> SecurityConfig {
         SecurityConfig {
@@ -294,7 +87,7 @@ mod tests {
             let mut entries = throttle.write_entries();
             entries.insert(
                 key.clone(),
-                LoginAttemptState {
+                login_throttle::LoginAttemptState {
                     failures: u32::MAX,
                     locked_until: Some(now + Duration::seconds(60)),
                     next_allowed_at: Some(now + Duration::seconds(1)),

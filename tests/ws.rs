@@ -1,4 +1,4 @@
 mod common;
 
-#[path = "ws/lifecycle.rs"]
-pub mod lifecycle;
+#[path = "ws/mod.rs"]
+pub mod ws;

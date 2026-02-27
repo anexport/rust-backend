@@ -12,49 +12,49 @@ After: 214 files, ~28,000 total lines, 0 over limit
 
 ═══════════════════════════════════════════════════════════
 
-## EMERGENCY OPERATIONS (Priority 1)
+## EMERGENCY OPERATIONS (Priority 1) [DONE]
 
 ═══════════════════════════════════════════════════════════
 
-### Test Files (5 EMERGENCY)
+### Test Files (5 EMERGENCY) [DONE]
 
-1. tests/equipment_search_tests.rs (2,526 → ~2,000 lines across 6 files)
-2. tests/core_api_tests.rs (2,254 → ~2,250 lines across 5 files)
-3. tests/auth_middleware_tests.rs (1,268 → ~1,300 lines across 4 files)
-4. tests/auth0_endpoints_tests.rs (1,234 → ~1,250 lines across 4 files)
-5. tests/repository_integration_tests.rs (1,135 → ~1,150 lines across 6 files)
+1. [DONE] tests/equipment_search_tests.rs (2,526 → ~2,000 lines across 6 files)
+2. [DONE] tests/core_api_tests.rs (2,254 → ~2,250 lines across 5 files)
+3. [DONE] tests/auth_middleware_tests.rs (1,268 → ~1,300 lines across 4 files)
+4. [DONE] tests/auth0_endpoints_tests.rs (1,234 → ~1,250 lines across 4 files)
+5. [DONE] tests/repository_integration_tests.rs (1,135 → ~1,150 lines across 6 files)
 
-### Backend Files (3 EMERGENCY)
+### Backend Files (3 EMERGENCY) [DONE]
 
-6. src/infrastructure/auth0/db.rs (613 → ~186 lines across 4 files)
-7. src/error/app_error.rs (612 → ~161 lines across 3 files)
-8. src/infrastructure/auth0/client.rs (581 → ~228 lines across 3 files)
-
-═══════════════════════════════════════════════════════════
-
-## CRITICAL OPERATIONS (Priority 2)
+6. [DONE] src/infrastructure/auth0/db.rs (613 → ~186 lines across 4 files)
+7. [DONE] src/error/app_error.rs (612 → ~161 lines across 3 files)
+8. [DONE] src/infrastructure/auth0/client.rs (581 → ~228 lines across 3 files)
 
 ═══════════════════════════════════════════════════════════
 
-### Test Files (8 CRITICAL)
+## CRITICAL OPERATIONS (Priority 2) [DONE]
 
-9. tests/admin_routes_tests.rs (796 → ~1,000 lines across 4 files)
-10. tests/message_routes_tests.rs (737 → ~950 lines across 4 files)
-11. tests/message_service_tests.rs (661 → ~750 lines across 4 files)
-12. tests/user_routes_tests.rs (619 → ~650 lines across 3 files)
-13. tests/equipment_photos_tests.rs (566 → ~600 lines across 3 files)
-14. tests/equipment_extended_api_tests.rs (551 → ~580 lines across 3 files)
-15. tests/ws_lifecycle_tests.rs (513 → ~750 lines across 5 files)
-16. tests/ws_security_tests.rs (462 → ~760 lines across 7 files)
-17. tests/common/mocks.rs (518 → ~705 lines across 6 files)
+═══════════════════════════════════════════════════════════
 
-### Backend Files (4 CRITICAL)
+### Test Files (8 CRITICAL) [DONE]
 
-18. src/infrastructure/repositories/equipment_repository.rs (389 → ~260 lines across 3 files)
-19. src/application/equipment_service.rs (388 → ~280 lines across 3 files)
-20. src/application/admin_service.rs (370 → ~200 lines across 3 files)
-21. src/config/app_config.rs (464 → ~178 lines across 5 files)
-22. src/security/mod.rs (356 → ~124 lines across 5 files)
+9. [DONE] tests/admin_routes_tests.rs (796 → ~1,000 lines across 4 files)
+10. [DONE] tests/message_routes_tests.rs (737 → ~950 lines across 4 files)
+11. [DONE] tests/message_service_tests.rs (661 → ~750 lines across 4 files)
+12. [DONE] tests/user_routes_tests.rs (619 → ~650 lines across 3 files)
+13. [DONE] tests/equipment_photos_tests.rs (566 → ~600 lines across 3 files)
+14. [DONE] tests/equipment_extended_api_tests.rs (551 → ~580 lines across 3 files)
+15. [DONE] tests/ws_lifecycle_tests.rs (513 → ~750 lines across 5 files)
+16. [DONE] tests/ws_security_tests.rs (462 → ~760 lines across 7 files)
+17. [DONE] tests/common/mocks.rs (518 → ~705 lines across 6 files)
+
+### Backend Files (4 CRITICAL) [DONE]
+
+18. [DONE] src/infrastructure/repositories/equipment_repository.rs (389 → ~260 lines across 3 files)
+19. [DONE] src/application/equipment_service.rs (388 → ~280 lines across 3 files)
+20. [DONE] src/application/admin_service.rs (370 → ~200 lines across 3 files)
+21. [DONE] src/config/app_config.rs (464 → ~178 lines across 5 files)
+22. [DONE] src/security/mod.rs (356 → ~124 lines across 5 files)
 
 ═══════════════════════════════════════════════════════════
 

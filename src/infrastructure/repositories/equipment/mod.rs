@@ -1,11 +1,16 @@
-use super::traits::{EquipmentRepository, EquipmentSearchParams, EquipmentWithOwner};
-use super::utils::escape_like_pattern;
 use crate::domain::{Equipment, EquipmentPhoto};
 use crate::error::{AppError, AppResult};
+use crate::infrastructure::repositories::traits::{
+    EquipmentRepository, EquipmentSearchParams, EquipmentWithOwner,
+};
+use crate::infrastructure::repositories::utils::escape_like_pattern;
 use async_trait::async_trait;
-use sqlx::{PgPool, Postgres, QueryBuilder};
+use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
+
+pub mod photo;
+pub mod search;
 
 pub struct EquipmentRepositoryImpl {
     pool: PgPool,
@@ -56,117 +61,11 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> AppResult<Vec<Equipment>> {
-        let mut builder = QueryBuilder::<Postgres>::new(
-            r#"
-            SELECT id, owner_id, category_id, title, description, daily_rate, condition,
-                   location, coordinates::text as coordinates, is_available, created_at, updated_at
-            FROM equipment
-            WHERE 1=1
-            "#,
-        );
-
-        if let Some(category_id) = params.category_id {
-            builder.push(" AND category_id = ");
-            builder.push_bind(category_id);
-        }
-        if let Some(min_price) = params.min_price {
-            builder.push(" AND daily_rate >= ");
-            builder.push_bind(min_price);
-        }
-        if let Some(max_price) = params.max_price {
-            builder.push(" AND daily_rate <= ");
-            builder.push_bind(max_price);
-        }
-        if let Some(is_available) = params.is_available {
-            builder.push(" AND is_available = ");
-            builder.push_bind(is_available);
-        }
-
-        let geo_filter = params.latitude.zip(params.longitude).zip(params.radius_km);
-        if let Some(((latitude, longitude), radius_km)) = geo_filter {
-            builder.push(
-                " AND coordinates IS NOT NULL AND ST_DWithin(
-                    coordinates,
-                    ST_SetSRID(ST_MakePoint(",
-            );
-            builder.push_bind(longitude);
-            builder.push(", ");
-            builder.push_bind(latitude);
-            builder.push("), 4326)::geography, ");
-            builder.push_bind(radius_km * 1000.0);
-            builder.push(")");
-        }
-
-        if let Some(((latitude, longitude), _)) = geo_filter {
-            builder.push(
-                " ORDER BY ST_Distance(
-                    coordinates,
-                    ST_SetSRID(ST_MakePoint(",
-            );
-            builder.push_bind(longitude);
-            builder.push(", ");
-            builder.push_bind(latitude);
-            builder.push("), 4326)::geography");
-        } else {
-            builder.push(" ORDER BY created_at DESC");
-        }
-
-        builder.push(" LIMIT ");
-        builder.push_bind(limit);
-        builder.push(" OFFSET ");
-        builder.push_bind(offset);
-
-        let equipment = builder
-            .build_query_as::<Equipment>()
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(equipment)
+        search::search(&self.pool, params, limit, offset).await
     }
 
     async fn count_search(&self, params: &EquipmentSearchParams) -> AppResult<i64> {
-        let mut builder = QueryBuilder::<Postgres>::new(
-            r#"
-            SELECT COUNT(*) AS count
-            FROM equipment
-            WHERE 1=1
-            "#,
-        );
-
-        if let Some(category_id) = params.category_id {
-            builder.push(" AND category_id = ");
-            builder.push_bind(category_id);
-        }
-        if let Some(min_price) = params.min_price {
-            builder.push(" AND daily_rate >= ");
-            builder.push_bind(min_price);
-        }
-        if let Some(max_price) = params.max_price {
-            builder.push(" AND daily_rate <= ");
-            builder.push_bind(max_price);
-        }
-        if let Some(is_available) = params.is_available {
-            builder.push(" AND is_available = ");
-            builder.push_bind(is_available);
-        }
-
-        if let Some(((latitude, longitude), radius_km)) =
-            params.latitude.zip(params.longitude).zip(params.radius_km)
-        {
-            builder.push(
-                " AND coordinates IS NOT NULL AND ST_DWithin(
-                    coordinates,
-                    ST_SetSRID(ST_MakePoint(",
-            );
-            builder.push_bind(longitude);
-            builder.push(", ");
-            builder.push_bind(latitude);
-            builder.push("), 4326)::geography, ");
-            builder.push_bind(radius_km * 1000.0);
-            builder.push(")");
-        }
-
-        let (count,): (i64,) = builder.build_query_as().fetch_one(&self.pool).await?;
-        Ok(count)
+        search::count_search(&self.pool, params).await
     }
 
     async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>> {
@@ -306,7 +205,7 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '\' OR p.email ILIKE '%' || $1 || '%' ESCAPE '\')
+            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '' OR p.email ILIKE '%' || $1 || '%' ESCAPE '')
             "#,
         )
         .bind(escaped_search.as_deref())
@@ -337,7 +236,7 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '\' OR p.email ILIKE '%' || $3 || '%' ESCAPE '\')
+            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '' OR p.email ILIKE '%' || $3 || '%' ESCAPE '')
             ORDER BY e.created_at DESC
             LIMIT $1 OFFSET $2
             "#,
@@ -351,39 +250,14 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
     }
 
     async fn add_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
-        let created = sqlx::query_as::<_, EquipmentPhoto>(
-            r#"
-            INSERT INTO equipment_photos (id, equipment_id, photo_url, is_primary, order_index, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at
-            "#
-        )
-        .bind(photo.id)
-        .bind(photo.equipment_id)
-        .bind(&photo.photo_url)
-        .bind(photo.is_primary)
-        .bind(photo.order_index)
-        .bind(photo.created_at)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(created)
+        photo::add_photo(&self.pool, photo).await
     }
 
     async fn find_photos(&self, equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {
-        let photos = sqlx::query_as::<_, EquipmentPhoto>(
-            "SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE equipment_id = $1 ORDER BY order_index"
-        )
-        .bind(equipment_id)
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(photos)
+        photo::find_photos(&self.pool, equipment_id).await
     }
 
     async fn delete_photo(&self, photo_id: Uuid) -> AppResult<()> {
-        sqlx::query("DELETE FROM equipment_photos WHERE id = $1")
-            .bind(photo_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(())
+        photo::delete_photo(&self.pool, photo_id).await
     }
 }

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use rust_decimal::Decimal;
-use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -10,11 +9,14 @@ use crate::api::dtos::{
     AddPhotoRequest, CreateEquipmentRequest, EquipmentPhotoResponse, EquipmentQueryParams,
     EquipmentResponse, PaginatedResponse, UpdateEquipmentRequest,
 };
-use crate::domain::{Condition, Equipment, EquipmentPhoto, Role};
-use crate::error::{AppError, AppResult};
+use crate::domain::{Equipment, EquipmentPhoto};
+use crate::error::{AppResult, AppError};
 use crate::infrastructure::repositories::{
     EquipmentRepository, EquipmentSearchParams, UserRepository,
 };
+
+pub mod auth;
+pub mod mapper;
 
 #[derive(Clone)]
 pub struct EquipmentService {
@@ -60,23 +62,7 @@ impl EquipmentService {
         };
         let items = rows
             .into_iter()
-            .map(|item| {
-                let coordinates = map_coordinates(&item);
-                EquipmentResponse {
-                    id: item.id,
-                    owner_id: item.owner_id,
-                    category_id: item.category_id,
-                    title: item.title,
-                    description: item.description.unwrap_or_default(),
-                    daily_rate: item.daily_rate,
-                    condition: item.condition.to_string(),
-                    location: item.location.unwrap_or_default(),
-                    coordinates,
-                    is_available: item.is_available,
-                    photos: Vec::new(),
-                    created_at: item.created_at,
-                }
-            })
+            .map(mapper::map_equipment_to_response)
             .collect::<Vec<_>>();
 
         Ok(PaginatedResponse {
@@ -96,30 +82,7 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         let photos = self.equipment_repo.find_photos(id).await?;
-        let coordinates = map_coordinates(&equipment);
-
-        Ok(EquipmentResponse {
-            id: equipment.id,
-            owner_id: equipment.owner_id,
-            category_id: equipment.category_id,
-            title: equipment.title,
-            description: equipment.description.unwrap_or_default(),
-            daily_rate: equipment.daily_rate,
-            condition: equipment.condition.to_string(),
-            location: equipment.location.unwrap_or_default(),
-            coordinates,
-            is_available: equipment.is_available,
-            photos: photos
-                .into_iter()
-                .map(|photo| EquipmentPhotoResponse {
-                    id: photo.id,
-                    photo_url: photo.photo_url,
-                    is_primary: photo.is_primary,
-                    order_index: photo.order_index,
-                })
-                .collect(),
-            created_at: equipment.created_at,
-        })
+        Ok(mapper::map_equipment_with_photos_to_response(equipment, photos))
     }
 
     pub async fn create(
@@ -135,7 +98,7 @@ impl EquipmentService {
             ));
         }
 
-        let condition = parse_condition(&request.condition)?;
+        let condition = mapper::parse_condition(&request.condition)?;
         let now = Utc::now();
         let mut equipment = Equipment {
             id: Uuid::new_v4(),
@@ -157,22 +120,7 @@ impl EquipmentService {
         }
 
         let created = self.equipment_repo.create(&equipment).await?;
-        let coordinates = map_coordinates(&created);
-
-        Ok(EquipmentResponse {
-            id: created.id,
-            owner_id: created.owner_id,
-            category_id: created.category_id,
-            title: created.title,
-            description: created.description.unwrap_or_default(),
-            daily_rate: created.daily_rate,
-            condition: created.condition.to_string(),
-            location: created.location.unwrap_or_default(),
-            coordinates,
-            is_available: created.is_available,
-            photos: Vec::new(),
-            created_at: created.created_at,
-        })
+        Ok(mapper::map_equipment_to_response(created))
     }
 
     pub async fn update(
@@ -189,23 +137,7 @@ impl EquipmentService {
             .await?
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
-        if existing.owner_id != actor_user_id {
-            let actor = self
-                .user_repo
-                .find_by_id(actor_user_id)
-                .await?
-                .ok_or(AppError::Unauthorized)?;
-            if actor.role != Role::Admin {
-                return Err(AppError::Forbidden(
-                    "You can only modify your own equipment listings".to_string(),
-                ));
-            }
-            info!(
-                actor_user_id = %actor_user_id,
-                equipment_id = %equipment_id,
-                "admin override: update equipment"
-            );
-        }
+        auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
 
         if let Some(title) = request.title {
             existing.title = title;
@@ -222,7 +154,7 @@ impl EquipmentService {
             existing.daily_rate = daily_rate;
         }
         if let Some(condition) = request.condition {
-            existing.condition = parse_condition(&condition)?;
+            existing.condition = mapper::parse_condition(&condition)?;
         }
         if let Some(location) = request.location {
             existing.location = Some(location);
@@ -235,21 +167,7 @@ impl EquipmentService {
         }
 
         let updated = self.equipment_repo.update(&existing).await?;
-        let coordinates = map_coordinates(&updated);
-        Ok(EquipmentResponse {
-            id: updated.id,
-            owner_id: updated.owner_id,
-            category_id: updated.category_id,
-            title: updated.title,
-            description: updated.description.unwrap_or_default(),
-            daily_rate: updated.daily_rate,
-            condition: updated.condition.to_string(),
-            location: updated.location.unwrap_or_default(),
-            coordinates,
-            is_available: updated.is_available,
-            photos: Vec::new(),
-            created_at: updated.created_at,
-        })
+        Ok(mapper::map_equipment_to_response(updated))
     }
 
     pub async fn delete(&self, actor_user_id: Uuid, equipment_id: Uuid) -> AppResult<()> {
@@ -259,23 +177,7 @@ impl EquipmentService {
             .await?
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
-        if existing.owner_id != actor_user_id {
-            let actor = self
-                .user_repo
-                .find_by_id(actor_user_id)
-                .await?
-                .ok_or(AppError::Unauthorized)?;
-            if actor.role != Role::Admin {
-                return Err(AppError::Forbidden(
-                    "You can only delete your own equipment listings".to_string(),
-                ));
-            }
-            info!(
-                actor_user_id = %actor_user_id,
-                equipment_id = %equipment_id,
-                "admin override: delete equipment"
-            );
-        }
+        auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
 
         self.equipment_repo.delete(equipment_id).await
     }
@@ -294,23 +196,7 @@ impl EquipmentService {
             .await?
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
-        if existing.owner_id != actor_user_id {
-            let actor = self
-                .user_repo
-                .find_by_id(actor_user_id)
-                .await?
-                .ok_or(AppError::Unauthorized)?;
-            if actor.role != Role::Admin {
-                return Err(AppError::Forbidden(
-                    "You can only add photos to your own equipment listings".to_string(),
-                ));
-            }
-            info!(
-                actor_user_id = %actor_user_id,
-                equipment_id = %equipment_id,
-                "admin override: add equipment photo"
-            );
-        }
+        auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
 
         let photos = self.equipment_repo.find_photos(equipment_id).await?;
         let photo = EquipmentPhoto {
@@ -343,46 +229,8 @@ impl EquipmentService {
             .await?
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
-        if existing.owner_id != actor_user_id {
-            let actor = self
-                .user_repo
-                .find_by_id(actor_user_id)
-                .await?
-                .ok_or(AppError::Unauthorized)?;
-            if actor.role != Role::Admin {
-                return Err(AppError::Forbidden(
-                    "You can only delete photos from your own equipment listings".to_string(),
-                ));
-            }
-            info!(
-                actor_user_id = %actor_user_id,
-                equipment_id = %equipment_id,
-                photo_id = %photo_id,
-                "admin override: delete equipment photo"
-            );
-        }
+        auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
 
         self.equipment_repo.delete_photo(photo_id).await
     }
-}
-
-fn parse_condition(raw: &str) -> AppResult<Condition> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "new" => Ok(Condition::New),
-        "excellent" => Ok(Condition::Excellent),
-        "good" => Ok(Condition::Good),
-        "fair" => Ok(Condition::Fair),
-        _ => Err(AppError::validation_error(
-            "Condition must be one of: new, excellent, good, fair",
-        )),
-    }
-}
-
-fn map_coordinates(equipment: &Equipment) -> Option<crate::api::dtos::Coordinates> {
-    equipment
-        .coordinates_tuple()
-        .map(|(latitude, longitude)| crate::api::dtos::Coordinates {
-            latitude,
-            longitude,
-        })
 }

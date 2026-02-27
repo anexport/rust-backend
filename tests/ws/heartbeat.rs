@@ -1,0 +1,95 @@
+use crate::common;
+use crate::ws::helpers::{
+    create_valid_auth0_token, next_text_frame, test_auth0_config, StaticJwksProvider,
+    StaticProvisioningService, TEST_PUBLIC_KEY_PEM,
+};
+use actix_web::{web, App};
+use awc::ws;
+use chrono::Utc;
+use futures_util::{SinkExt, StreamExt};
+use jsonwebtoken::DecodingKey;
+use rust_backend::middleware::auth::UserProvisioningService;
+use rust_backend::utils::auth0_jwks::JwksProvider;
+use std::sync::Arc;
+use std::time::Duration;
+use uuid::Uuid;
+
+#[actix_rt::test]
+async fn test_ws_ping_pong_heartbeat() {
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let state = common::create_app_state(pool.clone());
+    let user_id = Uuid::new_v4();
+    let now = Utc::now();
+
+    sqlx::query!(
+        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)",
+        user_id,
+        "ws-heartbeat@example.com",
+        "Heartbeat User",
+        now,
+        now
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to seed user");
+
+    let auth0_config = test_auth0_config();
+    let jwks_provider: Arc<dyn JwksProvider> = Arc::new(StaticJwksProvider {
+        key: DecodingKey::from_rsa_pem(TEST_PUBLIC_KEY_PEM.as_bytes()).unwrap(),
+    });
+    let provisioning_service: Arc<dyn UserProvisioningService> =
+        Arc::new(StaticProvisioningService { user_id });
+
+    let srv = actix_test::start(move || {
+        App::new()
+            .app_data(web::Data::new(state.clone()))
+            .app_data(web::Data::new(auth0_config.clone()))
+            .app_data(web::Data::new(jwks_provider.clone()))
+            .app_data(web::Data::new(provisioning_service.clone()))
+            .configure(rust_backend::api::routes::ws::configure)
+    });
+
+    let token = create_valid_auth0_token("auth0|heartbeat");
+    let ws_url = srv.url(&format!("/ws?token={}", token));
+    let (_response, mut client) = awc::Client::new().ws(ws_url).connect().await.unwrap();
+
+    // Test application-level ping
+    client
+        .send(ws::Message::Text(r#"{"type":"ping","payload":{}}"#.into()))
+        .await
+        .unwrap();
+    let text = next_text_frame(&mut client).await;
+    let resp: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(resp["type"], "pong");
+
+    // Test protocol-level ping
+    client
+        .send(ws::Message::Ping("hello".into()))
+        .await
+        .unwrap();
+
+    let mut pong_received = false;
+    for _ in 0..5 {
+        let msg = tokio::time::timeout(Duration::from_secs(5), client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+
+        match msg {
+            ws::Frame::Pong(bytes) => {
+                assert_eq!(bytes, "hello");
+                pong_received = true;
+                break;
+            }
+            ws::Frame::Ping(_) => {
+                continue;
+            }
+            _ => panic!("Expected pong or ping message, got {:?}", msg),
+        }
+    }
+    assert!(pong_received, "Did not receive expected Pong message");
+
+    client.close().await.unwrap();
+}

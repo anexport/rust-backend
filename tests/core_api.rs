@@ -5,21 +5,21 @@ use std::sync::{Arc, Mutex};
 
 mod common;
 
-#[path = "core_api/admin.rs"]
+#[path = "core_api/admin/mod.rs"]
 pub mod admin;
 #[path = "core_api/conversation.rs"]
 pub mod conversation;
 #[path = "core_api/equipment.rs"]
 pub mod equipment;
-#[path = "core_api/equipment_extended.rs"]
+#[path = "core_api/equipment_extended/mod.rs"]
 pub mod equipment_extended;
-#[path = "core_api/equipment_photos.rs"]
+#[path = "core_api/equipment_photos/mod.rs"]
 pub mod equipment_photos;
-#[path = "core_api/messages.rs"]
+#[path = "core_api/messages/mod.rs"]
 pub mod messages;
 #[path = "core_api/system.rs"]
 pub mod system;
-#[path = "core_api/user_routes.rs"]
+#[path = "core_api/user/mod.rs"]
 pub mod user_routes;
 #[path = "core_api/users.rs"]
 pub mod users;

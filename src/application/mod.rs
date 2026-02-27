@@ -1,13 +1,13 @@
-mod admin_service;
-mod auth_service;
+pub mod admin;
+pub mod auth_service;
 mod category_service;
-mod equipment_service;
+mod equipment;
 mod message_service;
 mod user_service;
 
-pub use admin_service::AdminService;
+pub use admin::AdminService;
 pub use auth_service::AuthService;
 pub use category_service::CategoryService;
-pub use equipment_service::EquipmentService;
+pub use equipment::EquipmentService;
 pub use message_service::MessageService;
 pub use user_service::UserService;

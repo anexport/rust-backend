@@ -6,7 +6,7 @@ pub mod auth;
 pub mod category;
 #[path = "services/equipment.rs"]
 pub mod equipment;
-#[path = "services/message.rs"]
+#[path = "services/message/mod.rs"]
 pub mod message;
 #[path = "services/user.rs"]
 pub mod user;

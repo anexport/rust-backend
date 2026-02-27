@@ -9,6 +9,7 @@ use sqlx::Connection;
 use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
+pub mod auth0_test_helpers;
 pub mod fixtures;
 pub mod mocks;
 pub mod repository_helpers;
