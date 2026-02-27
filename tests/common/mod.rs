@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 pub mod fixtures;
 pub mod mocks;
+pub mod repository_helpers;
 
 static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 

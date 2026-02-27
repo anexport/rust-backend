@@ -1,11 +1,17 @@
 pub mod client;
 pub mod db;
+pub mod dtos;
+pub mod requests;
+pub mod traits;
 
-pub use client::{
-    Auth0ApiClient, Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse,
-    DisabledAuth0ApiClient, HttpAuth0ApiClient,
-};
-pub use db::{
-    Auth0ApiClient as DbAuth0ApiClient, PasswordGrantRequest, PasswordGrantResponse, SignupRequest,
+#[cfg(test)]
+mod client_tests;
+
+pub use client::{DisabledAuth0ApiClient, HttpAuth0ApiClient};
+pub use db::Auth0ApiClient as DbAuth0ApiClient;
+pub use dtos::{
+    Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse, PasswordGrantResponse,
     SignupResponse,
 };
+pub use requests::{PasswordGrantRequest, SignupRequest};
+pub use traits::Auth0ApiClient;
