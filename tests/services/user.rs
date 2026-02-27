@@ -170,26 +170,26 @@ async fn my_equipment_maps_defaults_and_condition_strings() {
     ));
 
     let rows = service
-        .my_equipment(owner_id)
+        .my_equipment(owner_id, 1, 20)
         .await
         .expect("my equipment should succeed");
 
-    assert_eq!(rows.len(), 2);
-    assert!(rows.iter().all(|row| row.owner_id == owner_id));
-    assert!(rows.iter().all(|row| row.description.is_empty()));
-    assert!(rows.iter().all(|row| row.location.is_empty()));
-    assert!(rows.iter().all(|row| row.coordinates.is_some()));
-    assert!(rows.iter().all(|row| {
+    assert_eq!(rows.items.len(), 2);
+    assert!(rows.items.iter().all(|row| row.owner_id == owner_id));
+    assert!(rows.items.iter().all(|row| row.description.is_empty()));
+    assert!(rows.items.iter().all(|row| row.location.is_empty()));
+    assert!(rows.items.iter().all(|row| row.coordinates.is_some()));
+    assert!(rows.items.iter().all(|row| {
         row.coordinates
             .as_ref()
             .is_some_and(|coords| (coords.latitude - 40.7128).abs() < 0.0001)
     }));
-    assert!(rows.iter().all(|row| {
+    assert!(rows.items.iter().all(|row| {
         row.coordinates
             .as_ref()
             .is_some_and(|coords| (coords.longitude - (-74.0060)).abs() < 0.0001)
     }));
-    assert!(rows.iter().all(|row| row.photos.is_empty()));
-    assert!(rows.iter().any(|row| row.condition == "excellent"));
-    assert!(rows.iter().any(|row| row.condition == "fair"));
+    assert!(rows.items.iter().all(|row| row.photos.is_empty()));
+    assert!(rows.items.iter().any(|row| row.condition == "excellent"));
+    assert!(rows.items.iter().any(|row| row.condition == "fair"));
 }

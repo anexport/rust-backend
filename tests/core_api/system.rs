@@ -30,7 +30,8 @@ async fn metrics_route_is_registered() {
 
     let request = actix_test::TestRequest::get().uri("/metrics").to_request();
     let response = actix_test::call_service(&app, request).await;
-    assert_ne!(response.status(), StatusCode::NOT_FOUND);
+    // Tighten: should be UNAUTHORIZED if not from private network, not just NOT_FOUND
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[actix_rt::test]
@@ -202,13 +203,17 @@ async fn ws_upgrade_requires_wss_in_production() {
         App::new()
             .wrap(cors_middleware(&security_config()))
             .wrap(security_headers())
+            .app_data(web::Data::new(common::test_auth_config()))
             .app_data(web::Data::new(state))
             .configure(routes::configure),
     )
     .await;
 
+    let token = common::auth0_test_helpers::create_auth0_token(Uuid::new_v4(), "renter");
+
     let request = actix_test::TestRequest::get()
         .uri("/ws")
+        .insert_header(("Authorization", format!("Bearer {token}")))
         .insert_header(("Connection", "Upgrade"))
         .insert_header(("Upgrade", "websocket"))
         .insert_header(("Sec-WebSocket-Version", "13"))

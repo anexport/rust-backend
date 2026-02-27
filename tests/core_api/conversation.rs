@@ -8,7 +8,6 @@ use rust_backend::api::routes::AppState;
 use rust_backend::domain::*;
 use rust_backend::infrastructure::repositories::*;
 use rust_backend::security::{cors_middleware, security_headers};
-use rust_decimal::Decimal;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -348,13 +347,6 @@ async fn send_message_succeeds_for_participant() {
     });
     message_repo.add_participant(conversation_id, user_id);
 
-    eprintln!(
-        "DEBUG: user_id={}, conversation_id={}",
-        user_id, conversation_id
-    );
-    let is_participant = message_repo.is_participant(conversation_id, user_id).await;
-    eprintln!("DEBUG: is_participant={:?}", is_participant);
-
     let (state, auth0_config_data, jwks_client, provisioning_service) =
         app_with_auth0_data_and_message_repo(user_repo.clone(), equipment_repo, message_repo);
 
@@ -381,7 +373,6 @@ async fn send_message_succeeds_for_participant() {
         }))
         .to_request();
     let response = actix_test::call_service(&app, request).await;
-    eprintln!("DEBUG: response status={:?}", response.status());
     assert_eq!(response.status(), StatusCode::CREATED);
 }
 

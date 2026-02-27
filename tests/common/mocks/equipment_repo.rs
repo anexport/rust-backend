@@ -103,15 +103,34 @@ impl EquipmentRepository for MockEquipmentRepo {
         Ok(rows.into_iter().skip(start).take(limit).collect())
     }
 
-    async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>> {
-        Ok(self
+    async fn find_by_owner(
+        &self,
+        owner_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
+        let rows: Vec<Equipment> = self
             .equipment
             .lock()
             .expect("equipment mutex poisoned")
             .iter()
             .filter(|equipment| equipment.owner_id == owner_id)
             .cloned()
-            .collect())
+            .collect();
+
+        let start = offset.max(0) as usize;
+        let limit = limit.max(0) as usize;
+        Ok(rows.into_iter().skip(start).take(limit).collect())
+    }
+
+    async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
+        Ok(self
+            .equipment
+            .lock()
+            .expect("equipment mutex poisoned")
+            .iter()
+            .filter(|equipment| equipment.owner_id == owner_id)
+            .count() as i64)
     }
 
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment> {

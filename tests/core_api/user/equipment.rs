@@ -59,8 +59,10 @@ async fn test_my_equipment_listing() {
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let items: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 2);
+    assert_eq!(body["total"], 2);
     assert!(items.iter().all(|i| i["owner_id"] == owner.id.to_string()));
 }
 
@@ -92,7 +94,11 @@ async fn test_my_equipment_ordered_by_creation_date() {
         .to_request();
 
     let resp = actix_test::call_service(&app, req).await;
-    let items: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
+    assert_eq!(resp.status(), StatusCode::OK, "Expected 200 OK response");
+
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3, "Expected 3 equipment items in response");
 
     // Should be newest first
     assert_eq!(items[0]["title"], "Equipment 2");
@@ -133,21 +139,47 @@ async fn test_my_equipment_pagination() {
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let items: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let items = body["items"].as_array().unwrap();
 
-    // Assert total count is 15
-    assert_eq!(items.len(), equipment_count as usize);
+    // Assert total count is 15 (default behavior)
+    assert_eq!(body["total"], 15);
+    assert_eq!(items.len(), 15);
 
     // Verify all items belong to the owner
     assert!(items.iter().all(|i| i["owner_id"] == owner.id.to_string()));
 
-    // Verify ordering is by creation date (newest first based on SQL)
+    // Test page 1, per_page 5
+    let req = actix_test::TestRequest::get()
+        .uri("/api/v1/users/me/equipment?page=1&limit=5")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 5);
+    assert_eq!(body["total"], 15);
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["limit"], 5);
     assert_eq!(
         items[0]["title"],
         format!("Equipment {}", equipment_count - 1)
     );
+
+    // Test page 2, per_page 5
+    let req = actix_test::TestRequest::get()
+        .uri("/api/v1/users/me/equipment?page=2&limit=5")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = actix_test::read_body_json(resp).await;
+    let items = body["items"].as_array().unwrap();
+    assert_eq!(items.len(), 5);
+    assert_eq!(body["page"], 2);
     assert_eq!(
-        items[equipment_count as usize - 1]["title"],
-        format!("Equipment {}", 0)
+        items[0]["title"],
+        format!("Equipment {}", equipment_count - 6)
     );
 }

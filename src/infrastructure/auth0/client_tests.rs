@@ -171,7 +171,12 @@ not-json",
         .await
         .expect("request should succeed");
 
-    let result = client.handle_error(response).await;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.handle_error(response),
+    )
+    .await
+    .expect("Test timed out");
     server.await.expect("server task should complete");
 
     // 5xx errors now map to ServiceUnavailable with generic message
@@ -213,7 +218,12 @@ Connection: close
         .await
         .expect("request should succeed");
 
-    let result = client.handle_error(response).await;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        client.handle_error(response),
+    )
+    .await
+    .expect("Test timed out");
     server.await.expect("server task should complete");
 
     assert!(matches!(

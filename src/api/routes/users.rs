@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse};
 use uuid::Uuid;
 
-use crate::api::dtos::UpdateUserRequest;
+use crate::api::dtos::{PaginationParams, UpdateUserRequest};
 use crate::api::routes::AppState;
 use crate::error::AppResult;
 use crate::middleware::auth::Auth0AuthenticatedUser;
@@ -44,7 +44,11 @@ async fn update_user_profile(
 async fn my_equipment(
     state: web::Data<AppState>,
     auth: Auth0AuthenticatedUser,
+    query: web::Query<PaginationParams>,
 ) -> AppResult<HttpResponse> {
-    let result = state.user_service.my_equipment(auth.0.user_id).await?;
+    let result = state
+        .user_service
+        .my_equipment(auth.0.user_id, query.page, query.limit)
+        .await?;
     Ok(HttpResponse::Ok().json(result))
 }

@@ -42,10 +42,12 @@ async fn create_expired_token() {
     assert!(!token.is_empty());
 
     // The token should fail when trying to decode with proper validation
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_audience(&["rust-backend-test"]);
     let decoded = jsonwebtoken::decode::<Auth0Claims>(
         &token,
         &jsonwebtoken::DecodingKey::from_secret("test-secret".as_bytes()),
-        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        &validation,
     );
 
     assert!(decoded.is_err());
@@ -62,7 +64,7 @@ async fn create_token_with_wrong_issuer() {
     let claims = Auth0Claims {
         iss: "https://wrong-issuer.com/".to_string(),
         sub: "auth0|wrong-iss".to_string(),
-        aud: Audience::Single("test-api".to_string()),
+        aud: Audience::Single("rust-backend-test".to_string()),
         exp: exp as u64,
         iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
         email: Some("wrongiss@example.com".to_string()),
@@ -83,23 +85,44 @@ async fn create_token_with_wrong_issuer() {
     .expect("Failed to encode test token");
 
     assert!(!token.is_empty());
+
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_audience(&["rust-backend-test"]);
+    validation.set_issuer(&["https://test-tenant.auth0.com/"]);
+    let decoded = jsonwebtoken::decode::<Auth0Claims>(
+        &token,
+        &jsonwebtoken::DecodingKey::from_secret("test-secret".as_bytes()),
+        &validation,
+    );
+
+    assert!(decoded.is_err());
+    assert_eq!(
+        decoded.unwrap_err().kind(),
+        &jsonwebtoken::errors::ErrorKind::InvalidIssuer
+    );
 }
 
 #[actix_rt::test]
 async fn create_token_not_yet_valid() {
     let exp = (Utc::now() + Duration::hours(2)).timestamp();
 
+    let mut custom_claims = std::collections::HashMap::new();
+    custom_claims.insert(
+        "nbf".to_string(),
+        serde_json::json!((Utc::now() + Duration::hours(1)).timestamp()),
+    );
+
     let claims = Auth0Claims {
-        iss: "https://test.auth0.com/".to_string(),
+        iss: "https://test-tenant.auth0.com/".to_string(),
         sub: "auth0|future".to_string(),
-        aud: Audience::Single("test-api".to_string()),
+        aud: Audience::Single("rust-backend-test".to_string()),
         exp: exp as u64,
         iat: (Utc::now() + Duration::hours(1)).timestamp() as u64,
         email: Some("future@example.com".to_string()),
         email_verified: Some(true),
         name: Some("Future User".to_string()),
         picture: None,
-        custom_claims: std::collections::HashMap::new(),
+        custom_claims,
     };
 
     let mut header = Header::new(Algorithm::HS256);
@@ -112,14 +135,25 @@ async fn create_token_not_yet_valid() {
     )
     .expect("Failed to encode test token");
 
-    // Token should fail nbf validation
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_audience(&["rust-backend-test"]);
+    validation.validate_nbf = true;
     let decoded = jsonwebtoken::decode::<Auth0Claims>(
         &token,
         &jsonwebtoken::DecodingKey::from_secret("test-secret".as_bytes()),
-        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        &validation,
     );
 
     assert!(decoded.is_err());
+    let err = decoded.unwrap_err();
+    assert!(
+        matches!(
+            err.kind(),
+            jsonwebtoken::errors::ErrorKind::ImmatureSignature
+        ),
+        "Expected ImmatureSignature error for nbf validation failure, got {:?}",
+        err.kind()
+    );
 }
 
 // ============================================================================
@@ -165,10 +199,12 @@ async fn corrupted_signature_fails_to_validate() {
     }
 
     // Token should fail signature validation
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.set_audience(&["rust-backend-test"]);
     let decoded = jsonwebtoken::decode::<Auth0Claims>(
         &token,
         &jsonwebtoken::DecodingKey::from_secret("test-secret".as_bytes()),
-        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        &validation,
     );
 
     assert!(decoded.is_err());

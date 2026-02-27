@@ -1,16 +1,18 @@
-use super::setup_app;
+use super::*;
 use crate::common;
 use actix_web::{http::StatusCode, test as actix_test};
 use common::auth0_test_helpers::create_auth0_token;
 use common::fixtures;
 use common::TestDb;
-use rust_backend::infrastructure::repositories::{UserRepository, UserRepositoryImpl};
+use rust_backend::infrastructure::repositories::{
+    MessageRepository, UserRepository, UserRepositoryImpl,
+};
 use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_conversation_crud_flow() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
     let user1 = fixtures::test_user();
@@ -28,7 +30,7 @@ async fn test_conversation_crud_flow() {
             "participant_ids": [user2.id]
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
     let conv: serde_json::Value = actix_test::read_body_json(resp).await;
     let conv_id = Uuid::parse_str(conv["id"].as_str().unwrap()).unwrap();
@@ -38,7 +40,7 @@ async fn test_conversation_crud_flow() {
         .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(list.len(), 1);
@@ -52,7 +54,7 @@ async fn test_conversation_crud_flow() {
             "content": "Hello there!"
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // 4. List messages
@@ -60,7 +62,7 @@ async fn test_conversation_crud_flow() {
         .uri(&format!("/api/v1/conversations/{}/messages", conv_id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 1);
@@ -70,7 +72,7 @@ async fn test_conversation_crud_flow() {
 #[actix_rt::test]
 async fn test_create_conversation_validates_participants() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
     let user1 = fixtures::test_user();
@@ -85,19 +87,18 @@ async fn test_create_conversation_validates_participants() {
             "participant_ids": []
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[actix_rt::test]
 async fn test_conversation_list_isolation() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = rust_backend::infrastructure::repositories::MessageRepositoryImpl::new(
         test_db.pool().clone(),
     );
-    use rust_backend::infrastructure::repositories::MessageRepository;
 
     let user1 = fixtures::test_user();
     let user2 = fixtures::test_user();
@@ -121,7 +122,7 @@ async fn test_conversation_list_isolation() {
         .uri("/api/v1/conversations")
         .insert_header(("Authorization", format!("Bearer {}", token2)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(list.len(), 1);
@@ -130,7 +131,7 @@ async fn test_conversation_list_isolation() {
 #[actix_rt::test]
 async fn test_cannot_create_conversation_with_nonexistent_user() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
     let user1 = fixtures::test_user();
@@ -144,14 +145,14 @@ async fn test_cannot_create_conversation_with_nonexistent_user() {
             "participant_ids": [Uuid::new_v4()]
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
-    assert!(resp.status().is_client_error());
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[actix_rt::test]
 async fn test_conversation_duplicate_prevention() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
     let user1 = fixtures::test_user();
@@ -169,7 +170,7 @@ async fn test_conversation_duplicate_prevention() {
             "participant_ids": [user2.id]
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
     let conv1: serde_json::Value = actix_test::read_body_json(resp).await;
 
@@ -181,9 +182,9 @@ async fn test_conversation_duplicate_prevention() {
             "participant_ids": [user2.id]
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
 
-    assert!(resp.status().is_success());
+    assert_eq!(resp.status(), StatusCode::CREATED);
     let conv2: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(conv1["id"], conv2["id"]);
 }

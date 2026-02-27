@@ -31,7 +31,15 @@ impl EquipmentRepository for EquipmentRepositorySpy {
         Ok(Vec::new())
     }
 
-    async fn find_by_owner(&self, _owner_id: Uuid) -> AppResult<Vec<Equipment>> {
+    async fn find_by_owner(
+        &self,
+        _owner_id: Uuid,
+        _limit: i64,
+        _offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
+        unreachable_call()
+    }
+    async fn count_by_owner(&self, _owner_id: Uuid) -> AppResult<i64> {
         unreachable_call()
     }
 
@@ -139,7 +147,15 @@ impl EquipmentRepository for EquipmentRepositoryCountSearchLimitGuard {
         Ok(Vec::new())
     }
 
-    async fn find_by_owner(&self, _owner_id: Uuid) -> AppResult<Vec<Equipment>> {
+    async fn find_by_owner(
+        &self,
+        _owner_id: Uuid,
+        _limit: i64,
+        _offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
+        unreachable_call()
+    }
+    async fn count_by_owner(&self, _owner_id: Uuid) -> AppResult<i64> {
         unreachable_call()
     }
 

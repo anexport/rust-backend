@@ -22,7 +22,8 @@ impl LoginThrottle {
     }
 
     pub fn key(email: &str, ip: Option<&str>) -> String {
-        format!("{email}|{}", ip.unwrap_or("unknown"))
+        let normalized_email = email.trim().to_lowercase();
+        format!("{}|{}", normalized_email, ip.unwrap_or("unknown"))
     }
 
     pub fn write_entries(

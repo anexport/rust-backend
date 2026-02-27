@@ -68,16 +68,24 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         search::count_search(&self.pool, params).await
     }
 
-    async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>> {
+    async fn find_by_owner(
+        &self,
+        owner_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Equipment>> {
         let equipment = sqlx::query_as::<_, Equipment>(
             r#"
             SELECT id, owner_id, category_id, title, description, daily_rate, condition,
                    location, coordinates::text as coordinates, is_available, created_at, updated_at
             FROM equipment WHERE owner_id = $1
             ORDER BY created_at DESC
+            LIMIT $2 OFFSET $3
             "#,
         )
         .bind(owner_id)
+        .bind(limit)
+        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
         Ok(equipment)

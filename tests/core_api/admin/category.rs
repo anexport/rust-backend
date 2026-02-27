@@ -49,6 +49,26 @@ async fn test_admin_category_hierarchy_validation() {
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // 3. Prevent multi-node cycle (A -> B -> A)
+    let parent_cat2 = fixtures::test_category();
+    category_repo.create(&parent_cat2).await.unwrap();
+    let mut child_cat = fixtures::test_category();
+    child_cat.parent_id = Some(parent_cat2.id);
+    category_repo.create(&child_cat).await.unwrap();
+
+    // Try to set B's parent to A where A is B's child (wait, A is parent of B, try set A's parent to B)
+    let req = actix_test::TestRequest::put()
+        .uri(&format!("/api/v1/admin/categories/{}", parent_cat2.id))
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .set_json(serde_json::json!({
+            "name": "Cycle Parent",
+            "parent_id": child_cat.id
+        }))
+        .to_request();
+    let resp = actix_test::call_service(&app, req).await;
+    // This should fail if cycle detection is implemented correctly
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[actix_rt::test]

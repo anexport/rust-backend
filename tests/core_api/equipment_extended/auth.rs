@@ -1,17 +1,19 @@
 use super::*;
 use crate::common;
-use crate::common::mocks::{MockEquipmentRepo, MockUserRepo};
 use actix_web::{http::StatusCode, test as actix_test, App};
 use rust_backend::api::routes;
 use rust_backend::domain::Role;
-use std::sync::Arc;
+use rust_backend::infrastructure::repositories::{
+    CategoryRepositoryImpl, EquipmentRepositoryImpl, UserRepositoryImpl,
+};
 use uuid::Uuid;
 
 #[actix_rt::test]
 async fn update_equipment_401_unauthorized() {
-    let user_repo = Arc::new(MockUserRepo::default());
-    let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(user_repo, equipment_repo);
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(pool);
+
     let app = actix_test::init_service(
         App::new()
             .app_data(state)
@@ -31,20 +33,32 @@ async fn update_equipment_401_unauthorized() {
 
 #[actix_rt::test]
 async fn update_equipment_403_forbidden() {
-    let user_repo = Arc::new(MockUserRepo::default());
-    let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config, jwks, provisioning) =
-        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(pool.clone());
+
+    let user_repo = UserRepositoryImpl::new(pool.clone());
+    let equipment_repo = EquipmentRepositoryImpl::new(pool.clone());
+    let category_repo = CategoryRepositoryImpl::new(pool.clone());
+
+    let cat = common::fixtures::test_category();
+    category_repo.create(&cat).await.unwrap();
+
     let owner_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
-    user_repo.push(test_user(owner_id, Role::Owner, "o@e.c"));
-    user_repo.push(test_user(other_id, Role::Owner, "other@e.c"));
-    let eq_id = Uuid::new_v4();
-    equipment_repo
-        .equipment
-        .lock()
-        .unwrap()
-        .push(test_equipment(eq_id, owner_id));
+    user_repo
+        .create(&test_user(owner_id, Role::Owner, "o@e.c"))
+        .await
+        .unwrap();
+    user_repo
+        .create(&test_user(other_id, Role::Owner, "other@e.c"))
+        .await
+        .unwrap();
+
+    let mut eq = test_equipment(Uuid::new_v4(), owner_id);
+    eq.category_id = cat.id;
+    equipment_repo.create(&eq).await.unwrap();
+
     let app = actix_test::init_service(
         App::new()
             .app_data(state)
@@ -56,7 +70,7 @@ async fn update_equipment_403_forbidden() {
     .await;
     let token = create_auth0_token(other_id, "owner");
     let req = actix_test::TestRequest::put()
-        .uri(&format!("/api/v1/equipment/{}", eq_id))
+        .uri(&format!("/api/v1/equipment/{}", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .set_json(serde_json::json!({"title": "New Title"}))
         .to_request();
@@ -66,12 +80,17 @@ async fn update_equipment_403_forbidden() {
 
 #[actix_rt::test]
 async fn update_equipment_404_not_found() {
-    let user_repo = Arc::new(MockUserRepo::default());
-    let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config, jwks, provisioning) =
-        app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(pool.clone());
+
+    let user_repo = UserRepositoryImpl::new(pool.clone());
     let owner_id = Uuid::new_v4();
-    user_repo.push(test_user(owner_id, Role::Owner, "o@e.c"));
+    user_repo
+        .create(&test_user(owner_id, Role::Owner, "o@e.c"))
+        .await
+        .unwrap();
+
     let app = actix_test::init_service(
         App::new()
             .app_data(state)
@@ -93,20 +112,32 @@ async fn update_equipment_404_not_found() {
 
 #[actix_rt::test]
 async fn delete_equipment_403_forbidden() {
-    let user_repo = Arc::new(MockUserRepo::default());
-    let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config, jwks, provisioning) =
-        app_with_auth0_data(user_repo.clone(), equipment_repo.clone());
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(pool.clone());
+
+    let user_repo = UserRepositoryImpl::new(pool.clone());
+    let equipment_repo = EquipmentRepositoryImpl::new(pool.clone());
+    let category_repo = CategoryRepositoryImpl::new(pool.clone());
+
+    let cat = common::fixtures::test_category();
+    category_repo.create(&cat).await.unwrap();
+
     let owner_id = Uuid::new_v4();
     let other_id = Uuid::new_v4();
-    user_repo.push(test_user(owner_id, Role::Owner, "o@e.c"));
-    user_repo.push(test_user(other_id, Role::Owner, "other@e.c"));
-    let eq_id = Uuid::new_v4();
-    equipment_repo
-        .equipment
-        .lock()
-        .unwrap()
-        .push(test_equipment(eq_id, owner_id));
+    user_repo
+        .create(&test_user(owner_id, Role::Owner, "o@e.c"))
+        .await
+        .unwrap();
+    user_repo
+        .create(&test_user(other_id, Role::Owner, "other@e.c"))
+        .await
+        .unwrap();
+
+    let mut eq = test_equipment(Uuid::new_v4(), owner_id);
+    eq.category_id = cat.id;
+    equipment_repo.create(&eq).await.unwrap();
+
     let app = actix_test::init_service(
         App::new()
             .app_data(state)
@@ -118,7 +149,7 @@ async fn delete_equipment_403_forbidden() {
     .await;
     let token = create_auth0_token(other_id, "owner");
     let req = actix_test::TestRequest::delete()
-        .uri(&format!("/api/v1/equipment/{}", eq_id))
+        .uri(&format!("/api/v1/equipment/{}", eq.id))
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
@@ -127,12 +158,17 @@ async fn delete_equipment_403_forbidden() {
 
 #[actix_rt::test]
 async fn delete_equipment_404_not_found() {
-    let user_repo = Arc::new(MockUserRepo::default());
-    let equipment_repo = Arc::new(MockEquipmentRepo::default());
-    let (state, auth0_config, jwks, provisioning) =
-        app_with_auth0_data(user_repo.clone(), equipment_repo);
+    let test_db = common::setup_test_db().await;
+    let pool = test_db.pool().clone();
+    let (state, auth0_config, jwks, provisioning) = app_with_auth0_data(pool.clone());
+
+    let user_repo = UserRepositoryImpl::new(pool.clone());
     let owner_id = Uuid::new_v4();
-    user_repo.push(test_user(owner_id, Role::Owner, "o@e.c"));
+    user_repo
+        .create(&test_user(owner_id, Role::Owner, "o@e.c"))
+        .await
+        .unwrap();
+
     let app = actix_test::init_service(
         App::new()
             .app_data(state)

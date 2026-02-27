@@ -158,8 +158,16 @@ impl EquipmentRepository for NoopEquipmentRepo {
         Ok(Vec::new())
     }
 
-    async fn find_by_owner(&self, _owner_id: Uuid) -> crate::error::AppResult<Vec<Equipment>> {
+    async fn find_by_owner(
+        &self,
+        _owner_id: Uuid,
+        _limit: i64,
+        _offset: i64,
+    ) -> crate::error::AppResult<Vec<Equipment>> {
         Ok(Vec::new())
+    }
+    async fn count_by_owner(&self, _owner_id: Uuid) -> crate::error::AppResult<i64> {
+        Ok(0)
     }
 
     async fn create(&self, equipment: &Equipment) -> crate::error::AppResult<Equipment> {

@@ -1,4 +1,4 @@
-use super::setup_app;
+use super::*;
 use crate::common;
 use actix_web::{http::StatusCode, test as actix_test};
 use common::auth0_test_helpers::create_auth0_token;
@@ -12,7 +12,7 @@ use uuid::Uuid;
 #[actix_rt::test]
 async fn test_non_participant_cannot_view_conversation() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -33,14 +33,14 @@ async fn test_non_participant_cannot_view_conversation() {
         .uri(&format!("/api/v1/conversations/{}", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token3)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[actix_rt::test]
 async fn test_non_participant_cannot_send_message() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -64,6 +64,6 @@ async fn test_non_participant_cannot_send_message() {
             "content": "Trying to intrude"
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

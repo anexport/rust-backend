@@ -1,13 +1,11 @@
 use super::*;
-use crate::common;
 use crate::common::mocks::*;
-use actix_web::{dev::Payload, http::StatusCode, test as actix_test, web, App, FromRequest};
+use actix_web::{http::StatusCode, test as actix_test, web, App};
 use chrono::{Duration, Utc};
 use rust_backend::domain::*;
-use rust_backend::error::{AppError, AppResult};
+use rust_backend::error::AppError;
 use rust_backend::middleware::auth::*;
 use rust_backend::utils::auth0_claims::*;
-use rust_backend::utils::auth0_jwks::*;
 use std::sync::Arc;
 use uuid::Uuid;
 

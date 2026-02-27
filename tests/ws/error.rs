@@ -22,14 +22,14 @@ async fn test_ws_error_handling() {
     let user_id = Uuid::new_v4();
     let now = Utc::now();
 
-    sqlx::query!(
-        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)",
-        user_id,
-        "ws-errors@example.com",
-        "Error User",
-        now,
-        now
+    sqlx::query(
+        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)"
     )
+    .bind(user_id)
+    .bind("ws-errors@example.com")
+    .bind("Error User")
+    .bind(now)
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to seed user");

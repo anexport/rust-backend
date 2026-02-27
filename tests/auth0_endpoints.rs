@@ -1,3 +1,4 @@
+use chrono::{Duration, Utc};
 use std::sync::{Arc, Mutex};
 
 mod common;
@@ -12,10 +13,10 @@ pub mod tokens;
 use crate::common::mocks::{
     MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
+use base64::Engine;
 
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
-use chrono::Utc;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
@@ -110,10 +111,18 @@ impl MockAuth0ApiClient {
     /// Generate a mock RS256-style JWT token
     pub fn generate_mock_rs256_token(&self) -> String {
         let header = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5In0";
-        // Payload: {"iss":"https://test.auth0.com/","sub":"test-user","aud":"https://api.test.com","exp":1757680000,"iat":1757680000}
-        let payload = "eyJpc3MiOiJodHRwczovL3Rlc3QuYXV0aDAuY29tLyIsInN1YiI6InRlc3QtdXNlciIsImF1ZCI6Imh0dHBzOi8vYXBpLnRlc3QuY29tIiwiZXhwIjoxNzU3NjgwMDAwLCJpYXQiOjE3NTc2ODAwMDB9";
+        let exp = (Utc::now() + Duration::hours(1)).timestamp();
+        let iat = Utc::now().timestamp();
+        let payload = format!(
+            r#"{{"iss":"https://test.auth0.com/","sub":"test-user","aud":"https://api.test.com","exp":{},"iat":{}}}"#,
+            exp, iat
+        );
+        let payload_encoded = base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            payload.as_bytes(),
+        );
         let signature = "bX9ja2stcnMyNTYtc2lnbmF0dXJl";
-        format!("{}.{}.{}", header, payload, signature)
+        format!("{}.{}.{}", header, payload_encoded, signature)
     }
 }
 
@@ -248,9 +257,8 @@ pub fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
 }
 
 pub fn test_db_pool() -> sqlx::PgPool {
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/test_db".to_string());
+    let database_url =
+        std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set for tests");
     PgPoolOptions::new()
         .connect_lazy(&database_url)
         .expect("test db pool should build lazily")

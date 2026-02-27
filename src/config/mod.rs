@@ -127,6 +127,7 @@ impl AppConfig {
             ));
         }
 
+        self.security.validate()?;
         self.auth0.validate()
     }
 }

@@ -22,7 +22,7 @@ pub struct AuthConfig {
     pub audience: String,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Auth0Config {
     pub auth0_domain: Option<String>,
     pub auth0_audience: Option<String>,
@@ -35,6 +35,20 @@ pub struct Auth0Config {
     pub auth0_client_secret: Option<String>,
     #[serde(default = "crate::config::defaults::default_auth0_connection")]
     pub auth0_connection: String,
+}
+
+impl Default for Auth0Config {
+    fn default() -> Self {
+        Self {
+            auth0_domain: None,
+            auth0_audience: None,
+            auth0_issuer: None,
+            jwks_cache_ttl_secs: crate::config::defaults::default_jwks_cache_ttl_secs(),
+            auth0_client_id: None,
+            auth0_client_secret: None,
+            auth0_connection: crate::config::defaults::default_auth0_connection(),
+        }
+    }
 }
 
 impl Auth0Config {

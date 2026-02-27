@@ -4,7 +4,6 @@ use crate::common::mocks::*;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use chrono::Utc;
 use rust_backend::domain::*;
-use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::auth0_api::*;
 use rust_backend::security::{cors_middleware, security_headers};
 use std::sync::Arc;
@@ -62,7 +61,3 @@ async fn auth0_tokens_have_jwt_structure() {
         "ID token should have 3 parts: header.payload.signature"
     );
 }
-
-// =============================================================================
-// ERROR HANDLING TESTS
-// =============================================================================

@@ -37,7 +37,7 @@ async fn test_delete_equipment_cascades_to_photos() {
             }))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
-        assert!(resp.status().is_success());
+        assert_eq!(resp.status(), StatusCode::CREATED);
     }
 
     // Delete equipment

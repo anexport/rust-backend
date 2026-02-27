@@ -220,7 +220,8 @@ async fn users_me_equipment_route_wins_over_dynamic_id_route() {
         .to_request();
     let response = actix_test::call_service(&app, request).await;
     assert_eq!(response.status(), StatusCode::OK);
-    let items: Vec<serde_json::Value> = actix_test::read_body_json(response).await;
+    let body: serde_json::Value = actix_test::read_body_json(response).await;
+    let items = body["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(
         items[0]

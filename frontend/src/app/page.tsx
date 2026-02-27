@@ -1,8 +1,6 @@
 import Link from 'next/link';
 import { MapPin } from 'lucide-react';
 
-export const dynamic = 'force-dynamic';
-
 export default function Home() {
   return (
     <div className="fixed inset-0 z-[100] flex flex-col bg-[#0e7149] text-white overflow-hidden font-sans selection:bg-white/20">

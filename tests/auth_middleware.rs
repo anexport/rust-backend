@@ -116,9 +116,9 @@ pub fn create_valid_auth0_token(
     key_id: &str,
 ) -> String {
     let claims = Auth0Claims {
-        iss: "https://test.auth0.com/".to_string(),
+        iss: "https://test-tenant.auth0.com/".to_string(),
         sub: sub.to_string(),
-        aud: Audience::Single("test-api".to_string()),
+        aud: Audience::Single("rust-backend-test".to_string()),
         exp: exp as u64,
         iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
         email,

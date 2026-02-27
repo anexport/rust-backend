@@ -1,4 +1,4 @@
-use super::setup_app;
+use super::*;
 use crate::common;
 use actix_web::{http::StatusCode, test as actix_test};
 use common::auth0_test_helpers::create_auth0_token;
@@ -11,7 +11,7 @@ use rust_backend::infrastructure::repositories::{
 #[actix_rt::test]
 async fn test_websocket_broadcast_on_send_message() {
     let test_db = common::setup_test_db().await;
-    let (state, app) = setup_app(test_db.pool().clone()).await;
+    let (state, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -36,11 +36,11 @@ async fn test_websocket_broadcast_on_send_message() {
             "content": "WS test message"
         }))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // Check if user2 received the message via WS
-    let ws_msg = tokio::time::timeout(std::time::Duration::from_secs(5), rx2.recv())
+    let ws_msg: String = tokio::time::timeout(std::time::Duration::from_secs(5), rx2.recv())
         .await
         .expect("Timeout waiting for WS broadcast")
         .expect("WS channel closed");

@@ -5,7 +5,8 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::api::dtos::{
-    EquipmentResponse, PublicProfileResponse, UpdateUserRequest, UserProfileResponse,
+    EquipmentResponse, PaginatedResponse, PublicProfileResponse, UpdateUserRequest,
+    UserProfileResponse,
 };
 use crate::domain::{Role, User};
 use crate::error::{AppError, AppResult};
@@ -98,9 +99,29 @@ impl UserService {
         Ok(map_profile(updated))
     }
 
-    pub async fn my_equipment(&self, user_id: Uuid) -> AppResult<Vec<EquipmentResponse>> {
-        let equipment = self.equipment_repo.find_by_owner(user_id).await?;
-        Ok(equipment
+    pub async fn my_equipment(
+        &self,
+        user_id: Uuid,
+        page: i64,
+        limit: i64,
+    ) -> AppResult<PaginatedResponse<EquipmentResponse>> {
+        let page = page.max(1);
+        let limit = limit.clamp(1, 100);
+        let offset = (page - 1) * limit;
+
+        let total = self.equipment_repo.count_by_owner(user_id).await?;
+        let total_pages = if total == 0 {
+            0
+        } else {
+            (total + limit - 1) / limit
+        };
+
+        let equipment = self
+            .equipment_repo
+            .find_by_owner(user_id, limit, offset)
+            .await?;
+
+        let items = equipment
             .into_iter()
             .map(|e| {
                 let coordinates = e.coordinates_tuple().map(|(latitude, longitude)| {
@@ -124,7 +145,15 @@ impl UserService {
                     created_at: e.created_at,
                 }
             })
-            .collect())
+            .collect();
+
+        Ok(PaginatedResponse {
+            items,
+            total,
+            page,
+            limit,
+            total_pages,
+        })
     }
 }
 

@@ -65,6 +65,7 @@ async fn test_get_stats_empty_db() {
         .to_request();
 
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let stats: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(stats["total_users"], 1); // Only admin
     assert_eq!(stats["total_equipment"], 0);
@@ -111,6 +112,7 @@ async fn test_stats_includes_available_equipment_count() {
         .to_request();
 
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let stats: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(stats["total_equipment"], 3);
     assert_eq!(stats["available_equipment"], 2);

@@ -88,7 +88,7 @@ impl UserProvisioningService for MockProvisioningService {
         if let Some(email) = &claims.email {
             if let Some(user) = user_repo.find_by_email(email).await? {
                 // Link identity for next time
-                let _ = auth_repo
+                auth_repo
                     .create_identity(&rust_backend::domain::AuthIdentity {
                         id: Uuid::new_v4(),
                         user_id: user.id,
@@ -98,7 +98,13 @@ impl UserProvisioningService for MockProvisioningService {
                         verified: claims.email_verified.unwrap_or(false),
                         created_at: Utc::now(),
                     })
-                    .await;
+                    .await
+                    .map_err(|e| {
+                        rust_backend::error::AppError::InternalError(anyhow::anyhow!(
+                            "Failed to link identity: {}",
+                            e
+                        ))
+                    })?;
 
                 return Ok(Auth0UserContext {
                     user_id: user.id,
@@ -119,6 +125,10 @@ impl UserProvisioningService for MockProvisioningService {
 }
 
 pub fn create_auth0_token(user_id: Uuid, role: &str) -> String {
+    create_auth0_token_with_email(user_id, role, None)
+}
+
+pub fn create_auth0_token_with_email(user_id: Uuid, role: &str, email: Option<String>) -> String {
     let mut custom_claims = std::collections::HashMap::new();
     custom_claims.insert(
         "https://test-tenant.auth0.com/role".to_string(),
@@ -131,7 +141,7 @@ pub fn create_auth0_token(user_id: Uuid, role: &str) -> String {
         aud: Audience::Single("rust-backend-test".to_string()),
         exp: (Utc::now() + Duration::hours(1)).timestamp() as u64,
         iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
-        email: Some(format!("user-{}@example.com", user_id)),
+        email: email.or_else(|| Some(format!("user-{}@example.com", user_id))),
         email_verified: Some(true),
         name: Some("Test User".to_string()),
         picture: None,

@@ -60,8 +60,13 @@ impl UserRepository for MockUserRepo {
         let mut users = self.users.lock().expect("users mutex poisoned");
         if let Some(existing) = users.iter_mut().find(|existing| existing.id == user.id) {
             *existing = user.clone();
+            Ok(user.clone())
+        } else {
+            Err(rust_backend::error::AppError::NotFound(format!(
+                "User with id {} not found",
+                user.id
+            )))
         }
-        Ok(user.clone())
     }
 
     async fn delete(&self, id: Uuid) -> AppResult<()> {

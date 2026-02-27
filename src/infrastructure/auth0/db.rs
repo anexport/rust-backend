@@ -13,12 +13,12 @@ use crate::error::{AppError, AppResult};
 /// Handles:
 /// - POST /dbconnections/signup - Register new users
 /// - POST /oauth/token (Password Grant) - Authenticate users
-pub struct Auth0ApiClient {
+pub struct Auth0DbClient {
     config: Auth0Config,
     client: Client,
 }
 
-impl Auth0ApiClient {
+impl Auth0DbClient {
     /// Create a new Auth0 API client.
     ///
     /// # Arguments
@@ -235,7 +235,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_fails_when_client_id_missing_before_network_call() {
-        let client = Auth0ApiClient::new(Auth0Config {
+        let client = Auth0DbClient::new(Auth0Config {
             auth0_domain: Some("example.auth0.com".to_string()),
             auth0_client_id: None,
             ..Default::default()
@@ -257,7 +257,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_signup_fails_when_domain_missing_before_network_call() {
-        let client = Auth0ApiClient::new(Auth0Config {
+        let client = Auth0DbClient::new(Auth0Config {
             auth0_domain: None,
             auth0_client_id: Some("client-id".to_string()),
             ..Default::default()
@@ -279,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_password_grant_fails_when_client_id_missing_before_network_call() {
-        let client = Auth0ApiClient::new(Auth0Config {
+        let client = Auth0DbClient::new(Auth0Config {
             auth0_domain: Some("example.auth0.com".to_string()),
             auth0_client_id: None,
             ..Default::default()
@@ -301,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_password_grant_fails_when_domain_missing_before_network_call() {
-        let client = Auth0ApiClient::new(Auth0Config {
+        let client = Auth0DbClient::new(Auth0Config {
             auth0_domain: None,
             auth0_client_id: Some("client-id".to_string()),
             ..Default::default()

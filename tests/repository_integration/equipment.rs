@@ -118,7 +118,7 @@ async fn equipment_repository_negative_and_edge_cases() {
 
     // 1. find_by_owner/count_by_owner returns 0 for new owner
     let found = equipment_repo
-        .find_by_owner(created_owner.id)
+        .find_by_owner(created_owner.id, 10, 0)
         .await
         .unwrap();
     assert!(found.is_empty());

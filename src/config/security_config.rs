@@ -24,6 +24,27 @@ pub struct SecurityConfig {
     pub global_rate_limit_authenticated_per_minute: u32,
 }
 
+impl SecurityConfig {
+    pub fn validate(&self) -> Result<(), super::auth0_config::ConfigError> {
+        if self.global_rate_limit_per_minute == 0 {
+            return Err(super::auth0_config::ConfigError::Auth0Config(
+                "global_rate_limit_per_minute must be greater than 0".to_string(),
+            ));
+        }
+        if self.global_rate_limit_per_minute > 60_000 {
+            return Err(super::auth0_config::ConfigError::Auth0Config(
+                "global_rate_limit_per_minute must not exceed 60,000".to_string(),
+            ));
+        }
+        if self.global_rate_limit_burst_size == 0 {
+            return Err(super::auth0_config::ConfigError::Auth0Config(
+                "global_rate_limit_burst_size must be greater than 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl std::fmt::Debug for SecurityConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("SecurityConfig")

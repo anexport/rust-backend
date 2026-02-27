@@ -1,4 +1,4 @@
-use super::setup_app;
+use super::*;
 use crate::common;
 use actix_web::test as actix_test;
 use chrono::{Duration, Utc};
@@ -13,7 +13,7 @@ use uuid::Uuid;
 #[actix_rt::test]
 async fn test_message_pagination() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -51,7 +51,7 @@ async fn test_message_pagination() {
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 2);
     // Messages should be newest first
@@ -62,7 +62,7 @@ async fn test_message_pagination() {
 #[actix_rt::test]
 async fn test_message_list_ordering() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -97,7 +97,7 @@ async fn test_message_list_ordering() {
         .uri(&format!("/api/v1/conversations/{}/messages", conv.id))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 5);
     assert_eq!(messages[0]["content"], "Message 4");
@@ -107,7 +107,7 @@ async fn test_message_list_ordering() {
 #[actix_rt::test]
 async fn test_pagination_edge_cases() {
     let test_db = common::setup_test_db().await;
-    let (_, app) = setup_app(test_db.pool().clone()).await;
+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
 
@@ -145,7 +145,7 @@ async fn test_pagination_edge_cases() {
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 10);
 
@@ -157,7 +157,7 @@ async fn test_pagination_edge_cases() {
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;
     assert_eq!(messages.len(), 0);
 
@@ -169,6 +169,6 @@ async fn test_pagination_edge_cases() {
         ))
         .insert_header(("Authorization", format!("Bearer {}", token1)))
         .to_request();
-    let resp = actix_test::call_service(&app, req).await;
+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
 }

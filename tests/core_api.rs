@@ -180,12 +180,9 @@ impl UserProvisioningService for MockJitUserProvisioningService {
         let (user_id, user_role) = if let Some(user) = existing_user {
             (user.id, user.role.to_string())
         } else {
-            let role_str = map_role_from_claim(claims);
-            let role = match role_str.as_str() {
-                "admin" => Role::Admin,
-                "owner" => Role::Owner,
-                _ => Role::Renter,
-            };
+            // Default role for new users is Renter, matching production
+            let role = Role::Renter;
+            let role_str = role.to_string();
             // Create new user if not found
             let user = User {
                 id: sub_user_id.unwrap_or_else(Uuid::new_v4),

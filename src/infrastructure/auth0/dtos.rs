@@ -66,12 +66,11 @@ impl Auth0ErrorResponse {
     /// Maps Auth0 error codes to AppError variants
     pub fn to_app_error(&self) -> AppError {
         let code = self.code_or_error();
-        let description = self.description_or_error_description();
+        let _description = self.description_or_error_description();
 
         // Log the full error details server-side for debugging
         error!(
-            code = %self.code,
-            description = %description,
+            code = %code,
             "Auth0 API error"
         );
 

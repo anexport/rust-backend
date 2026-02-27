@@ -86,6 +86,36 @@ pub fn test_equipment(owner_id: Uuid, category_id: Uuid) -> Equipment {
     }
 }
 
+pub fn test_user_with_role(id: Uuid, role: Role, email: &str) -> User {
+    User {
+        id,
+        email: email.to_string(),
+        role,
+        username: Some(format!("user-{}", id)),
+        full_name: None,
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+pub fn test_equipment_basic(id: Uuid, owner_id: Uuid) -> Equipment {
+    Equipment {
+        id,
+        owner_id,
+        category_id: Uuid::new_v4(),
+        title: "Test Equipment".to_string(),
+        description: None,
+        daily_rate: Decimal::new(1000, 2),
+        condition: Condition::Good,
+        location: None,
+        coordinates: None,
+        is_available: true,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
 pub fn test_category() -> Category {
     let id = next_id();
     Category {

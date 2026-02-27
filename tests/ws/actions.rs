@@ -24,59 +24,57 @@ async fn test_ws_action_handlers() {
     let other_user_id = Uuid::new_v4();
     let now = Utc::now();
 
-    sqlx::query!(
-        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)",
-        user_id,
-        "ws-actions@example.com",
-        "Actions User",
-        now,
-        now
+    sqlx::query(
+        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)"
     )
+    .bind(user_id)
+    .bind("ws-actions@example.com")
+    .bind("Actions User")
+    .bind(now)
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to seed user");
 
-    sqlx::query!(
-        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)",
-        other_user_id,
-        "other@example.com",
-        "Other User",
-        now,
-        now
+    sqlx::query(
+        "INSERT INTO profiles (id, email, role, full_name, created_at, updated_at) VALUES ($1, $2, 'renter', $3, $4, $5)"
     )
+    .bind(other_user_id)
+    .bind("other@example.com")
+    .bind("Other User")
+    .bind(now)
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to seed other user");
 
     let conv_id = Uuid::new_v4();
-    sqlx::query!(
-        "INSERT INTO conversations (id, created_at, updated_at) VALUES ($1, $2, $3)",
-        conv_id,
-        now,
-        now
-    )
-    .execute(&pool)
-    .await
-    .expect("Failed to seed conversation");
+    sqlx::query("INSERT INTO conversations (id, created_at, updated_at) VALUES ($1, $2, $3)")
+        .bind(conv_id)
+        .bind(now)
+        .bind(now)
+        .execute(&pool)
+        .await
+        .expect("Failed to seed conversation");
 
-    sqlx::query!(
-        "INSERT INTO conversation_participants (id, conversation_id, profile_id, created_at) VALUES ($1, $2, $3, $4)",
-        Uuid::new_v4(),
-        conv_id,
-        user_id,
-        now
+    sqlx::query(
+        "INSERT INTO conversation_participants (id, conversation_id, profile_id, created_at) VALUES ($1, $2, $3, $4)"
     )
+    .bind(Uuid::new_v4())
+    .bind(conv_id)
+    .bind(user_id)
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to seed participant 1");
 
-    sqlx::query!(
-        "INSERT INTO conversation_participants (id, conversation_id, profile_id, created_at) VALUES ($1, $2, $3, $4)",
-        Uuid::new_v4(),
-        conv_id,
-        other_user_id,
-        now
+    sqlx::query(
+        "INSERT INTO conversation_participants (id, conversation_id, profile_id, created_at) VALUES ($1, $2, $3, $4)"
     )
+    .bind(Uuid::new_v4())
+    .bind(conv_id)
+    .bind(other_user_id)
+    .bind(now)
     .execute(&pool)
     .await
     .expect("Failed to seed participant 2");

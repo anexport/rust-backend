@@ -24,6 +24,21 @@ pub async fn setup_app(
     Response = actix_web::dev::ServiceResponse,
     Error = actix_web::Error,
 > {
+    let (_, app) = setup_app_with_state(db_pool).await;
+    app
+}
+
+#[allow(dead_code)]
+pub async fn setup_app_with_state(
+    db_pool: sqlx::PgPool,
+) -> (
+    AppState,
+    impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+) {
     let user_repo = Arc::new(UserRepositoryImpl::new(db_pool.clone()));
     let equipment_repo = Arc::new(EquipmentRepositoryImpl::new(db_pool.clone()));
     let category_repo = Arc::new(CategoryRepositoryImpl::new(db_pool.clone()));
@@ -71,13 +86,15 @@ pub async fn setup_app(
             db_pool: db_pool.clone(),
         });
 
-    actix_test::init_service(
+    let app = actix_test::init_service(
         App::new()
-            .app_data(web::Data::new(state))
+            .app_data(web::Data::new(state.clone()))
             .app_data(web::Data::new(test_auth0_config()))
             .app_data(web::Data::new(jwks_provider))
             .app_data(web::Data::new(provisioning_service))
             .configure(routes::configure),
     )
-    .await
+    .await;
+
+    (state, app)
 }

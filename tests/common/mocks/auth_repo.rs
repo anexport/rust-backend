@@ -53,12 +53,14 @@ impl AuthRepository for MockAuthRepo {
 
     async fn upsert_identity(&self, identity: &AuthIdentity) -> AppResult<AuthIdentity> {
         let mut identities = self.identities.lock().expect("identities mutex poisoned");
-        if let Some(existing) = identities.iter_mut().find(|i| {
-            i.provider == identity.provider
-                && i.provider_id == identity.provider_id
-                && i.provider_id.is_some()
-        }) {
+        // Use (user_id, provider) as the primary unique key for upsert, matching DB constraint
+        if let Some(existing) = identities
+            .iter_mut()
+            .find(|i| i.user_id == identity.user_id && i.provider == identity.provider)
+        {
             existing.verified = identity.verified;
+            existing.provider_id = identity.provider_id.clone();
+            existing.password_hash = identity.password_hash.clone();
             Ok(existing.clone())
         } else {
             identities.push(identity.clone());

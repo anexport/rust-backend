@@ -8,7 +8,7 @@ pub mod traits;
 mod client_tests;
 
 pub use client::{DisabledAuth0ApiClient, HttpAuth0ApiClient};
-pub use db::Auth0ApiClient as DbAuth0ApiClient;
+pub use db::Auth0DbClient;
 pub use dtos::{
     Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse, PasswordGrantResponse,
     SignupResponse,

@@ -134,7 +134,12 @@ pub trait EquipmentRepository: Send + Sync {
 
         Ok(total)
     }
-    async fn find_by_owner(&self, owner_id: Uuid) -> AppResult<Vec<Equipment>>;
+    async fn find_by_owner(
+        &self,
+        owner_id: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> AppResult<Vec<Equipment>>;
     async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
         let _ = owner_id;
         Err(AppError::InternalError(anyhow::anyhow!(

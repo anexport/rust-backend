@@ -104,7 +104,9 @@ async fn test_profile_viewing_excludes_sensitive_data() {
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
-    let user = fixtures::test_user();
+    let mut user = fixtures::test_user();
+    user.username = Some("test_public_user".to_string());
+    user.avatar_url = Some("https://example.com/avatar.png".to_string());
     user_repo.create(&user).await.unwrap();
 
     let req = actix_test::TestRequest::get()
@@ -115,12 +117,8 @@ async fn test_profile_viewing_excludes_sensitive_data() {
 
     let profile: serde_json::Value = actix_test::read_body_json(resp).await;
     assert!(profile.get("id").is_some());
-    let username = profile.get("username").and_then(|v| v.as_str());
-    let avatar_url = profile.get("avatar_url").and_then(|v| v.as_str());
-    assert!(
-        username.is_some() || avatar_url.is_some(),
-        "Profile should have at least username or avatar_url with a non-null value"
-    );
+    assert_eq!(profile["username"], "test_public_user");
+    assert_eq!(profile["avatar_url"], "https://example.com/avatar.png");
 
     assert!(profile.get("email").is_none());
     assert!(profile.get("role").is_none());
@@ -173,7 +171,7 @@ async fn test_get_public_profile_anonymous() {
 }
 
 #[actix_rt::test]
-async fn test_profile_update_email_validation() {
+async fn test_profile_update_username_validation() {
     let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
