@@ -1,13 +1,13 @@
 use super::*;
 use crate::common::fixtures;
 use crate::common::fixtures::next_id;
-use crate::common::TestDb;
 use crate::common::repository_helpers::create_category;
+use crate::common::TestDb;
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
-use rust_backend::infrastructure::repositories::*;
 use rust_backend::error::AppError;
+use rust_backend::infrastructure::repositories::*;
 use rust_decimal::Decimal;
-use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -175,4 +175,3 @@ async fn user_repository_delete_non_existent_id_is_noop() {
     let found = repo.find_by_id(non_existent_id).await.unwrap();
     assert!(found.is_none());
 }
-

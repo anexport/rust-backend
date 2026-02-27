@@ -1,14 +1,14 @@
 use super::*;
-use crate::common::mocks::*;
 use crate::common;
-use actix_web::{test as actix_test, App, web, http::StatusCode};
+use crate::common::mocks::*;
+use actix_web::{http::StatusCode, test as actix_test, web, App};
+use chrono::Utc;
 use rust_backend::domain::*;
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::infrastructure::auth0_api::*;
 use rust_backend::security::{cors_middleware, security_headers};
-use uuid::Uuid;
-use chrono::Utc;
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[actix_web::test]
 async fn auth0_tokens_have_jwt_structure() {
@@ -66,4 +66,3 @@ async fn auth0_tokens_have_jwt_structure() {
 // =============================================================================
 // ERROR HANDLING TESTS
 // =============================================================================
-

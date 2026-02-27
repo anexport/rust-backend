@@ -3,10 +3,10 @@ use reqwest::{
     Client,
 };
 
-use crate::config::Auth0Config;
-use crate::error::{AppError, AppResult};
 use super::dtos::{PasswordGrantResponse, SignupResponse};
 use super::requests::{PasswordGrantRequest, SignupRequest};
+use crate::config::Auth0Config;
+use crate::error::{AppError, AppResult};
 
 /// Auth0 API client for Database Connection operations.
 ///

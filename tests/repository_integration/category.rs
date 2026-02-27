@@ -1,13 +1,13 @@
 use super::*;
 use crate::common::fixtures;
 use crate::common::fixtures::next_id;
-use crate::common::TestDb;
 use crate::common::repository_helpers::create_category;
+use crate::common::TestDb;
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
-use rust_backend::infrastructure::repositories::*;
 use rust_backend::error::AppError;
+use rust_backend::infrastructure::repositories::*;
 use rust_decimal::Decimal;
-use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -202,4 +202,3 @@ async fn category_repository_delete_parent_with_references_maps_to_conflict() {
 }
 
 // Helper function to create categories directly via SQL for testing
-

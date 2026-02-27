@@ -175,9 +175,7 @@ not-json",
     server.await.expect("server task should complete");
 
     // 5xx errors now map to ServiceUnavailable with generic message
-    assert!(
-        matches!(result, AppError::ServiceUnavailable { service, .. } if service == "Auth0")
-    );
+    assert!(matches!(result, AppError::ServiceUnavailable { service, .. } if service == "Auth0"));
 }
 
 #[tokio::test]
@@ -192,8 +190,7 @@ async fn handle_error_400_unknown_code_maps_to_bad_request() {
         let (mut socket, _) = listener.accept().await.expect("accept should succeed");
         let mut buffer = [0_u8; 1024];
         let _ = socket.read(&mut buffer).await;
-        let payload =
-            r#"{"code":"unknown_code","description":"Custom Auth0 validation failure"}"#;
+        let payload = r#"{"code":"unknown_code","description":"Custom Auth0 validation failure"}"#;
         let response = format!(
             "HTTP/1.1 400 Bad Request
 Content-Type: application/json

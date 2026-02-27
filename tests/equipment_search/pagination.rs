@@ -1,14 +1,14 @@
+use crate::common;
 use crate::common::mocks::*;
 use crate::equipment_search::setup::*;
-use crate::common;
-use actix_web::{test as actix_test, App, web, http::StatusCode};
-use rust_backend::domain::*;
+use actix_web::{http::StatusCode, test as actix_test, web, App};
+use chrono::Utc;
 use rust_backend::api::routes;
 use rust_backend::api::routes::AppState;
+use rust_backend::domain::*;
 use rust_backend::security::{cors_middleware, security_headers};
-use uuid::Uuid;
-use chrono::Utc;
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[actix_rt::test]
 async fn pagination_respects_page_parameter() {
@@ -390,4 +390,3 @@ async fn search_pagination_beyond_bounds() {
     let body: serde_json::Value = actix_test::read_body_json(response).await;
     assert_eq!(get_items_array(&body).len(), 5);
 }
-

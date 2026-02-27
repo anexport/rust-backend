@@ -1,13 +1,13 @@
 use super::*;
 use crate::common::fixtures;
 use crate::common::fixtures::next_id;
-use crate::common::TestDb;
 use crate::common::repository_helpers::create_category;
+use crate::common::TestDb;
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
-use rust_backend::infrastructure::repositories::*;
 use rust_backend::error::AppError;
+use rust_backend::infrastructure::repositories::*;
 use rust_decimal::Decimal;
-use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -105,4 +105,3 @@ async fn auth_repository_upsert_identity_conflict_handling() {
         .unwrap();
     assert!(found.is_some());
 }
-

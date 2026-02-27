@@ -1,13 +1,13 @@
 use super::*;
 use crate::common::fixtures;
 use crate::common::fixtures::next_id;
-use crate::common::TestDb;
 use crate::common::repository_helpers::create_category;
+use crate::common::TestDb;
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
-use rust_backend::infrastructure::repositories::*;
 use rust_backend::error::AppError;
+use rust_backend::infrastructure::repositories::*;
 use rust_decimal::Decimal;
-use chrono::{Utc, Duration};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -392,4 +392,3 @@ async fn equipment_repository_count_by_owners_groups_counts() {
     assert_eq!(counts.get(&owner_one.id), Some(&2));
     assert_eq!(counts.get(&owner_two.id), Some(&1));
 }
-

@@ -1,9 +1,9 @@
 mod common;
 
 mod equipment_search {
-    mod setup;
+    mod auth;
+    mod filters;
     mod geo;
     mod pagination;
-    mod filters;
-    mod auth;
+    mod setup;
 }

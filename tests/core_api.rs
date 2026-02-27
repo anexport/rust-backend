@@ -5,31 +5,31 @@ use std::sync::{Arc, Mutex};
 
 mod common;
 
+#[path = "core_api/admin.rs"]
+pub mod admin;
+#[path = "core_api/conversation.rs"]
+pub mod conversation;
 #[path = "core_api/equipment.rs"]
 pub mod equipment;
 #[path = "core_api/equipment_extended.rs"]
 pub mod equipment_extended;
 #[path = "core_api/equipment_photos.rs"]
 pub mod equipment_photos;
-#[path = "core_api/conversation.rs"]
-pub mod conversation;
 #[path = "core_api/messages.rs"]
 pub mod messages;
-#[path = "core_api/users.rs"]
-pub mod users;
-#[path = "core_api/user_routes.rs"]
-pub mod user_routes;
 #[path = "core_api/system.rs"]
 pub mod system;
-#[path = "core_api/admin.rs"]
-pub mod admin;
+#[path = "core_api/user_routes.rs"]
+pub mod user_routes;
+#[path = "core_api/users.rs"]
+pub mod users;
 
-use common::mocks::{
-    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
-};
 use actix_web::web;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
+use common::mocks::{
+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
+};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
 use rust_backend::api::routes::AppState;
 use rust_backend::application::{
@@ -428,7 +428,7 @@ pub fn app_with_auth0_data_and_message_repo(
 pub fn test_db_pool() -> sqlx::PgPool {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/test_db".to_string());
     PgPoolOptions::new()
         .connect_lazy(&database_url)
         .expect("test db pool should build lazily")

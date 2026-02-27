@@ -2,10 +2,10 @@ use std::sync::{Arc, Mutex};
 
 mod common;
 
-#[path = "auth0_endpoints/signup.rs"]
-pub mod signup;
 #[path = "auth0_endpoints/login.rs"]
 pub mod login;
+#[path = "auth0_endpoints/signup.rs"]
+pub mod signup;
 #[path = "auth0_endpoints/tokens.rs"]
 pub mod tokens;
 
@@ -110,7 +110,8 @@ impl MockAuth0ApiClient {
     /// Generate a mock RS256-style JWT token
     pub fn generate_mock_rs256_token(&self) -> String {
         let header = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5In0";
-        let payload = "eyJpc3MiOiJodHRwczovL3Rlc3QuYXV0aDAuY29tLyIsInN1YiI6ImF1ZCI6Imh0dHBzOi8vYXBpLnRlc3QuY29tIiwiZXhwIjoxNzU3NjgwMCwiaWF0IjoxNzU3NjgwMH0";
+        // Payload: {"iss":"https://test.auth0.com/","sub":"test-user","aud":"https://api.test.com","exp":1757680000,"iat":1757680000}
+        let payload = "eyJpc3MiOiJodHRwczovL3Rlc3QuYXV0aDAuY29tLyIsInN1YiI6InRlc3QtdXNlciIsImF1ZCI6Imh0dHBzOi8vYXBpLnRlc3QuY29tIiwiZXhwIjoxNzU3NjgwMDAwLCJpYXQiOjE3NTc2ODAwMDB9";
         let signature = "bX9ja2stcnMyNTYtc2lnbmF0dXJl";
         format!("{}.{}.{}", header, payload, signature)
     }
@@ -249,7 +250,7 @@ pub fn app_state(auth0_api_client: Arc<dyn Auth0ApiClient>) -> AppState {
 pub fn test_db_pool() -> sqlx::PgPool {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:1/test_db".to_string());
+        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/test_db".to_string());
     PgPoolOptions::new()
         .connect_lazy(&database_url)
         .expect("test db pool should build lazily")

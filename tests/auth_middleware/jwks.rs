@@ -1,15 +1,15 @@
 use super::*;
-use crate::common::mocks::*;
 use crate::common;
-use actix_web::{test as actix_test, App, web, http::StatusCode, dev::Payload, FromRequest};
+use crate::common::mocks::*;
+use actix_web::{dev::Payload, http::StatusCode, test as actix_test, web, App, FromRequest};
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::middleware::auth::*;
 use rust_backend::utils::auth0_claims::*;
 use rust_backend::utils::auth0_jwks::*;
-use uuid::Uuid;
-use chrono::{Utc, Duration};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[actix_rt::test]
 async fn audience_single_contains_matching_audience() {
@@ -160,4 +160,3 @@ async fn create_token_with_wrong_audience() {
     // Should succeed when audience validation is disabled
     assert!(decoded.is_ok());
 }
-

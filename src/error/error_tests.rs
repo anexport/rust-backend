@@ -1,14 +1,14 @@
-use actix_web::http::StatusCode;
 use actix_web::body::to_bytes;
+use actix_web::http::StatusCode;
 use actix_web::ResponseError;
 use serde_json::Value;
 use validator::Validate;
 
-use super::AppError;
 use super::db_mapping::{
     conflict_message_from_constraint, extract_raise_exception_message, map_database_error,
     required_field_message_from_db,
 };
+use super::AppError;
 
 #[derive(Debug, Validate)]
 struct RegisterValidation {
@@ -32,8 +32,7 @@ async fn validation_error_response_includes_field_details() {
         .await
         .map_err(|_| "body read failed")
         .expect("response body should be readable");
-    let json: Value =
-        serde_json::from_slice(&body).expect("response body should be valid json");
+    let json: Value = serde_json::from_slice(&body).expect("response body should be valid json");
 
     assert_eq!(json["error"], "Validation error");
     assert_eq!(json["code"], "VALIDATION_ERROR");
@@ -54,8 +53,7 @@ async fn conflict_response_exposes_specific_message() {
         .await
         .map_err(|_| "body read failed")
         .expect("response body should be readable");
-    let json: Value =
-        serde_json::from_slice(&body).expect("response body should be valid json");
+    let json: Value = serde_json::from_slice(&body).expect("response body should be valid json");
 
     assert_eq!(json["error"], "Conflict");
     assert_eq!(json["code"], "CONFLICT");
@@ -266,8 +264,7 @@ fn public_message_hides_internal_errors_and_exposes_public_variants() {
 
 #[test]
 fn from_domain_error_maps_all_variants() {
-    let not_found: AppError =
-        crate::domain::DomainError::NotFound("missing".to_string()).into();
+    let not_found: AppError = crate::domain::DomainError::NotFound("missing".to_string()).into();
     assert!(matches!(not_found, AppError::NotFound(message) if message == "missing"));
 
     let validation: AppError =
@@ -281,8 +278,7 @@ fn from_domain_error_maps_all_variants() {
         crate::domain::DomainError::BusinessRuleViolation("rule broken".to_string()).into();
     assert!(matches!(business, AppError::BadRequest(message) if message == "rule broken"));
 
-    let conflict: AppError =
-        crate::domain::DomainError::Conflict("duplicate".to_string()).into();
+    let conflict: AppError = crate::domain::DomainError::Conflict("duplicate".to_string()).into();
     assert!(matches!(conflict, AppError::Conflict(message) if message == "duplicate"));
 }
 
@@ -326,8 +322,7 @@ fn maps_remaining_sqlstate_codes_and_unknown() {
 
 #[test]
 fn required_field_message_from_db_parses_and_handles_no_match() {
-    let parsed =
-        required_field_message_from_db("null value in column \"email\" violates not-null");
+    let parsed = required_field_message_from_db("null value in column \"email\" violates not-null");
     assert_eq!(parsed, Some("email is required".to_string()));
 
     let no_match = required_field_message_from_db("not a postgres not-null message");

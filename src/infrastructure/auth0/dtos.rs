@@ -1,6 +1,6 @@
+use crate::error::AppError;
 use serde::{Deserialize, Serialize};
 use tracing::error;
-use crate::error::AppError;
 
 /// Response from Auth0 signup endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]

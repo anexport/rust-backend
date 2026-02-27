@@ -1,15 +1,15 @@
 use super::*;
-use crate::common::mocks::*;
 use crate::common;
-use actix_web::{test as actix_test, App, web, http::StatusCode, dev::Payload, FromRequest};
+use crate::common::mocks::*;
+use actix_web::{dev::Payload, http::StatusCode, test as actix_test, web, App, FromRequest};
+use chrono::{Duration, Utc};
 use rust_backend::domain::*;
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::middleware::auth::*;
 use rust_backend::utils::auth0_claims::*;
 use rust_backend::utils::auth0_jwks::*;
-use uuid::Uuid;
-use chrono::{Utc, Duration};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[actix_rt::test]
 async fn user_provisioning_with_existing_identity_reuses_user() {
@@ -666,4 +666,3 @@ async fn user_provisioning_with_non_namespaced_role_as_single_string() {
 // ============================================================================
 // TEST: Auth0AuthenticatedUser extractor branches
 // ============================================================================
-

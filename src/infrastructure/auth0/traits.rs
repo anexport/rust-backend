@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::error::AppResult;
 use super::dtos::{Auth0SignupResponse, Auth0TokenResponse};
+use crate::error::AppResult;
+use async_trait::async_trait;
 
 /// Trait for Auth0 API operations
 #[async_trait]

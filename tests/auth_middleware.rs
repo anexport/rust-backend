@@ -2,14 +2,14 @@ use std::sync::{Arc, Mutex};
 
 mod common;
 
-#[path = "auth_middleware/provisioning.rs"]
-pub mod provisioning;
+#[path = "auth_middleware/extractor.rs"]
+pub mod extractor;
 #[path = "auth_middleware/jwks.rs"]
 pub mod jwks;
 #[path = "auth_middleware/jwt_validation.rs"]
 pub mod jwt_validation;
-#[path = "auth_middleware/extractor.rs"]
-pub mod extractor;
+#[path = "auth_middleware/provisioning.rs"]
+pub mod provisioning;
 
 use crate::common::mocks::{MockAuthRepo, MockUserRepo};
 use actix_web::{dev::Payload, http::header::AUTHORIZATION, test as actix_test, web, FromRequest};
@@ -27,14 +27,18 @@ use rust_backend::utils::auth0_jwks::{Jwk, Jwks, JwksProvider};
 use uuid::Uuid;
 
 // Mock JWKS client for testing
+// NOTE: This mock only exercises JWKS lookup mechanics (fetch_jwks, get_decoding_key).
+// The RSA modulus is a placeholder and will NOT pass actual signature verification.
+// For tests requiring real RS256 verification, use StaticJwksProvider with real keys.
 pub struct MockJwksClient {
     pub test_keys: Mutex<Vec<(String, Vec<u8>)>>,
 }
 
 impl MockJwksClient {
     pub fn new() -> Self {
-        // Create test RSA keys (simplified for testing)
-        let test_modulus = vec![0x00u8; 256]; // 2048-bit modulus (simplified)
+        // Placeholder RSA modulus (not a valid RSA key)
+        // This mock is for testing JWKS endpoint mechanics, not cryptographic verification
+        let test_modulus = vec![0x00u8; 256]; // 2048-bit modulus placeholder
         Self {
             test_keys: Mutex::new(vec![("test-key-id".to_string(), test_modulus.clone())]),
         }
@@ -105,7 +109,12 @@ impl JwksProvider for MockJwksClient {
 }
 
 // Helper to create a valid Auth0 token
-pub fn create_valid_auth0_token(sub: &str, email: Option<String>, exp: i64, key_id: &str) -> String {
+pub fn create_valid_auth0_token(
+    sub: &str,
+    email: Option<String>,
+    exp: i64,
+    key_id: &str,
+) -> String {
     let claims = Auth0Claims {
         iss: "https://test.auth0.com/".to_string(),
         sub: sub.to_string(),

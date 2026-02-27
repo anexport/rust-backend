@@ -1,16 +1,16 @@
 use super::*;
-use crate::common::mocks::*;
 use crate::common;
-use actix_web::{test as actix_test, App, web, http::StatusCode};
-use rust_backend::domain::*;
+use crate::common::mocks::*;
+use actix_web::{http::StatusCode, test as actix_test, web, App};
+use chrono::{Duration, Utc};
 use rust_backend::api::routes;
 use rust_backend::api::routes::AppState;
-use rust_backend::security::{cors_middleware, security_headers};
+use rust_backend::domain::*;
 use rust_backend::infrastructure::repositories::*;
+use rust_backend::security::{cors_middleware, security_headers};
 use rust_decimal::Decimal;
-use chrono::{Utc, Duration};
-use uuid::Uuid;
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[actix_rt::test]
 async fn create_conversation_succeeds() {

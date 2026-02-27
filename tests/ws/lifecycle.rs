@@ -235,7 +235,7 @@ async fn test_ws_ping_pong_heartbeat() {
             .unwrap()
             .unwrap()
             .unwrap();
-            
+
         match msg {
             ws::Frame::Pong(bytes) => {
                 assert_eq!(bytes, "hello");
