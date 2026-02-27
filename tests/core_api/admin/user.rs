@@ -6,16 +6,14 @@ use common::fixtures;
 use common::TestDb;
 use rust_backend::domain::Role;
 use rust_backend::infrastructure::repositories::{
-    CategoryRepository, CategoryRepositoryImpl, EquipmentRepository, EquipmentRepositoryImpl,
-    UserRepository, UserRepositoryImpl,
+    AuthRepository, AuthRepositoryImpl, CategoryRepository, CategoryRepositoryImpl,
+    EquipmentRepository, EquipmentRepositoryImpl, UserRepository, UserRepositoryImpl,
 };
 use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_admin_cannot_demote_self() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -40,9 +38,7 @@ async fn test_admin_cannot_demote_self() {
 
 #[actix_rt::test]
 async fn test_admin_update_role_owner_to_admin() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -67,9 +63,7 @@ async fn test_admin_update_role_owner_to_admin() {
 
 #[actix_rt::test]
 async fn test_user_management_flow() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -86,6 +80,7 @@ async fn test_user_management_flow() {
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let list: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(list["total"], 2);
 
@@ -115,9 +110,7 @@ async fn test_user_management_flow() {
 
 #[actix_rt::test]
 async fn test_get_user_detail_by_id() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -150,9 +143,7 @@ async fn test_get_user_detail_by_id() {
 
 #[actix_rt::test]
 async fn test_user_list_pagination() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -172,6 +163,7 @@ async fn test_user_list_pagination() {
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let page1: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(page1["users"].as_array().unwrap().len(), 5);
     assert_eq!(page1["total"], 12);
@@ -182,6 +174,7 @@ async fn test_user_list_pagination() {
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let page2: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(page2["users"].as_array().unwrap().len(), 5);
 
@@ -191,15 +184,14 @@ async fn test_user_list_pagination() {
         .insert_header(("Authorization", format!("Bearer {}", token)))
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let page3: serde_json::Value = actix_test::read_body_json(resp).await;
     assert_eq!(page3["users"].as_array().unwrap().len(), 2);
 }
 
 #[actix_rt::test]
 async fn test_delete_user_cascades_to_equipment() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -232,9 +224,7 @@ async fn test_delete_user_cascades_to_equipment() {
 
 #[actix_rt::test]
 async fn test_admin_can_demote_other_admin_role() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -257,4 +247,40 @@ async fn test_admin_can_demote_other_admin_role() {
 
     let updated = user_repo.find_by_id(admin2.id).await.unwrap().unwrap();
     assert_eq!(updated.role, Role::Renter);
+}
+
+#[actix_rt::test]
+async fn test_admin_access_denied_if_role_is_renter_in_db() {
+    let test_db = common::setup_test_db().await;
+    let app = setup_app(test_db.pool().clone()).await;
+    let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
+
+    // Create a user who is a RENTER in the database
+    let user = fixtures::test_user();
+    user_repo.create(&user).await.unwrap();
+
+    // Create an identity so the lookup works
+    let auth_repo = AuthRepositoryImpl::new(test_db.pool().clone());
+    let identity = rust_backend::domain::AuthIdentity {
+        id: Uuid::new_v4(),
+        user_id: user.id,
+        provider: rust_backend::domain::AuthProvider::Auth0,
+        provider_id: Some(format!("auth0|{}", user.id)),
+        password_hash: None,
+        verified: true,
+        created_at: chrono::Utc::now(),
+    };
+    auth_repo.create_identity(&identity).await.unwrap();
+
+    // But provide a JWT that claims they are an ADMIN
+    let token = create_auth0_token(user.id, "admin");
+
+    let req = actix_test::TestRequest::get()
+        .uri("/api/v1/admin/stats")
+        .insert_header(("Authorization", format!("Bearer {}", token)))
+        .to_request();
+
+    let resp = actix_test::call_service(&app, req).await;
+    // Should be Forbidden because the database role (renter) takes precedence
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

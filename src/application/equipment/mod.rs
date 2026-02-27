@@ -208,7 +208,7 @@ impl EquipmentService {
                 if photo.is_primary {
                     let mut updated = photo.clone();
                     updated.is_primary = false;
-                    let _ = self.equipment_repo.update_photo(&updated).await;
+                    self.equipment_repo.update_photo(&updated).await?;
                 }
             }
         }

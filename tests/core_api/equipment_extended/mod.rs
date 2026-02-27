@@ -100,10 +100,17 @@ impl UserProvisioningService for MockJitUserProvisioningService {
             .nth(1)
             .and_then(|raw| Uuid::parse_str(raw).ok())
             .unwrap_or_else(Uuid::new_v4);
+
+        let role = if let Some(role_val) = claims.custom_claims.get("role") {
+            role_val.as_str().unwrap_or("renter").to_string()
+        } else {
+            "renter".to_string()
+        };
+
         Ok(Auth0UserContext {
             user_id,
             auth0_sub: claims.sub.clone(),
-            role: "owner".to_string(),
+            role,
             email: claims.email.clone(),
         })
     }
@@ -124,6 +131,11 @@ impl MockJwksClient {
         }
     }
 }
+impl Default for MockJwksClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 #[async_trait]
 impl rust_backend::utils::auth0_jwks::JwksProvider for MockJwksClient {
     async fn get_decoding_key(
@@ -132,7 +144,7 @@ impl rust_backend::utils::auth0_jwks::JwksProvider for MockJwksClient {
     ) -> rust_backend::error::AppResult<jsonwebtoken::DecodingKey> {
         self.decoding_keys
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(kid)
             .cloned()
             .ok_or(rust_backend::error::AppError::Unauthorized)

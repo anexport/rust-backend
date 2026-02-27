@@ -70,6 +70,14 @@ pub fn default_global_rate_limit_authenticated_per_minute() -> u32 {
     1000
 }
 
+pub fn default_logging_level() -> String {
+    "info".to_string()
+}
+
+pub fn default_logging_json_format() -> bool {
+    false
+}
+
 pub fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|v| {
         let trimmed = v.trim();

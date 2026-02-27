@@ -12,9 +12,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_message_pagination() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -63,9 +61,7 @@ async fn test_message_pagination() {
 
 #[actix_rt::test]
 async fn test_message_list_ordering() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -110,9 +106,7 @@ async fn test_message_list_ordering() {
 
 #[actix_rt::test]
 async fn test_pagination_edge_cases() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());

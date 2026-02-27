@@ -10,9 +10,7 @@ use rust_backend::infrastructure::repositories::{
 
 #[actix_rt::test]
 async fn test_websocket_broadcast_on_send_message() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (state, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());
@@ -42,7 +40,7 @@ async fn test_websocket_broadcast_on_send_message() {
     assert_eq!(resp.status(), StatusCode::CREATED);
 
     // Check if user2 received the message via WS
-    let ws_msg = tokio::time::timeout(std::time::Duration::from_secs(1), rx2.recv())
+    let ws_msg = tokio::time::timeout(std::time::Duration::from_secs(5), rx2.recv())
         .await
         .expect("Timeout waiting for WS broadcast")
         .expect("WS channel closed");

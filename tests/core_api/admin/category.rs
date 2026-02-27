@@ -11,9 +11,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_admin_category_hierarchy_validation() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let category_repo = CategoryRepositoryImpl::new(test_db.pool().clone());
@@ -55,9 +53,7 @@ async fn test_admin_category_hierarchy_validation() {
 
 #[actix_rt::test]
 async fn test_category_management_flow() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let category_repo = CategoryRepositoryImpl::new(test_db.pool().clone());
@@ -103,9 +99,7 @@ async fn test_category_management_flow() {
 
 #[actix_rt::test]
 async fn test_category_list_with_hierarchy() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let category_repo = CategoryRepositoryImpl::new(test_db.pool().clone());

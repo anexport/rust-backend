@@ -9,9 +9,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_get_user_profile_not_found() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
 
     let req = actix_test::TestRequest::get()
@@ -23,15 +21,12 @@ async fn test_get_user_profile_not_found() {
 
 #[actix_rt::test]
 async fn test_update_profile_partial() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
-    let user = fixtures::test_user();
+    let mut user = fixtures::test_user();
     let old_full_name = "Original Name".to_string();
-    let mut user = user;
     user.full_name = Some(old_full_name.clone());
     user_repo.create(&user).await.unwrap();
     let token = create_auth0_token(user.id, "renter");
@@ -55,9 +50,7 @@ async fn test_update_profile_partial() {
 
 #[actix_rt::test]
 async fn test_update_own_profile() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -84,9 +77,7 @@ async fn test_update_own_profile() {
 
 #[actix_rt::test]
 async fn test_cannot_update_other_profile() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -109,9 +100,7 @@ async fn test_cannot_update_other_profile() {
 
 #[actix_rt::test]
 async fn test_profile_viewing_excludes_sensitive_data() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -139,9 +128,7 @@ async fn test_profile_viewing_excludes_sensitive_data() {
 
 #[actix_rt::test]
 async fn test_profile_update_username_constraints() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -171,9 +158,7 @@ async fn test_profile_update_username_constraints() {
 
 #[actix_rt::test]
 async fn test_get_public_profile_anonymous() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -189,9 +174,7 @@ async fn test_get_public_profile_anonymous() {
 
 #[actix_rt::test]
 async fn test_profile_update_email_validation() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 

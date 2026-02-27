@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, Header};
@@ -10,11 +11,13 @@ use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext}
 use rust_backend::utils::auth0_jwks::JwksProvider;
 use uuid::Uuid;
 
+#[allow(dead_code)]
 pub struct MockJwksProvider {
     pub decoding_key: DecodingKey,
 }
 
 impl MockJwksProvider {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         let public_key_pem = include_str!("../test_public_key.pem");
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem.as_bytes())
@@ -51,7 +54,12 @@ impl UserProvisioningService for MockProvisioningService {
 
         // Try to find existing identity
         if let Some(identity) = auth_repo.find_identity_by_provider_id("auth0", sub).await? {
-            let user = user_repo.find_by_id(identity.user_id).await?.unwrap();
+            let user = user_repo
+                .find_by_id(identity.user_id)
+                .await?
+                .ok_or_else(|| {
+                    rust_backend::error::AppError::NotFound("user not found".to_string())
+                })?;
             return Ok(Auth0UserContext {
                 user_id: user.id,
                 auth0_sub: sub.clone(),
@@ -75,6 +83,31 @@ impl UserProvisioningService for MockProvisioningService {
         } else {
             Uuid::new_v4()
         };
+
+        // Try to find existing user by email if identity not found
+        if let Some(email) = &claims.email {
+            if let Some(user) = user_repo.find_by_email(email).await? {
+                // Link identity for next time
+                let _ = auth_repo
+                    .create_identity(&rust_backend::domain::AuthIdentity {
+                        id: Uuid::new_v4(),
+                        user_id: user.id,
+                        provider: rust_backend::domain::AuthProvider::Auth0,
+                        provider_id: Some(sub.clone()),
+                        password_hash: None,
+                        verified: claims.email_verified.unwrap_or(false),
+                        created_at: Utc::now(),
+                    })
+                    .await;
+
+                return Ok(Auth0UserContext {
+                    user_id: user.id,
+                    auth0_sub: sub.clone(),
+                    role: user.role.to_string(),
+                    email: Some(user.email),
+                });
+            }
+        }
 
         Ok(Auth0UserContext {
             user_id,

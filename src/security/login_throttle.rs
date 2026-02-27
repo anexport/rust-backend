@@ -70,12 +70,12 @@ impl LoginThrottle {
             entry.locked_until = Some(now + Duration::seconds(window_seconds as i64));
         }
 
-        entry.failures = entry.failures.saturating_add(1);
-        entries.insert(key.to_string(), entry.clone());
-
-        if entry.failures > max_requests {
+        if entry.failures >= max_requests {
             return Err(AppError::RateLimited);
         }
+
+        entry.failures = entry.failures.saturating_add(1);
+        entries.insert(key.to_string(), entry);
 
         Ok(())
     }

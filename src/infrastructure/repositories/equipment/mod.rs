@@ -205,7 +205,7 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '' OR p.email ILIKE '%' || $1 || '%' ESCAPE '')
+            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '\' OR p.email ILIKE '%' || $1 || '%' ESCAPE '\')
             "#,
         )
         .bind(escaped_search.as_deref())
@@ -236,7 +236,7 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
-            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '' OR p.email ILIKE '%' || $3 || '%' ESCAPE '')
+            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '\' OR p.email ILIKE '%' || $3 || '%' ESCAPE '\')
             ORDER BY e.created_at DESC
             LIMIT $1 OFFSET $2
             "#,

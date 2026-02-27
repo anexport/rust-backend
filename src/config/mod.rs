@@ -31,7 +31,9 @@ pub struct AppConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct LoggingConfig {
+    #[serde(default = "defaults::default_logging_level")]
     pub level: String,
+    #[serde(default = "defaults::default_logging_json_format")]
     pub json_format: bool,
 }
 
@@ -74,6 +76,7 @@ impl AppConfig {
                         "AUTH0_CLIENT_ID",
                         "AUTH0_CONNECTION",
                         "AUTH0_CLIENT_SECRET",
+                        "SENTRY_DSN",
                     ])
                     .map(|key| match key.as_str() {
                         "DATABASE_URL" => "database.url".into(),

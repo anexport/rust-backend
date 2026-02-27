@@ -116,6 +116,12 @@ impl MockJwksClient {
     }
 }
 
+impl Default for MockJwksClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl JwksProvider for MockJwksClient {
     async fn get_decoding_key(&self, kid: &str) -> rust_backend::error::AppResult<DecodingKey> {
@@ -159,22 +165,23 @@ impl UserProvisioningService for MockJitUserProvisioningService {
             .nth(1)
             .and_then(|raw| Uuid::parse_str(raw).ok());
 
-        let existing_user_id = {
+        let existing_user = {
             let users = self.user_repo.users.lock().unwrap();
             sub_user_id
-                .and_then(|id| users.iter().find(|u| u.id == id).map(|u| u.id))
+                .and_then(|id| users.iter().find(|u| u.id == id).cloned())
                 .or_else(|| {
                     users
                         .iter()
                         .find(|u| u.email == claims.email.as_deref().unwrap_or(""))
-                        .map(|u| u.id)
+                        .cloned()
                 })
         };
 
-        let user_id = if let Some(existing_id) = existing_user_id {
-            existing_id
+        let (user_id, user_role) = if let Some(user) = existing_user {
+            (user.id, user.role.to_string())
         } else {
-            let role = match map_role_from_claim(claims).as_str() {
+            let role_str = map_role_from_claim(claims);
+            let role = match role_str.as_str() {
                 "admin" => Role::Admin,
                 "owner" => Role::Owner,
                 _ => Role::Renter,
@@ -194,7 +201,7 @@ impl UserProvisioningService for MockJitUserProvisioningService {
                 updated_at: Utc::now(),
             };
             self.user_repo.users.lock().unwrap().push(user.clone());
-            user.id
+            (user.id, role_str)
         };
 
         let identity = AuthIdentity {
@@ -211,7 +218,7 @@ impl UserProvisioningService for MockJitUserProvisioningService {
         Ok(Auth0UserContext {
             user_id,
             auth0_sub: claims.sub.clone(),
-            role: map_role_from_claim(claims),
+            role: user_role,
             email: claims.email.clone(),
         })
     }

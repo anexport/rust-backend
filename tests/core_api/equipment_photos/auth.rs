@@ -12,9 +12,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_equipment_photo_authorization() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());

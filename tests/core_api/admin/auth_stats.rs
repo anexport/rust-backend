@@ -11,9 +11,7 @@ use rust_backend::infrastructure::repositories::{
 
 #[actix_rt::test]
 async fn test_admin_stats_authorization() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
 
     // 1. Unauthenticated (401)
@@ -53,9 +51,7 @@ async fn test_admin_stats_authorization() {
 
 #[actix_rt::test]
 async fn test_get_stats_empty_db() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -77,9 +73,7 @@ async fn test_get_stats_empty_db() {
 
 #[actix_rt::test]
 async fn test_stats_includes_available_equipment_count() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = rust_backend::infrastructure::repositories::EquipmentRepositoryImpl::new(

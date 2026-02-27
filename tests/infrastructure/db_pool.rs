@@ -9,10 +9,7 @@ use std::time::Duration;
 
 #[tokio::test]
 async fn test_create_pool_success() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
@@ -33,10 +30,7 @@ async fn test_create_pool_success() {
 
 #[tokio::test]
 async fn test_pool_exhaustion_behavior() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
@@ -67,10 +61,7 @@ async fn test_pool_exhaustion_behavior() {
 
 #[tokio::test]
 async fn test_pool_test_before_acquire() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
@@ -138,10 +129,7 @@ async fn test_pool_invalid_url_fails_immediately() {
 
 #[tokio::test]
 async fn test_connection_reuse() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
@@ -170,10 +158,7 @@ async fn test_connection_reuse() {
 
 #[tokio::test]
 async fn test_idle_timeout_closes_connections() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),
@@ -212,10 +197,7 @@ async fn test_idle_timeout_closes_connections() {
 
 #[tokio::test]
 async fn test_max_lifetime_recycles_connections() {
-    let Some(test_db) = TestDb::new().await else {
-        eprintln!("Skipping test: TEST_DATABASE_URL or DATABASE_URL not set");
-        return;
-    };
+    let test_db = common::setup_test_db().await;
 
     let config = DatabaseConfig {
         url: test_db.url().to_string(),

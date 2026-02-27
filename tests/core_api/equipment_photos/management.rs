@@ -12,9 +12,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_equipment_multiple_photos() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -49,9 +47,7 @@ async fn test_equipment_multiple_photos() {
 
 #[actix_rt::test]
 async fn test_admin_photo_management() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -95,9 +91,7 @@ async fn test_admin_photo_management() {
 
 #[actix_rt::test]
 async fn test_photo_persistence_verification() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -132,9 +126,7 @@ async fn test_photo_persistence_verification() {
 
 #[actix_rt::test]
 async fn test_photo_associated_with_correct_equipment() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -171,9 +163,7 @@ async fn test_photo_associated_with_correct_equipment() {
 
 #[actix_rt::test]
 async fn test_delete_photo_leaves_other_photos_intact() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -200,6 +190,7 @@ async fn test_delete_photo_leaves_other_photos_intact() {
             }))
             .to_request();
         let resp = actix_test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::CREATED);
         let photo: serde_json::Value = actix_test::read_body_json(resp).await;
         photo_ids.push(Uuid::parse_str(photo["id"].as_str().unwrap()).unwrap());
     }

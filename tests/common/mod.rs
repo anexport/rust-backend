@@ -9,9 +9,15 @@ use sqlx::Connection;
 use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
+#[allow(dead_code, unused_imports)]
+pub mod app_helpers;
+#[allow(dead_code, unused_imports)]
 pub mod auth0_test_helpers;
+#[allow(dead_code, unused_imports)]
 pub mod fixtures;
+#[allow(dead_code, unused_imports)]
 pub mod mocks;
+#[allow(dead_code, unused_imports)]
 pub mod repository_helpers;
 
 static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));

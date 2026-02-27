@@ -39,6 +39,11 @@ async fn add_photo_success() {
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Verify in repo
+    let photos = equipment_repo.photos.lock().unwrap();
+    assert_eq!(photos.len(), 1);
+    assert_eq!(photos[0].photo_url, "http://example.com/p.jpg");
 }
 
 #[actix_rt::test]
@@ -80,6 +85,10 @@ async fn delete_photo_success() {
         .to_request();
     let resp = actix_test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Verify in repo
+    let photos = equipment_repo.photos.lock().unwrap();
+    assert!(photos.is_empty());
 }
 
 #[actix_rt::test]

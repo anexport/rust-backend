@@ -9,9 +9,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_conversation_crud_flow() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -71,9 +69,7 @@ async fn test_conversation_crud_flow() {
 
 #[actix_rt::test]
 async fn test_create_conversation_validates_participants() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -95,9 +91,7 @@ async fn test_create_conversation_validates_participants() {
 
 #[actix_rt::test]
 async fn test_conversation_list_isolation() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let message_repo = rust_backend::infrastructure::repositories::MessageRepositoryImpl::new(
@@ -135,9 +129,7 @@ async fn test_conversation_list_isolation() {
 
 #[actix_rt::test]
 async fn test_cannot_create_conversation_with_nonexistent_user() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 
@@ -158,9 +150,7 @@ async fn test_cannot_create_conversation_with_nonexistent_user() {
 
 #[actix_rt::test]
 async fn test_conversation_duplicate_prevention() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let (_, app) = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
 

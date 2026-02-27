@@ -5,7 +5,7 @@ use crate::error::{AppError, AppResult};
 pub fn normalize_pagination(page: i64, per_page: i64) -> (i64, i64, i64) {
     let page = page.max(1);
     let per_page = per_page.clamp(1, 100);
-    let offset = (page - 1) * per_page;
+    let offset = (page - 1).saturating_mul(per_page);
     (page, per_page, offset)
 }
 

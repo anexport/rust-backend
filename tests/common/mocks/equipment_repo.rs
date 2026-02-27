@@ -40,12 +40,16 @@ impl EquipmentRepository for MockEquipmentRepo {
             .cloned())
     }
 
-    async fn find_all(&self, _limit: i64, _offset: i64) -> AppResult<Vec<Equipment>> {
-        Ok(self
+    async fn find_all(&self, limit: i64, offset: i64) -> AppResult<Vec<Equipment>> {
+        let rows = self
             .equipment
             .lock()
             .expect("equipment mutex poisoned")
-            .clone())
+            .clone();
+
+        let start = offset.max(0) as usize;
+        let limit = limit.max(0) as usize;
+        Ok(rows.into_iter().skip(start).take(limit).collect())
     }
 
     async fn search(
@@ -122,8 +126,12 @@ impl EquipmentRepository for MockEquipmentRepo {
         let mut rows = self.equipment.lock().expect("equipment mutex poisoned");
         if let Some(existing) = rows.iter_mut().find(|existing| existing.id == equipment.id) {
             *existing = equipment.clone();
+            Ok(equipment.clone())
+        } else {
+            Err(rust_backend::error::AppError::NotFound(
+                "equipment not found".to_string(),
+            ))
         }
-        Ok(equipment.clone())
     }
 
     async fn delete(&self, id: Uuid) -> AppResult<()> {
@@ -167,8 +175,12 @@ impl EquipmentRepository for MockEquipmentRepo {
         let mut photos = self.photos.lock().expect("photos mutex poisoned");
         if let Some(existing) = photos.iter_mut().find(|p| p.id == photo.id) {
             *existing = photo.clone();
+            Ok(photo.clone())
+        } else {
+            Err(rust_backend::error::AppError::NotFound(
+                "photo not found".to_string(),
+            ))
         }
-        Ok(photo.clone())
     }
 
     async fn delete_photo(&self, photo_id: Uuid) -> AppResult<()> {

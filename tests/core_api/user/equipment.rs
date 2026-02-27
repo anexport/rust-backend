@@ -13,9 +13,7 @@ use uuid::Uuid;
 
 #[actix_rt::test]
 async fn test_my_equipment_unauthorized() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
 
     let req = actix_test::TestRequest::get()
@@ -27,9 +25,7 @@ async fn test_my_equipment_unauthorized() {
 
 #[actix_rt::test]
 async fn test_my_equipment_listing() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -70,9 +66,7 @@ async fn test_my_equipment_listing() {
 
 #[actix_rt::test]
 async fn test_my_equipment_ordered_by_creation_date() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
@@ -108,9 +102,7 @@ async fn test_my_equipment_ordered_by_creation_date() {
 
 #[actix_rt::test]
 async fn test_my_equipment_pagination() {
-    let Some(test_db) = TestDb::new().await else {
-        return;
-    };
+    let test_db = common::setup_test_db().await;
     let app = setup_app(test_db.pool().clone()).await;
     let user_repo = UserRepositoryImpl::new(test_db.pool().clone());
     let equipment_repo = EquipmentRepositoryImpl::new(test_db.pool().clone());
