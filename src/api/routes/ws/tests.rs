@@ -185,6 +185,20 @@ impl EquipmentRepository for NoopEquipmentRepo {
         Ok(Vec::new())
     }
 
+    async fn find_photo_by_id(
+        &self,
+        _photo_id: Uuid,
+    ) -> crate::error::AppResult<Option<EquipmentPhoto>> {
+        Ok(None)
+    }
+
+    async fn update_photo(
+        &self,
+        photo: &EquipmentPhoto,
+    ) -> crate::error::AppResult<EquipmentPhoto> {
+        Ok(photo.clone())
+    }
+
     async fn delete_photo(&self, _photo_id: Uuid) -> crate::error::AppResult<()> {
         Ok(())
     }

@@ -178,6 +178,8 @@ pub trait EquipmentRepository: Send + Sync {
 
     async fn add_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto>;
     async fn find_photos(&self, equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>>;
+    async fn find_photo_by_id(&self, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>>;
+    async fn update_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto>;
     async fn delete_photo(&self, photo_id: Uuid) -> AppResult<()>;
 }
 

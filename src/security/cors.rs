@@ -1,5 +1,5 @@
-use actix_cors::Cors;
 use crate::config::SecurityConfig;
+use actix_cors::Cors;
 
 pub fn cors_middleware(config: &SecurityConfig) -> Cors {
     let allowlist = config.cors_allowed_origins.clone();

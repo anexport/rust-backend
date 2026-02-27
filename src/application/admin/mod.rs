@@ -183,6 +183,7 @@ impl AdminService {
     }
 
     pub async fn force_delete_equipment(&self, actor_id: Uuid, id: Uuid) -> AppResult<()> {
+        self.require_admin(actor_id).await?;
         info!(
             actor = %actor_id,
             action = "admin.force_delete_equipment",
@@ -197,6 +198,7 @@ impl AdminService {
         id: Uuid,
         requested_state: bool,
     ) -> AppResult<bool> {
+        self.require_admin(actor_id).await?;
         info!(
             actor = %actor_id,
             action = "admin.set_equipment_availability",
@@ -206,6 +208,18 @@ impl AdminService {
         self.equipment_repo
             .set_availability_atomic(id, requested_state)
             .await
+    }
+
+    async fn require_admin(&self, actor_id: Uuid) -> AppResult<()> {
+        let user = self
+            .user_repo
+            .find_by_id(actor_id)
+            .await?
+            .ok_or(AppError::Unauthorized)?;
+        if user.role != Role::Admin {
+            return Err(AppError::Forbidden("Admin access required".to_string()));
+        }
+        Ok(())
     }
 
     pub async fn list_categories(&self) -> AppResult<Vec<AdminCategoryResponse>> {
@@ -219,8 +233,7 @@ impl AdminService {
         payload: AdminCategoryRequest,
     ) -> AppResult<AdminCategoryResponse> {
         payload.validate()?;
-        category::validate_category_parent(&*self.category_repo, None, payload.parent_id)
-            .await?;
+        category::validate_category_parent(&*self.category_repo, None, payload.parent_id).await?;
         info!(
             actor = %actor_id,
             action = "admin.create_category",

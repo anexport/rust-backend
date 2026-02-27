@@ -55,6 +55,14 @@ impl EquipmentRepository for EquipmentRepositorySpy {
         unreachable_call()
     }
 
+    async fn find_photo_by_id(&self, _photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {
+        unreachable_call()
+    }
+
+    async fn update_photo(&self, _photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
+        unreachable_call()
+    }
+
     async fn delete_photo(&self, _photo_id: Uuid) -> AppResult<()> {
         unreachable_call()
     }
@@ -152,6 +160,14 @@ impl EquipmentRepository for EquipmentRepositoryCountSearchLimitGuard {
     }
 
     async fn find_photos(&self, _equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {
+        unreachable_call()
+    }
+
+    async fn find_photo_by_id(&self, _photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {
+        unreachable_call()
+    }
+
+    async fn update_photo(&self, _photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
         unreachable_call()
     }
 

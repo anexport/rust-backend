@@ -93,9 +93,11 @@ impl AppConfig {
             .map_err(Box::new)?;
 
         config.auth0.auth0_domain = defaults::normalize_optional_string(config.auth0.auth0_domain);
-        config.auth0.auth0_audience = defaults::normalize_optional_string(config.auth0.auth0_audience);
+        config.auth0.auth0_audience =
+            defaults::normalize_optional_string(config.auth0.auth0_audience);
         config.auth0.auth0_issuer = defaults::normalize_optional_string(config.auth0.auth0_issuer);
-        config.auth0.auth0_client_id = defaults::normalize_optional_string(config.auth0.auth0_client_id);
+        config.auth0.auth0_client_id =
+            defaults::normalize_optional_string(config.auth0.auth0_client_id);
         config.auth0.auth0_client_secret =
             defaults::normalize_optional_string(config.auth0.auth0_client_secret);
         config.sentry.dsn = defaults::normalize_optional_string(config.sentry.dsn);

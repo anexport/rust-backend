@@ -1,5 +1,5 @@
 use crate::error::{AppError, AppResult};
-use crate::infrastructure::repositories::{CategoryRepository};
+use crate::infrastructure::repositories::CategoryRepository;
 use uuid::Uuid;
 
 pub async fn validate_category_parent(

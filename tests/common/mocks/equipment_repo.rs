@@ -153,6 +153,24 @@ impl EquipmentRepository for MockEquipmentRepo {
             .collect())
     }
 
+    async fn find_photo_by_id(&self, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {
+        Ok(self
+            .photos
+            .lock()
+            .expect("photos mutex poisoned")
+            .iter()
+            .find(|photo| photo.id == photo_id)
+            .cloned())
+    }
+
+    async fn update_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
+        let mut photos = self.photos.lock().expect("photos mutex poisoned");
+        if let Some(existing) = photos.iter_mut().find(|p| p.id == photo.id) {
+            *existing = photo.clone();
+        }
+        Ok(photo.clone())
+    }
+
     async fn delete_photo(&self, photo_id: Uuid) -> AppResult<()> {
         self.photos
             .lock()

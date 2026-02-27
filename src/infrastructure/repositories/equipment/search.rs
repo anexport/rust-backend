@@ -69,7 +69,10 @@ pub async fn search(
     builder.push(" OFFSET ");
     builder.push_bind(offset);
 
-    let equipment = builder.build_query_as::<Equipment>().fetch_all(pool).await?;
+    let equipment = builder
+        .build_query_as::<Equipment>()
+        .fetch_all(pool)
+        .await?;
     Ok(equipment)
 }
 

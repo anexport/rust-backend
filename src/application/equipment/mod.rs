@@ -10,7 +10,7 @@ use crate::api::dtos::{
     EquipmentResponse, PaginatedResponse, UpdateEquipmentRequest,
 };
 use crate::domain::{Equipment, EquipmentPhoto};
-use crate::error::{AppResult, AppError};
+use crate::error::{AppError, AppResult};
 use crate::infrastructure::repositories::{
     EquipmentRepository, EquipmentSearchParams, UserRepository,
 };
@@ -82,7 +82,9 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         let photos = self.equipment_repo.find_photos(id).await?;
-        Ok(mapper::map_equipment_with_photos_to_response(equipment, photos))
+        Ok(mapper::map_equipment_with_photos_to_response(
+            equipment, photos,
+        ))
     }
 
     pub async fn create(
@@ -165,6 +167,7 @@ impl EquipmentService {
         if let Some(coordinates) = request.coordinates {
             existing.set_coordinates(coordinates.latitude, coordinates.longitude)?;
         }
+        existing.updated_at = Utc::now();
 
         let updated = self.equipment_repo.update(&existing).await?;
         Ok(mapper::map_equipment_to_response(updated))
@@ -199,11 +202,21 @@ impl EquipmentService {
         auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
 
         let photos = self.equipment_repo.find_photos(equipment_id).await?;
+        let is_primary = request.is_primary.unwrap_or(false);
+        if is_primary {
+            for photo in &photos {
+                if photo.is_primary {
+                    let mut updated = photo.clone();
+                    updated.is_primary = false;
+                    let _ = self.equipment_repo.update_photo(&updated).await;
+                }
+            }
+        }
         let photo = EquipmentPhoto {
             id: Uuid::new_v4(),
             equipment_id,
             photo_url: request.photo_url,
-            is_primary: request.is_primary.unwrap_or(false),
+            is_primary,
             order_index: photos.len() as i32,
             created_at: Utc::now(),
         };
@@ -230,6 +243,16 @@ impl EquipmentService {
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))?;
 
         auth::check_equipment_access(&*self.user_repo, actor_user_id, existing.owner_id).await?;
+
+        let photo = self
+            .equipment_repo
+            .find_photo_by_id(photo_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("photo not found".to_string()))?;
+
+        if photo.equipment_id != equipment_id {
+            return Err(AppError::NotFound("photo not found".to_string()));
+        }
 
         self.equipment_repo.delete_photo(photo_id).await
     }

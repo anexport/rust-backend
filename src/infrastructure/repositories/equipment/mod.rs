@@ -257,6 +257,14 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         photo::find_photos(&self.pool, equipment_id).await
     }
 
+    async fn find_photo_by_id(&self, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {
+        photo::find_photo_by_id(&self.pool, photo_id).await
+    }
+
+    async fn update_photo(&self, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
+        photo::update_photo(&self.pool, photo).await
+    }
+
     async fn delete_photo(&self, photo_id: Uuid) -> AppResult<()> {
         photo::delete_photo(&self.pool, photo_id).await
     }

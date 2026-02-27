@@ -1,5 +1,5 @@
-use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};
 use crate::config::SecurityConfig;
+use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};
 
 pub fn global_rate_limiting(
     security_config: &SecurityConfig,

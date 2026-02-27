@@ -1,8 +1,8 @@
+use crate::config::SecurityConfig;
+use crate::error::{AppError, AppResult};
 use chrono::{DateTime, Duration, Utc};
 use std::collections::HashMap;
 use std::sync::RwLock;
-use crate::config::SecurityConfig;
-use crate::error::{AppError, AppResult};
 
 pub struct LoginThrottle {
     entries: RwLock<HashMap<String, LoginAttemptState>>,
@@ -25,7 +25,9 @@ impl LoginThrottle {
         format!("{email}|{}", ip.unwrap_or("unknown"))
     }
 
-    pub fn write_entries(&self) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
+    pub fn write_entries(
+        &self,
+    ) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
         self.entries.write().unwrap_or_else(|e| {
             tracing::warn!("Login throttle lock was poisoned, recovering the lock");
             e.into_inner()

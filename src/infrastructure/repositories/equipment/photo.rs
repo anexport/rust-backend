@@ -1,6 +1,6 @@
 use crate::domain::EquipmentPhoto;
 use crate::error::AppResult;
-use sqlx::{PgPool};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 pub async fn add_photo(pool: &PgPool, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
@@ -30,6 +30,34 @@ pub async fn find_photos(pool: &PgPool, equipment_id: Uuid) -> AppResult<Vec<Equ
     .fetch_all(pool)
     .await?;
     Ok(photos)
+}
+
+pub async fn find_photo_by_id(pool: &PgPool, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {
+    let photo = sqlx::query_as::<_, EquipmentPhoto>(
+        "SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE id = $1"
+    )
+    .bind(photo_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(photo)
+}
+
+pub async fn update_photo(pool: &PgPool, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {
+    let updated = sqlx::query_as::<_, EquipmentPhoto>(
+        r#"
+        UPDATE equipment_photos 
+        SET photo_url = $1, is_primary = $2, order_index = $3
+        WHERE id = $4
+        RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at
+        "#,
+    )
+    .bind(&photo.photo_url)
+    .bind(photo.is_primary)
+    .bind(photo.order_index)
+    .bind(photo.id)
+    .fetch_one(pool)
+    .await?;
+    Ok(updated)
 }
 
 pub async fn delete_photo(pool: &PgPool, photo_id: Uuid) -> AppResult<()> {
