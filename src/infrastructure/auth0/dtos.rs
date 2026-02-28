@@ -10,8 +10,14 @@ pub struct Auth0SignupResponse {
     pub email: String,
     pub email_verified: bool,
     pub username: Option<String>,
-    pub picture: Option<String>,
+    pub given_name: Option<String>,
+    pub family_name: Option<String>,
     pub name: Option<String>,
+    pub nickname: Option<String>,
+    pub picture: Option<String>,
+    #[serde(default)]
+    pub connection: String,
+    pub user_metadata: Option<serde_json::Value>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -20,10 +26,12 @@ pub struct Auth0SignupResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Auth0TokenResponse {
     pub access_token: String,
-    pub refresh_token: Option<String>,
     pub id_token: String,
-    pub token_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
     pub expires_in: u64,
+    pub token_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 }
 
@@ -110,56 +118,9 @@ impl Auth0ErrorResponse {
     }
 }
 
-/// Response from POST /dbconnections/signup
-#[derive(Debug, Deserialize, Clone)]
-pub struct SignupResponse {
-    /// User's Auth0 ID
-    #[serde(rename = "_id")]
-    pub id: String,
-    /// User's email address
-    pub email: String,
-    /// Whether the email has been verified
-    pub email_verified: bool,
-    /// Username (if set)
-    pub username: Option<String>,
-    /// User's given (first) name
-    pub given_name: Option<String>,
-    /// User's family (last) name
-    pub family_name: Option<String>,
-    /// User's full name
-    pub name: Option<String>,
-    /// User's nickname
-    pub nickname: Option<String>,
-    /// URL to user's picture
-    pub picture: Option<String>,
-    /// User's connection name
-    pub connection: String,
-    /// User metadata (custom attributes)
-    pub user_metadata: Option<serde_json::Value>,
-    /// Timestamp of user creation
-    pub created_at: Option<String>,
-    /// Timestamp of last update
-    pub updated_at: Option<String>,
-}
 
-/// Response from POST /oauth/token (Password Grant)
-#[derive(Debug, Deserialize, Clone)]
-pub struct PasswordGrantResponse {
-    /// Access token for API calls
-    pub access_token: String,
-    /// ID token containing user claims
-    pub id_token: String,
-    /// Refresh token for obtaining new access tokens
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_token: Option<String>,
-    /// Token expiration time in seconds
-    pub expires_in: u64,
-    /// Token type (typically "Bearer")
-    pub token_type: String,
-    /// Token scope
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope: Option<String>,
-}
+
+
 
 #[cfg(test)]
 mod tests {

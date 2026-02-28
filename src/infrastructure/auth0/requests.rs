@@ -232,6 +232,7 @@ mod tests {
 
         assert_eq!(json["email"], "test@example.com");
         assert_eq!(json["password"], "password123");
+        assert!(json.get("connection").is_none());
         assert!(json.get("username").is_none());
         assert!(json.get("name").is_none());
     }

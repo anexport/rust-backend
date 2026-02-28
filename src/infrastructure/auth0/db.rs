@@ -3,7 +3,7 @@ use reqwest::{
     Client,
 };
 
-use super::dtos::{PasswordGrantResponse, SignupResponse};
+use super::dtos::{Auth0TokenResponse, Auth0SignupResponse};
 use super::requests::{PasswordGrantRequest, SignupRequest};
 use crate::config::Auth0Config;
 use crate::error::{AppError, AppResult};
@@ -55,7 +55,7 @@ impl Auth0DbClient {
     ///
     /// # Returns
     /// User information from Auth0 on success
-    pub async fn signup(&self, request: SignupRequest) -> AppResult<SignupResponse> {
+    pub async fn signup(&self, request: SignupRequest) -> AppResult<Auth0SignupResponse> {
         let client_id =
             self.config
                 .auth0_client_id
@@ -154,7 +154,7 @@ impl Auth0DbClient {
     pub async fn password_grant(
         &self,
         request: PasswordGrantRequest,
-    ) -> AppResult<PasswordGrantResponse> {
+    ) -> AppResult<Auth0TokenResponse> {
         let client_id =
             self.config
                 .auth0_client_id
