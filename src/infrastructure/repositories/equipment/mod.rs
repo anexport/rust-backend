@@ -25,31 +25,35 @@ impl EquipmentRepositoryImpl {
 #[async_trait]
 impl EquipmentRepository for EquipmentRepositoryImpl {
     async fn find_by_id(&self, id: Uuid) -> AppResult<Option<Equipment>> {
-        let equipment = sqlx::query_as::<_, Equipment>(
+        let equipment = sqlx::query_as!(
+            Equipment,
             r#"
-            SELECT id, owner_id, category_id, title, description, daily_rate, condition,
+            SELECT id, owner_id, category_id, title, description, daily_rate, 
+                   condition as "condition: _",
                    location, coordinates::text as coordinates, is_available, created_at, updated_at
             FROM equipment WHERE id = $1
             "#,
+            id
         )
-        .bind(id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(equipment)
     }
 
     async fn find_all(&self, limit: i64, offset: i64) -> AppResult<Vec<Equipment>> {
-        let equipment = sqlx::query_as::<_, Equipment>(
+        let equipment = sqlx::query_as!(
+            Equipment,
             r#"
-            SELECT id, owner_id, category_id, title, description, daily_rate, condition,
+            SELECT id, owner_id, category_id, title, description, daily_rate, 
+                   condition as "condition: _",
                    location, coordinates::text as coordinates, is_available, created_at, updated_at
             FROM equipment
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2
             "#,
+            limit,
+            offset
         )
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
         Ok(equipment)
@@ -74,35 +78,37 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         limit: i64,
         offset: i64,
     ) -> AppResult<Vec<Equipment>> {
-        let equipment = sqlx::query_as::<_, Equipment>(
+        let equipment = sqlx::query_as!(
+            Equipment,
             r#"
-            SELECT id, owner_id, category_id, title, description, daily_rate, condition,
+            SELECT id, owner_id, category_id, title, description, daily_rate, 
+                   condition as "condition: _",
                    location, coordinates::text as coordinates, is_available, created_at, updated_at
             FROM equipment WHERE owner_id = $1
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3
             "#,
+            owner_id,
+            limit,
+            offset
         )
-        .bind(owner_id)
-        .bind(limit)
-        .bind(offset)
         .fetch_all(&self.pool)
         .await?;
         Ok(equipment)
     }
 
     async fn count_by_owner(&self, owner_id: Uuid) -> AppResult<i64> {
-        let (count,): (i64,) = sqlx::query_as(
+        let record = sqlx::query!(
             r#"
-            SELECT COUNT(*)::BIGINT
+            SELECT COUNT(*)::BIGINT as count
             FROM equipment
             WHERE owner_id = $1
             "#,
+            owner_id
         )
-        .bind(owner_id)
         .fetch_one(&self.pool)
         .await?;
-        Ok(count)
+        Ok(record.count.unwrap_or(0))
     }
 
     async fn count_by_owners(&self, owner_ids: &[Uuid]) -> AppResult<HashMap<Uuid, i64>> {
@@ -110,116 +116,119 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             return Ok(HashMap::new());
         }
 
-        let rows = sqlx::query_as::<_, (Uuid, i64)>(
+        let rows = sqlx::query!(
             r#"
             SELECT owner_id, COUNT(*)::BIGINT AS count
             FROM equipment
             WHERE owner_id = ANY($1)
             GROUP BY owner_id
             "#,
+            owner_ids
         )
-        .bind(owner_ids)
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().collect())
+        Ok(rows.into_iter().map(|r| (r.owner_id, r.count.unwrap_or(0))).collect())
     }
 
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment> {
-        let created = sqlx::query_as::<_, Equipment>(
+        let created = sqlx::query_as!(
+            Equipment,
             r#"
             INSERT INTO equipment (id, owner_id, category_id, title, description, daily_rate, condition, location, coordinates, is_available, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, ST_SetSRID(ST_MakePoint(CAST($9 AS float), CAST($10 AS float)), 4326)::geography, $11, $12, $13)
-            RETURNING id, owner_id, category_id, title, description, daily_rate, condition,
+            RETURNING id, owner_id, category_id, title, description, daily_rate, 
+                      condition as "condition: _",
                       location, coordinates::text as coordinates, is_available, created_at, updated_at
-            "#
+            "#,
+            equipment.id,
+            equipment.owner_id,
+            equipment.category_id,
+            equipment.title,
+            equipment.description,
+            equipment.daily_rate,
+            equipment.condition as _,
+            equipment.location,
+            equipment.coordinates_tuple().map(|(_lat, lng)| lng),
+            equipment.coordinates_tuple().map(|(lat, _lng)| lat),
+            equipment.is_available,
+            equipment.created_at,
+            equipment.updated_at
         )
-        .bind(equipment.id)
-        .bind(equipment.owner_id)
-        .bind(equipment.category_id)
-        .bind(&equipment.title)
-        .bind(&equipment.description)
-        .bind(equipment.daily_rate)
-        .bind(equipment.condition)
-        .bind(&equipment.location)
-        .bind(equipment.coordinates_tuple().map(|(_lat, lng)| lng))
-        .bind(equipment.coordinates_tuple().map(|(lat, _lng)| lat))
-        .bind(equipment.is_available)
-        .bind(equipment.created_at)
-        .bind(equipment.updated_at)
         .fetch_one(&self.pool)
         .await?;
         Ok(created)
     }
 
     async fn update(&self, equipment: &Equipment) -> AppResult<Equipment> {
-        let updated = sqlx::query_as::<_, Equipment>(
+        let updated = sqlx::query_as!(
+            Equipment,
             r#"
             UPDATE equipment
             SET title = $2, description = $3, daily_rate = $4, condition = $5, location = $6,
                 coordinates = ST_SetSRID(ST_MakePoint(CAST($7 AS float), CAST($8 AS float)), 4326)::geography,
                 is_available = $9
             WHERE id = $1
-            RETURNING id, owner_id, category_id, title, description, daily_rate, condition,
+            RETURNING id, owner_id, category_id, title, description, daily_rate, 
+                      condition as "condition: _",
                       location, coordinates::text as coordinates, is_available, created_at, updated_at
-            "#
+            "#,
+            equipment.id,
+            equipment.title,
+            equipment.description,
+            equipment.daily_rate,
+            equipment.condition as _,
+            equipment.location,
+            equipment.coordinates_tuple().map(|(_lat, lng)| lng),
+            equipment.coordinates_tuple().map(|(lat, _lng)| lat),
+            equipment.is_available
         )
-        .bind(equipment.id)
-        .bind(&equipment.title)
-        .bind(&equipment.description)
-        .bind(equipment.daily_rate)
-        .bind(equipment.condition)
-        .bind(&equipment.location)
-        .bind(equipment.coordinates_tuple().map(|(_lat, lng)| lng))
-        .bind(equipment.coordinates_tuple().map(|(lat, _lng)| lat))
-        .bind(equipment.is_available)
         .fetch_one(&self.pool)
         .await?;
         Ok(updated)
     }
 
     async fn delete(&self, id: Uuid) -> AppResult<()> {
-        sqlx::query("DELETE FROM equipment WHERE id = $1")
-            .bind(id)
+        sqlx::query!("DELETE FROM equipment WHERE id = $1", id)
             .execute(&self.pool)
             .await?;
         Ok(())
     }
 
     async fn set_availability_atomic(&self, id: Uuid, is_available: bool) -> AppResult<bool> {
-        let updated = sqlx::query_as::<_, (bool,)>(
+        let updated = sqlx::query!(
             r#"
             UPDATE equipment
             SET is_available = $2, updated_at = NOW()
             WHERE id = $1
             RETURNING is_available
             "#,
+            id,
+            is_available
         )
-        .bind(id)
-        .bind(is_available)
         .fetch_optional(&self.pool)
         .await?;
 
         updated
-            .map(|(value,)| value)
+            .map(|record| record.is_available)
             .ok_or_else(|| AppError::NotFound("equipment not found".to_string()))
     }
 
     async fn count_all(&self, search: Option<&str>) -> AppResult<i64> {
         let escaped_search = search.map(escape_like_pattern);
-        let (count,): (i64,) = sqlx::query_as(
+        let record = sqlx::query!(
             r#"
-            SELECT COUNT(*)::BIGINT
+            SELECT COUNT(*)::BIGINT as count
             FROM equipment e
             JOIN profiles p ON p.id = e.owner_id
             JOIN categories c ON c.id = e.category_id
             WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '\' OR p.email ILIKE '%' || $1 || '%' ESCAPE '\')
             "#,
+            escaped_search.as_deref()
         )
-        .bind(escaped_search.as_deref())
         .fetch_one(&self.pool)
         .await?;
-        Ok(count)
+        Ok(record.count.unwrap_or(0))
     }
 
     async fn list_all_with_owner(
@@ -229,7 +238,8 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         search: Option<&str>,
     ) -> AppResult<Vec<EquipmentWithOwner>> {
         let escaped_search = search.map(escape_like_pattern);
-        let rows = sqlx::query_as::<_, EquipmentWithOwner>(
+        let rows = sqlx::query_as!(
+            EquipmentWithOwner,
             r#"
             SELECT
                 e.id,
@@ -248,10 +258,10 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
             ORDER BY e.created_at DESC
             LIMIT $1 OFFSET $2
             "#,
+            limit,
+            offset,
+            escaped_search.as_deref()
         )
-        .bind(limit)
-        .bind(offset)
-        .bind(escaped_search.as_deref())
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
