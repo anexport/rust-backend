@@ -9,8 +9,6 @@ mod client_tests;
 
 pub use client::{DisabledAuth0ApiClient, HttpAuth0ApiClient};
 pub use db::Auth0DbClient;
-pub use dtos::{
-    Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse,
-};
+pub use dtos::{Auth0ErrorResponse, Auth0SignupResponse, Auth0TokenResponse};
 pub use requests::{PasswordGrantRequest, SignupRequest};
 pub use traits::Auth0ApiClient;

@@ -128,7 +128,10 @@ impl EquipmentRepository for EquipmentRepositoryImpl {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| (r.owner_id, r.count.unwrap_or(0))).collect())
+        Ok(rows
+            .into_iter()
+            .map(|r| (r.owner_id, r.count.unwrap_or(0)))
+            .collect())
     }
 
     async fn create(&self, equipment: &Equipment) -> AppResult<Equipment> {

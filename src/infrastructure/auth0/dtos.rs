@@ -118,10 +118,6 @@ impl Auth0ErrorResponse {
     }
 }
 
-
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

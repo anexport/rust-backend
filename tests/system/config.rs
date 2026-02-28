@@ -179,7 +179,7 @@ fn test_required_env_var_missing_fails() {
     env::set_var("JWT_SECRET", "test-jwt-secret");
     env::set_var("AUTH0_DOMAIN", "test.auth0.com");
     // Explicitly set to empty to ensure it fails even if a default exists in TOML
-    env::set_var("AUTH0_AUDIENCE", ""); 
+    env::set_var("AUTH0_AUDIENCE", "");
 
     let config = AppConfig::from_env().expect("Config should load from env");
     let result = config.validate();

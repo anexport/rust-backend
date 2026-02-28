@@ -16,4 +16,3 @@ pub mod traits_defaults;
 pub mod user;
 
 use rust_backend::domain::AuthProvider as DomainAuthProvider;
-

@@ -51,43 +51,64 @@ fn builds_signup_and_token_urls_from_domain() {
 #[test]
 fn maps_user_exists_to_conflict() {
     let err = auth0_error("user_exists", "The user already exists.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::Conflict(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::Conflict(_)
+    ));
 }
 
 #[test]
 fn maps_invalid_password_to_bad_request() {
     let err = auth0_error("invalid_password", "Password is too weak.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::BadRequest(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::BadRequest(_)
+    ));
 }
 
 #[test]
 fn maps_invalid_grant_to_unauthorized() {
     let err = auth0_error("invalid_grant", "Wrong email or password.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::Unauthorized));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::Unauthorized
+    ));
 }
 
 #[test]
 fn maps_auth_id_already_exists_to_conflict() {
     let err = auth0_error("auth_id_already_exists", "Account already exists.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::Conflict(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::Conflict(_)
+    ));
 }
 
 #[test]
 fn maps_invalid_signup_to_bad_request() {
     let err = auth0_error("invalid_signup", "Invalid signup payload.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::BadRequest(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::BadRequest(_)
+    ));
 }
 
 #[test]
 fn maps_bad_request_to_bad_request() {
     let err = auth0_error("bad_request", "Bad request.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::BadRequest(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::BadRequest(_)
+    ));
 }
 
 #[test]
 fn maps_access_denied_to_unauthorized() {
     let err = auth0_error("access_denied", "Denied.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::Unauthorized));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::Unauthorized
+    ));
 }
 
 #[test]

@@ -1,4 +1,3 @@
-
 use chrono::Utc;
 use rust_backend::domain::equipment::{Condition, Equipment};
 use rust_backend::domain::user::{AuthIdentity, AuthProvider, Role, User};

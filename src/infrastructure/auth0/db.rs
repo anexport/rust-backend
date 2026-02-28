@@ -3,7 +3,7 @@ use reqwest::{
     Client,
 };
 
-use super::dtos::{Auth0TokenResponse, Auth0SignupResponse};
+use super::dtos::{Auth0SignupResponse, Auth0TokenResponse};
 use super::requests::{PasswordGrantRequest, SignupRequest};
 use crate::config::Auth0Config;
 use crate::error::{AppError, AppResult};

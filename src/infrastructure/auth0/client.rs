@@ -42,7 +42,7 @@ impl HttpAuth0ApiClient {
                 "Auth0 domain not configured or empty"
             )));
         }
-        
+
         config.auth0_domain = domain;
 
         Ok(Self {

@@ -16,7 +16,7 @@ pub fn global_rate_limiting(
 
     let safe_rate_limit = rate_limit_per_minute.clamp(1, 60_000);
     let milliseconds_per_request = (60_000 / safe_rate_limit) as u64;
-    
+
     let governor_config = match GovernorConfigBuilder::default()
         .per_millisecond(milliseconds_per_request)
         .burst_size(burst_size)

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-
 use crate::common::mocks::{MockEquipmentRepo, MockUserRepo};
 use actix_rt::test;
 use chrono::Utc;

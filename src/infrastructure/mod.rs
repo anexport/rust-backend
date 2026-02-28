@@ -13,7 +13,7 @@ pub mod auth0_api {
 // Backward-compatible module paths for existing callers.
 pub mod auth0_db {
     pub use super::auth0::{
-        Auth0DbClient as Auth0ApiClient, PasswordGrantRequest, Auth0TokenResponse,
-        SignupRequest, Auth0SignupResponse,
+        Auth0DbClient as Auth0ApiClient, Auth0SignupResponse, Auth0TokenResponse,
+        PasswordGrantRequest, SignupRequest,
     };
 }
