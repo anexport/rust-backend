@@ -91,9 +91,21 @@ fn maps_access_denied_to_unauthorized() {
 }
 
 #[test]
-fn maps_unknown_error_to_internal_error() {
+fn maps_unknown_error_to_bad_request_on_400() {
     let err = auth0_error("unknown_error", "Something went wrong.");
-    assert!(matches!(err.to_app_error(reqwest::StatusCode::BAD_REQUEST), AppError::InternalError(_)));
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::BAD_REQUEST),
+        AppError::BadRequest(_)
+    ));
+}
+
+#[test]
+fn maps_unknown_error_to_service_unavailable_on_500() {
+    let err = auth0_error("unknown_error", "Something went wrong.");
+    assert!(matches!(
+        err.to_app_error(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
+        AppError::ServiceUnavailable { .. }
+    ));
 }
 
 #[test]
@@ -228,6 +240,6 @@ Connection: close
 
     assert!(matches!(
         result,
-        AppError::InternalError(_) // Unknown codes now map to InternalError with generic message
+        AppError::BadRequest(_) // Unknown codes with 400 now map to BadRequest
     ));
 }

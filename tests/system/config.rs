@@ -178,12 +178,13 @@ fn test_required_env_var_missing_fails() {
     // This simulates a misconfiguration where required Auth0 fields are incomplete
     env::set_var("JWT_SECRET", "test-jwt-secret");
     env::set_var("AUTH0_DOMAIN", "test.auth0.com");
-    env::remove_var("AUTH0_AUDIENCE");
+    // Explicitly set to empty to ensure it fails even if a default exists in TOML
+    env::set_var("AUTH0_AUDIENCE", ""); 
 
     let config = AppConfig::from_env().expect("Config should load from env");
     let result = config.validate();
 
-    // Validation should fail because AUTH0_AUDIENCE is missing when AUTH0_DOMAIN is set
+    // Validation should fail because AUTH0_AUDIENCE is empty when AUTH0_DOMAIN is set
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -193,6 +194,7 @@ fn test_required_env_var_missing_fails() {
     // Cleanup
     env::remove_var("JWT_SECRET");
     env::remove_var("AUTH0_DOMAIN");
+    env::remove_var("AUTH0_AUDIENCE");
 }
 
 #[test]

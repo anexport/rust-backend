@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn global_rate_limiting_panics_when_rate_limit_exceeds_60000() {
+    fn global_rate_limiting_handles_excessive_rate_limit_gracefully() {
         let config = SecurityConfig {
             cors_allowed_origins: vec!["http://localhost:3000".to_string()],
             metrics_allow_private_only: true,
@@ -113,14 +113,8 @@ mod tests {
             global_rate_limit_authenticated_per_minute: 1000,
         };
 
-        let result = std::panic::catch_unwind(|| {
-            global_rate_limiting(&config);
-        });
-
-        assert!(
-            result.is_err(),
-            "global_rate_limiting should panic when rate_limit_per_minute > 60,000"
-        );
+        // Should not panic anymore due to clamping
+        global_rate_limiting(&config);
     }
 
     #[test]
