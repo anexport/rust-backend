@@ -14,12 +14,24 @@ pub fn global_rate_limiting(
         );
     }
 
-    let milliseconds_per_request = (60_000 / rate_limit_per_minute) as u64;
-    let governor_config = GovernorConfigBuilder::default()
+    let safe_rate_limit = rate_limit_per_minute.clamp(1, 60_000);
+    let milliseconds_per_request = (60_000 / safe_rate_limit) as u64;
+    
+    let governor_config = match GovernorConfigBuilder::default()
         .per_millisecond(milliseconds_per_request)
         .burst_size(burst_size)
         .finish()
-        .expect("Failed to build governor config");
+    {
+        Some(config) => config,
+        None => {
+            tracing::error!("Failed to build governor config, falling back to safe defaults");
+            GovernorConfigBuilder::default()
+                .per_second(2)
+                .burst_size(5)
+                .finish()
+                .expect("Default governor config should always build")
+        }
+    };
 
     Governor::new(&governor_config)
 }

@@ -107,7 +107,7 @@ impl UserService {
     ) -> AppResult<PaginatedResponse<EquipmentResponse>> {
         let page = page.max(1);
         let limit = limit.clamp(1, 100);
-        let offset = (page - 1) * limit;
+        let offset = page.saturating_sub(1).saturating_mul(limit);
 
         let total = self.equipment_repo.count_by_owner(user_id).await?;
         let total_pages = if total == 0 {

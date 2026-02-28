@@ -28,12 +28,22 @@ impl HttpAuth0ApiClient {
     /// Client credentials must also be available in config:
     /// - auth0_client_id: Auth0 Application Client ID
     /// - auth0_client_secret: Auth0 Application Client Secret
-    pub fn new(config: Auth0Config) -> AppResult<Self> {
-        if config.auth0_domain.is_none() {
+    pub fn new(mut config: Auth0Config) -> AppResult<Self> {
+        // Ensure auth0_domain is trimmed and non-empty as assumed by domain()
+        let domain = config
+            .auth0_domain
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from);
+
+        if domain.is_none() {
             return Err(AppError::InternalError(anyhow::anyhow!(
-                "Auth0 domain not configured"
+                "Auth0 domain not configured or empty"
             )));
         }
+        
+        config.auth0_domain = domain;
 
         Ok(Self {
             config,
@@ -73,7 +83,7 @@ impl HttpAuth0ApiClient {
                 );
 
                 // Map to generic error messages to avoid info leak
-                err.to_app_error()
+                err.to_app_error(status)
             }
             Err(_) => {
                 // If we can't parse the error, return a generic error

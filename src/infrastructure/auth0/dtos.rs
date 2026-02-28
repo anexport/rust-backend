@@ -64,7 +64,7 @@ impl Auth0ErrorResponse {
     }
 
     /// Maps Auth0 error codes to AppError variants
-    pub fn to_app_error(&self) -> AppError {
+    pub fn to_app_error(&self, status: reqwest::StatusCode) -> AppError {
         let code = self.code_or_error();
         let _description = self.description_or_error_description();
 
@@ -96,7 +96,16 @@ impl Auth0ErrorResponse {
 
             "access_denied" | "unauthorized" => AppError::Unauthorized,
 
-            _ => AppError::InternalError(anyhow::anyhow!("Authentication service error")),
+            _ => match status.as_u16() {
+                401 | 403 => AppError::Unauthorized,
+                409 => AppError::Conflict("Resource already exists".to_string()),
+                429 => AppError::RateLimited,
+                500..=599 => AppError::ServiceUnavailable {
+                    service: "Auth0".to_string(),
+                    message: "Authentication service temporarily unavailable".to_string(),
+                },
+                _ => AppError::BadRequest("Invalid request".to_string()),
+            },
         }
     }
 }
