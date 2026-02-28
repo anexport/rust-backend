@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT COUNT(*)::BIGINT as count\n            FROM equipment e\n            JOIN profiles p ON p.id = e.owner_id\n            JOIN categories c ON c.id = e.category_id\n            WHERE ($1::TEXT IS NULL OR e.title ILIKE '%' || $1 || '%' ESCAPE '\\' OR p.email ILIKE '%' || $1 || '%' ESCAPE '\\')\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "554bd607dca497b53be668744c24987353d2f2c36eeb97508d82db9278c098b2"
+}

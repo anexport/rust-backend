@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE equipment\n            SET is_available = $2, updated_at = NOW()\n            WHERE id = $1\n            RETURNING is_available\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_available",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6667446c2266436e9e983596f3094e34664fea72bac52a6f2f7e82a47f7e14b"
+}

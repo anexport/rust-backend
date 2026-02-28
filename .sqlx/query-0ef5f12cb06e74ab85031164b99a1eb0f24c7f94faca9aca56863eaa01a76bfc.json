@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT\n                e.id,\n                e.owner_id,\n                e.category_id,\n                e.title,\n                e.daily_rate,\n                e.is_available,\n                e.created_at,\n                p.email AS owner_email,\n                c.name AS category_name\n            FROM equipment e\n            JOIN profiles p ON p.id = e.owner_id\n            JOIN categories c ON c.id = e.category_id\n            WHERE ($3::TEXT IS NULL OR e.title ILIKE '%' || $3 || '%' ESCAPE '\\' OR p.email ILIKE '%' || $3 || '%' ESCAPE '\\')\n            ORDER BY e.created_at DESC\n            LIMIT $1 OFFSET $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "daily_rate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_available",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "owner_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "category_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0ef5f12cb06e74ab85031164b99a1eb0f24c7f94faca9aca56863eaa01a76bfc"
+}

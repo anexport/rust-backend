@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT owner_id, COUNT(*)::BIGINT AS count\n            FROM equipment\n            WHERE owner_id = ANY($1)\n            GROUP BY owner_id\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "0d8b74cdfa6c02b128d164968a85d1ab8709b9d7addbdf9533492cbacd487ca3"
+}

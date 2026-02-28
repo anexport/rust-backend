@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id, owner_id, category_id, title, description, daily_rate, \n                   condition as \"condition: _\",\n                   location, coordinates::text as coordinates, is_available, created_at, updated_at\n            FROM equipment WHERE id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "daily_rate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 6,
+        "name": "condition: _",
+        "type_info": {
+          "Custom": {
+            "name": "condition",
+            "kind": {
+              "Enum": [
+                "new",
+                "excellent",
+                "good",
+                "fair"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "coordinates",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_available",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1a14b7a92722d695bf5bcb7a1eb82232f19d76423b8dbaaad183a0f227cea3cf"
+}
