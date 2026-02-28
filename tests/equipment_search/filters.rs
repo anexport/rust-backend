@@ -4,7 +4,6 @@ use crate::equipment_search::setup::*;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use chrono::Utc;
 use rust_backend::api::routes;
-use rust_backend::api::routes::AppState;
 use rust_backend::domain::*;
 use rust_backend::security::{cors_middleware, security_headers};
 use std::sync::Arc;

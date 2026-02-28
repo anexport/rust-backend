@@ -1,14 +1,7 @@
 use super::*;
-use crate::common;
-use crate::common::mocks::*;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
-use chrono::Utc;
-use rust_backend::domain::*;
-use rust_backend::error::{AppError, AppResult};
-use rust_backend::infrastructure::auth0_api::*;
 use rust_backend::security::{cors_middleware, security_headers};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[actix_web::test]
 async fn auth0_signup_with_valid_data_returns_201() {

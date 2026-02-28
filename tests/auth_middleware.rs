@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 mod common;
 
@@ -11,16 +11,14 @@ pub mod jwt_validation;
 #[path = "auth_middleware/provisioning.rs"]
 pub mod provisioning;
 
-use crate::common::mocks::{MockAuthRepo, MockUserRepo};
-use actix_web::{dev::Payload, http::header::AUTHORIZATION, test as actix_test, web, FromRequest};
+use actix_web::http::header::AUTHORIZATION;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-use rust_backend::domain::{AuthIdentity, AuthProvider, Role, User};
 use rust_backend::error::{AppError, AppResult};
 use rust_backend::middleware::auth::{
-    Auth0AuthenticatedUser, JitUserProvisioningService, UserProvisioningService,
+    UserProvisioningService,
 };
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
 use rust_backend::utils::auth0_jwks::{Jwk, Jwks, JwksProvider};
@@ -32,6 +30,12 @@ use uuid::Uuid;
 // For tests requiring real RS256 verification, use StaticJwksProvider with real keys.
 pub struct MockJwksClient {
     pub test_keys: Mutex<Vec<(String, Vec<u8>)>>,
+}
+
+impl Default for MockJwksClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockJwksClient {
@@ -179,6 +183,12 @@ pub fn create_valid_rs256_auth0_token(sub: &str) -> String {
 
 pub struct StaticJwksProvider {
     pub key: jsonwebtoken::DecodingKey,
+}
+
+impl Default for StaticJwksProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StaticJwksProvider {

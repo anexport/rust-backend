@@ -1,4 +1,3 @@
-use super::*;
 use crate::common;
 
 use rust_backend::api::dtos::{CreateEquipmentRequest, UpdateEquipmentRequest};

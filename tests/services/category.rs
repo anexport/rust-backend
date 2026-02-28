@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-use super::*;
-use crate::common;
 
 use crate::common::mocks::MockCategoryRepo;
 use actix_rt::test;

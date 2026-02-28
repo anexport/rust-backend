@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use super::*;
-use crate::common;
 
 use crate::common::mocks::{MockEquipmentRepo, MockUserRepo};
 use actix_rt::test;

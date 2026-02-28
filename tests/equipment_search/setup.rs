@@ -53,6 +53,11 @@ impl rust_backend::infrastructure::auth0_api::Auth0ApiClient for MockAuth0ApiCli
             username: _username.map(|s| s.to_string()),
             picture: None,
             name: None,
+            connection: String::new(),
+            given_name: None,
+            family_name: None,
+            nickname: None,
+            user_metadata: None,
             created_at: Some(Utc::now().to_rfc3339()),
             updated_at: Some(Utc::now().to_rfc3339()),
         })

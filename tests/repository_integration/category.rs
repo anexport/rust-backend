@@ -1,13 +1,10 @@
-use super::*;
-use crate::common::fixtures;
 use crate::common::fixtures::next_id;
 use crate::common::repository_helpers::create_category;
 use crate::common::TestDb;
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use rust_backend::domain::*;
 use rust_backend::error::AppError;
 use rust_backend::infrastructure::repositories::*;
-use rust_decimal::Decimal;
 use uuid::Uuid;
 
 #[tokio::test]

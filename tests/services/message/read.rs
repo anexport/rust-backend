@@ -1,4 +1,3 @@
-use crate::common::mocks::{MockMessageRepo, MockUserRepo};
 use crate::message::helpers::{service, test_user};
 use actix_rt::test;
 use chrono::Utc;
@@ -6,7 +5,6 @@ use rust_backend::domain::Conversation;
 use rust_backend::domain::Role;
 use rust_backend::error::AppError;
 use rust_backend::infrastructure::repositories::UserRepository;
-use std::sync::Arc;
 use uuid::Uuid;
 
 #[test]

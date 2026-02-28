@@ -1,7 +1,5 @@
-use super::*;
 use crate::common;
 
-use common::TestDb;
 use rust_backend::config::DatabaseConfig;
 use rust_backend::infrastructure::db::pool::create_pool;
 use sqlx::Connection;

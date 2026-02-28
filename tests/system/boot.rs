@@ -1,4 +1,3 @@
-use super::*;
 use crate::common;
 use common::setup_test_db;
 use reqwest::StatusCode;

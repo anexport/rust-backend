@@ -17,7 +17,7 @@ fn ws_message_ordering_guaranteed() {
         });
     }
 
-    for i in 0..messages.iter().count() {
+    for i in 0..messages.len() {
         if i > 0 {
             let prev_time = messages[i - 1].created_at;
             let curr_time = messages[i].created_at;

@@ -133,7 +133,7 @@ mod tests {
             "email_verified": true
         });
 
-        let result = serde_json::from_value::<SignupResponse>(invalid);
+        let result = serde_json::from_value::<Auth0SignupResponse>(invalid);
         assert!(result.is_err());
     }
 
@@ -144,7 +144,7 @@ mod tests {
             "expires_in": "not-a-number"
         });
 
-        let result = serde_json::from_value::<PasswordGrantResponse>(invalid);
+        let result = serde_json::from_value::<Auth0TokenResponse>(invalid);
         assert!(result.is_err());
     }
 }

@@ -8,7 +8,6 @@ use rust_backend::infrastructure::repositories::{AuthRepository, UserRepository}
 use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};
 use uuid::Uuid;
 
-use super::*;
 use crate::common;
 use common::mocks::{MockAuthRepo, MockUserRepo};
 

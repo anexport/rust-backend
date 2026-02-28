@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 
 use chrono::Utc;
 use rust_backend::domain::equipment::{Condition, Equipment};

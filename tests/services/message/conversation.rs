@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 #[test]
 async fn create_conversation_adds_creator_if_not_in_participants() {
-    let (user_repo, message_repo, service): (Arc<MockUserRepo>, Arc<MockMessageRepo>, _) =
+    let (_user_repo, _message_repo, service): (Arc<MockUserRepo>, Arc<MockMessageRepo>, _) =
         service();
 
     let creator_id = Uuid::new_v4();

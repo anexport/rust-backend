@@ -13,9 +13,7 @@ pub mod tokens;
 use crate::common::mocks::{
     MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
-use base64::Engine;
 
-use actix_web::{http::StatusCode, test as actix_test, web, App};
 use async_trait::async_trait;
 use serde::Deserialize;
 use sqlx::postgres::PgPoolOptions;
@@ -32,7 +30,6 @@ use rust_backend::infrastructure::auth0_api::{
 };
 use rust_backend::observability::AppMetrics;
 use rust_backend::security::LoginThrottle;
-use rust_backend::security::{cors_middleware, security_headers};
 
 // =============================================================================
 // Mock Auth0ApiClient for Actual Trait
@@ -147,7 +144,7 @@ impl Auth0ApiClient for MockAuth0ApiClient {
         }
 
         if let Some(error) = self.signup_error.lock().unwrap().as_ref() {
-            return Err(error.to_app_error());
+            return Err(error.to_app_error(reqwest::StatusCode::BAD_REQUEST));
         }
 
         // Check for existing user (simulates Auth0 duplicate email check)
@@ -174,6 +171,11 @@ impl Auth0ApiClient for MockAuth0ApiClient {
             username: user.username,
             picture: None,
             name: user.name,
+            connection: String::new(),
+            given_name: None,
+            family_name: None,
+            nickname: None,
+            user_metadata: None,
             created_at: Some(Utc::now().to_rfc3339()),
             updated_at: Some(Utc::now().to_rfc3339()),
         })
@@ -187,7 +189,7 @@ impl Auth0ApiClient for MockAuth0ApiClient {
         }
 
         if let Some(error) = self.login_error.lock().unwrap().as_ref() {
-            return Err(error.to_app_error());
+            return Err(error.to_app_error(reqwest::StatusCode::BAD_REQUEST));
         }
 
         // Find and authenticate user

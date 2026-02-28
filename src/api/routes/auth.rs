@@ -287,6 +287,11 @@ mod tests {
             username: None,
             picture: None,
             name: Some("User".to_string()),
+            connection: String::new(),
+            given_name: None,
+            family_name: None,
+            nickname: None,
+            user_metadata: None,
             created_at: None,
             updated_at: None,
         };
@@ -320,6 +325,11 @@ mod tests {
             username: None,
             picture: None,
             name: None,
+            connection: String::new(),
+            given_name: None,
+            family_name: None,
+            nickname: None,
+            user_metadata: None,
             created_at: None,
             updated_at: None,
         };
