@@ -115,6 +115,7 @@ impl AdminService {
         target_id: Uuid,
         payload: AdminUpdateRoleRequest,
     ) -> AppResult<AdminUserDetailResponse> {
+        self.require_admin(actor_id).await?;
         payload.validate()?;
         let new_role = mapper::parse_role(&payload.role)?;
 
@@ -136,6 +137,7 @@ impl AdminService {
     }
 
     pub async fn delete_user(&self, actor_id: Uuid, target_id: Uuid) -> AppResult<()> {
+        self.require_admin(actor_id).await?;
         if actor_id == target_id {
             return Err(AppError::Forbidden(
                 "Admins cannot delete themselves".to_string(),

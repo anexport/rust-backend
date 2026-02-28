@@ -1,0 +1,1175 @@
+[
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921441",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921441,
+    "node_id": "PRRC_kwDORVK_kc6q4b_h",
+    "diff_hunk": "@@ -1,358 +1,390 @@\n-# Backend Codebase Analysis Report\n-\n-**Date:** February 2026\n-**Reviewers:** Agent 1, Agent 2 (Claude Opus 4.6)\n-**Overall Assessment:** Good foundation with critical operational issues to address before production\n-\n----\n-\n-## Executive Summary\n-\n-This is a well-structured Rust backend using **actix-web** with a clean layered architecture (API -> Application -> Domain -> Infrastructure). The codebase demonstrates good practices in many areas, with some areas for enhancement.\n-\n----\n-\n-## 1. Architecture & Code Structure\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Finding |\n-|--------|---------|\n-| **Layer Separation** | Clean separation: `api/`, `application/`, `domain/`, `infrastructure/`, `middleware/`, `config/` |\n-| **Module Organization** | Logical grouping following domain-driven design principles |\n-| **Repository Pattern** | Trait-based repositories with dependency injection (`src/infrastructure/repositories/traits.rs`) |\n-| **State Management** | Centralized `AppState` in `src/api/routes/mod.rs` with all services |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **MEDIUM** | `src/lib.rs` | Library exports all modules publicly - consider selective exports for better API boundaries |\n-| **LOW** | `src/api/routes/ws/mod.rs` (949 lines) | WebSocket module has extensive inline test code (500+ lines) - consider moving to separate test files |\n-\n----\n-\n-## 2. Security\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **Authentication** | Auth0 integration with JWT validation via JWKS (`src/utils/auth0_jwks.rs`) |\n-| **Authorization** | Role-based access control (admin/owner/renter) with `require_admin()` in `src/api/routes/admin.rs` |\n-| **Input Validation** | Comprehensive use of `validator` crate with derive macros |\n-| **Rate Limiting** | `LoginThrottle` with exponential backoff (`src/security/mod.rs`) |\n-| **Password Security** | Argon2 hashing (line 25 Cargo.toml) |\n-| **CORS** | Allowlist-based CORS with dynamic origin checking (`src/security/mod.rs:17-23`) |\n-| **Security Headers** | HSTS, CSP, X-Frame-Options, etc. implemented (`src/security/mod.rs:26-39`) |\n-| **WS Security** | WSS required in production, token validation on WebSocket connections |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **HIGH** | `src/security/mod.rs:62-65` | `LoginThrottle` uses `expect()` on RwLock which could panic if lock is poisoned - should handle gracefully |\n-| **MEDIUM** | `src/middleware/auth.rs:91-94` | Fallback email generation `format!(\"{}@auth0.placeholder\", claims.sub)` could create duplicate emails if Auth0 doesn't provide email |\n-| **MEDIUM** | `src/api/routes/auth.rs:61-66` | Password length validation only checks `< 12` but doesn't check for common passwords or complexity requirements |\n-| **LOW** | `src/api/routes/auth.rs` | No password strength meter - consider adding zxcvbn or similar |\n-\n----\n-\n-## 3. Database & Data Layer\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **SQL Injection Prevention** | All queries use parameterized statements via SQLx |\n-| **Connection Pooling** | Proper configuration in `src/infrastructure/db/pool.rs` with timeouts and health checks |\n-| **Indexes** | Good index coverage in migrations (owner_id, category_id, coordinates GIST, etc.) |\n-| **Transactions** | Proper use of SERIALIZABLE isolation for conversation creation (`src/infrastructure/repositories/message_repository.rs:55-59`) |\n-| **Migrations** | Versioned migrations with proper down migrations |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **HIGH** | `migrations/20240101000000_init.up.sql:101` | Partial index `WHERE is_available = TRUE` but no index on `is_available` alone - could cause full table scan |\n-| **MEDIUM** | `src/infrastructure/repositories/equipment_repository.rs:85-98` | Search query duplicates logic in `count_search()` - could extract to shared function |\n-| **MEDIUM** | `src/infrastructure/repositories/user_repository.rs:112` | ILIKE with leading wildcard (`'\\%'\\| $3 \\| '\\%'`) prevents index usage - consider full-text search |\n-| **LOW** | `src/infrastructure/repositories/equipment_repository.rs` | No N+1 protection for photos in search results - photos loaded separately in `get_by_id` |\n-\n----\n-\n-## 4. API Design\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **REST Conventions** | Proper HTTP methods, status codes (201 Created, 204 No Content) |\n-| **Error Responses** | Consistent JSON error format with error codes (`src/error/app_error.rs`) |\n-| **Validation** | Detailed validation with field-level error messages via `validator` crate |\n-| **Pagination** | Consistent pagination with `PaginatedResponse<T>` in DTOs |\n-| **API Versioning** | Implemented at `/api/v1/` prefix (`src/api/routes/mod.rs:41`) |\n-| **OpenAPI/Swagger** | Wire up utoipa in main.rs with Swagger UI (`src/main.rs:343`) |\n-| **Rate Limiting** | Global rate limiting for all endpoints via `actix-governor` (`src/security/mod.rs:50-88`) |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **LOW** | `src/api/routes/equipment.rs:34-40` | Public list endpoint has rate limiting but is applied per-IP which could affect legitimate users on shared IPs |\n-\n----\n-\n-## 5. Error Handling\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **Error Types** | Comprehensive `AppError` enum with proper categorization (`src/error/app_error.rs`) |\n-| **Error Mapping** | Database error mapping for constraint violations (`src/error/db_mapping.rs`) |\n-| **ResponseError Trait** | Implements actix-web's `ResponseError` for automatic HTTP responses |\n-| **Logging** | Structured logging with tracing |\n-| **Sentry Integration** | Error tracking with `capture_unexpected_5xx()` |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **MEDIUM** | `src/error/app_error.rs:139-140` | Database errors expose \"Internal server error\" to client but original error is lost - should log details server-side |\n-\n----\n-\n-## 6. Performance\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **Async/Await** | Proper async patterns throughout |\n-| **Connection Pooling** | Configurable min/max connections with timeouts |\n-| **Caching** | JWKS caching via `moka` crate |\n-| **Metrics** | Request latency tracking via `AppMetrics` |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **MEDIUM** | `src/application/equipment_service.rs:54-55` | Separate `search()` and `count_search()` calls - could combine into single query |\n-| **LOW** | `src/observability/mod.rs` | Metrics use atomic operations but could use `parking_lot` RwLock for batch updates |\n-\n----\n-\n-## 7. Testing\n-\n-### Strengths (What's Done Well)\n-\n-| Aspect | Implementation |\n-|--------|----------------|\n-| **Test Count** | 572+ tests across unit and integration tests |\n-| **Test Organization** | Clear separation: unit tests in source files, integration tests in `tests/` |\n-| **CI/CD** | GitHub Actions with fmt, clippy, test, and audit jobs |\n-| **Test Fixtures** | Shared test utilities in `tests/common/` |\n-| **Property Tests** | Good coverage of edge cases in domain types |\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **LOW** | `tests/common/mod.rs` | Dead code warnings for unused `pool` and `url` fields - should clean up test utilities |\n-| **LOW** | `tests/auth0_endpoints_tests.rs:484` | Unused `auth_config` function - dead code |\n-\n----\n-\n-## 8. Dependencies\n-\n-### Strengths\n-\n-- Recent stable versions of major crates (actix-web 4.8.0, sqlx 0.8.6, tokio 1.x)\n-- Minimal dependencies - no unnecessary crates\n-\n-### Issues Found\n-\n-| Severity | Crate | Issue |\n-|----------|-------|-------|\n-| **MEDIUM** | `proc-macro-error` | Unmaintained (RUSTSEC-2024-0370) - transitive via utoipa |\n-| **MEDIUM** | `js-sys`, `wasm-bindgen` | Yanked versions - transitive dependencies |\n-| **LOW** | `chrono` | Version pinned for rustc 1.87 compatibility |\n-\n----\n-\n-## 9. Code Quality\n-\n-### Build Results\n-\n-```text\n-cargo check: PASSED\n-cargo clippy: PASSED (with -D warnings)\n-cargo audit: 3 warnings (1 unmaintained, 2 yanked transitive deps)\n-```\n-\n-### Issues Found\n-\n-| Severity | Location | Issue |\n-|----------|----------|-------|\n-| **LOW** | `src/domain/equipment.rs:52-63` | Coordinates parsing using string split - consider using serde deserialize directly |\n-| **LOW** | `src/api/routes/equipment.rs` | Duplicate code in `map_coordinates()` helper called in multiple places |\n-\n----\n-\n-## 10. Recommendations by Priority\n-\n-### Critical (Fix Now)\n-\n-| # | Issue | Location | Risk |\n-|---|-------|----------|------|\n-| 1 | **Panic on JWKS client creation** - Uses `panic!` which crashes the entire server | `src/main.rs:54-59` | Server crash on startup failure |\n-| 2 | **Panic in auth middleware** - User provisioning panics on missing users | `src/middleware/auth.rs:56-57` | Server crash on edge cases |\n-| 3 | **Insecure JWT secret default** - `change-me-in-production` in config | `src/config/default.toml:31` | Security vulnerability if not overridden |\n-| 4 | **No graceful shutdown** - Connections terminated abruptly on restart | `src/main.rs` | Request failures during deployments |\n-| 5 | **Add database index on `is_available`** - Partial index exists but full table scan possible | `migrations/...init.up.sql:101` | Performance degradation |\n-| 6 | **Handle RwLock poison gracefully** in `LoginThrottle` | `src/security/mod.rs:62-65` | Potential panic under load |\n-| 7 | **Add Auth0 email validation** - Don't create users with placeholder emails | `src/middleware/auth.rs:91-94` | Data integrity issues |\n-\n-### High (Address Soon)\n-\n-| # | Issue | Location | Risk |\n-|---|-------|----------|------|\n-| 1 | **Auth0 error info leak** - Exposes Auth0 error descriptions to clients | `src/infrastructure/auth0/client.rs:40` | Information disclosure |\n-| 2 | **Missing test coverage** - Most business logic untested | Service/domain layers | Regression risk |\n-| 3 | **Improve password validation** - Add complexity requirements beyond just length | `src/api/routes/auth.rs:61-66` | Weak passwords accepted |\n-| 4 | **Add request logging middleware** - More detailed audit trail | Middleware | Poor debugging capability |\n-\n-### Medium (Plan for Next Sprint)\n-\n-| # | Issue | Location | Risk |\n-|---|-------|----------|------|\n-| 1 | **No response caching** - Frequent queries hit DB every time | Service layer | Performance under load |\n-| 2 | **Potential N+1 queries** - Equipment listing may cause issues at scale | `src/infrastructure/repositories/equipment_repository.rs:325-350` | Performance degradation |\n-| 3 | **Missing circuit breakers** - No resilience for external service failures | External service calls | Cascading failures |\n-| 4 | **Optimize equipment search** - Combine search and count queries | `src/application/equipment_service.rs:54-55` | Unnecessary DB round-trips |\n-| 5 | **Fix ILIKE performance** - Leading wildcard prevents index usage | `src/infrastructure/repositories/user_repository.rs:112` | Slow searches |\n-| 6 | **Clean up test utilities** - Remove dead code warnings | `tests/common/mod.rs` | Code hygiene |\n-\n-### Low (Nice to Have)\n-\n-| # | Issue | Location | Notes |\n-|---|-------|----------|-------|\n-| 1 | **Extract WebSocket tests** to separate file | `src/api/routes/ws/mod.rs` | 500+ lines of inline tests |\n-| 2 | **Audit dependencies** - Check for unused crates | `Cargo.toml` | Possible `sha2`, `base64` unused |\n-| 3 | **Add monitoring for business metrics** | Observability layer | Beyond technical metrics |\n-| 4 | **Improve documentation** for complex business rules | Various | Knowledge sharing |\n-| 5 | **Consider API response envelopes** | API responses | Better client handling |\n-\n----\n-\n-## 11. Additional Findings (Agent 2 Review)\n-\n-### Operational Readiness Gaps\n-\n-| Area | Finding | Impact |\n-|------|---------|--------|\n-| **Graceful Shutdown** | No SIGTERM/SIGINT handling | Requests fail during deployments |\n-| **Startup Resilience** | `panic!` on JWKS failure | Entire server crashes on Auth0 issues |\n-| **Error Recovery** | Auth middleware panics on missing users | Server crash on edge cases |\n-| **Configuration Defaults** | Insecure JWT secret in default.toml | Security risk if env vars not set |\n-\n-### Architecture Gaps\n-\n-| Area | Finding | Impact |\n-|------|---------|--------|\n-| **Caching Strategy** | Only JWKS cached | Unnecessary DB load for frequent queries |\n-| **Circuit Breakers** | Not implemented | Cascading failures on external service issues |\n-\n-### Code Quality Concerns\n-\n-| Location | Issue |\n-|----------|-------|\n-| `src/main.rs:54-59` | Uses `panic!` instead of proper error handling |\n-| `src/middleware/auth.rs:56-57` | Panics instead of returning error response |\n-| `src/infrastructure/auth0/client.rs:40` | Leaks Auth0 error details to clients |\n-\n----\n-\n-## 12. Phased Implementation Plan\n-\n-### Phase 1: Stability & Security (Before New Features)\n-\n-```text\n-Priority: CRITICAL\n-Timeline: Immediate\n-\n-Tasks:\n-├── [1] Replace all panic! calls with proper error handling\n-│   ├── src/main.rs:54-59 (JWKS client creation)\n-│   └── src/middleware/auth.rs:56-57 (user provisioning)\n-├── [2] Remove insecure JWT secret defaults from config\n-├── [3] Implement graceful shutdown (SIGTERM/SIGINT handlers)\n-├── [4] Add database index on is_available column\n-└── [5] Handle RwLock poison gracefully in LoginThrottle\n-```\n-\n-### Phase 2: Production Hardening\n-\n-```text\n-Priority: HIGH\n-Timeline: Before first production deployment\n-\n-Tasks:\n-├── [1] Fix Auth0 error info leak\n-├── [2] Add core business logic tests (service/domain layers)\n-└── [3] Improve password validation with complexity requirements\n-```\n-\n-### Phase 3: Performance & Resilience\n-\n-```text\n-Priority: MEDIUM\n-Timeline: Post-launch optimization\n-\n-Tasks:\n-├── [1] Add response caching layer (Redis or in-memory)\n-├── [2] Fix potential N+1 queries in repositories\n-├── [3] Implement circuit breakers for external services\n-├── [4] Optimize equipment search (combine search + count)\n-└── [5] Consider full-text search with pg_trgm\n-```\n-\n-### Phase 4: Code Quality & Maintenance\n-\n-```text\n-Priority: LOW\n-Timeline: Ongoing\n-\n-Tasks:\n-├── [1] Extract WebSocket tests to separate files\n-├── [2] Audit and remove unused dependencies\n-├── [3] Clean up dead code in test utilities\n-├── [4] Add business metrics monitoring\n-└── [5] Improve documentation for complex business rules\n-```\n-\n----\n-\n-## Conclusion\n-\n-This is a **well-architected Rust backend** with solid foundations, but it has **critical operational gaps** that must be addressed before production deployment. The codebase follows Rust best practices and has good test coverage (572+ tests).\n-\n-### Combined Assessment\n-\n-| Category | Status | Action Required |\n-|----------|--------|-----------------|\n-| **Architecture** | ✅ Strong | Continue current patterns |\n-| **Security** | ⚠️ Good with gaps | Fix panic! calls, secure defaults |\n-| **Database** | ⚠️ Good with gaps | Add missing indexes |\n-| **API Design** | ✅ Good | Versioning and OpenAPI implemented |\n-| **Testing** | ⚠️ Good coverage, gaps in services | Add service layer tests |\n-| **Operations** | ❌ Not ready | Graceful shutdown, circuit breakers |\n-\n-### Key Blockers for Production\n-\n-1. **Panic-based error handling** - Can crash the server\n-2. **No graceful shutdown** - Causes request failures during deployments\n-3. **Insecure config defaults** - Security risk if env vars not set\n-\n-**Recommendation:** Complete Phase 1 before adding any new features. The foundation is solid, but these stability issues will cause production incidents.\n+src/config/auth0_config.rs\n+Comment on lines +25 to +38 #[derive(Debug, Deserialize, Clone, Default)]\n+pub struct Auth0Config {\n+pub auth0_domain: Option<String>,\n+pub auth0_audience: Option<String>,\n+pub auth0_issuer: Option<String>, #[serde(default = \"crate::config::defaults::default_jwks_cache_ttl_secs\")]\n+pub jwks_cache_ttl_secs: u64, #[serde(default)]\n+pub auth0_client_id: Option<String>, #[serde(default)]\n+pub auth0_client_secret: Option<String>, #[serde(default = \"crate::config::defaults::default_auth0_connection\")]\n+pub auth0_connection: String,\n+}\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+🧩 Analysis chain\n+Remove derive(Default) and provide a manual impl Default that respects serde defaults.\n+\n+Auth0Config::default() currently returns jwks_cache_ttl_secs: 0 and auth0_connection: \"\" instead of the intended defaults (3600 seconds and \"Username-Password-Authentication\"). This silently breaks the JWKS cache when used in struct update syntax (e.g., tests/core_api/equipment_extended/mod.rs:238), where an enabled config gets a zero-second cache TTL. The config loading normalization only applies to deserialized configs and does not protect programmatically constructed instances.\n+\n+Suggested fix\n+📝 Committable suggestion\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+src/infrastructure/auth0/dtos.rs\n+Comment on lines +72 to +76\n+error!(\n+code = %self.code,\n+description = %description,\n+\"Auth0 API error\"\n+);\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+Avoid logging raw Auth0 error descriptions.\n+\n+Lines 72-76 log external description directly, which can leak sensitive identifiers in logs. Also, logging self.code can miss the effective error code when error is used instead.\n+\n+🛡️ Proposed fix\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+src/infrastructure/repositories/equipment/photo.rs\n+Comment on lines +7 to +67\n+let created = sqlx::query*as::<*, EquipmentPhoto>(\n+r#\"\n+INSERT INTO equipment_photos (id, equipment_id, photo_url, is_primary, order_index, created_at)\n+VALUES ($1, $2, $3, $4, $5, $6)\n+RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at\n+\"#\n+)\n+.bind(photo.id)\n+.bind(photo.equipment_id)\n+.bind(&photo.photo_url)\n+.bind(photo.is_primary)\n+.bind(photo.order_index)\n+.bind(photo.created_at)\n+.fetch_one(pool)\n+.await?;\n+Ok(created)\n+}\n+\n+pub async fn find*photos(pool: &PgPool, equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {\n+let photos = sqlx::query_as::<*, EquipmentPhoto>(\n+\"SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE equipment_id = $1 ORDER BY order_index\"\n+)\n+.bind(equipment_id)\n+.fetch_all(pool)\n+.await?;\n+Ok(photos)\n+}\n+\n+pub async fn find*photo_by_id(pool: &PgPool, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {\n+let photo = sqlx::query_as::<*, EquipmentPhoto>(\n+\"SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE id = $1\"\n+)\n+.bind(photo_id)\n+.fetch_optional(pool)\n+.await?;\n+Ok(photo)\n+}\n+\n+pub async fn update*photo(pool: &PgPool, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {\n+let updated = sqlx::query_as::<*, EquipmentPhoto>(\n+r#\"\n+UPDATE equipment_photos\n+SET photo_url = $1, is_primary = $2, order_index = $3\n+WHERE id = $4\n+RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at\n+\"#,\n+)\n+.bind(&photo.photo_url)\n+.bind(photo.is_primary)\n+.bind(photo.order_index)\n+.bind(photo.id)\n+.fetch_one(pool)\n+.await?;\n+Ok(updated)\n+}\n+\n+pub async fn delete_photo(pool: &PgPool, photo_id: Uuid) -> AppResult<()> {\n+sqlx::query(\"DELETE FROM equipment_photos WHERE id = $1\")\n+.bind(photo_id)\n+.execute(pool)\n+.await?;\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+🧩 Analysis chain\n+Switch repository SQL to SQLx compile-time macros.\n+\n+This module uses runtime-checked builders (sqlx::query*as::<*, EquipmentPhoto> and sqlx::query) instead of compile-time checked SQLx macros. Migrate to query_as! (for queries returning rows) and query! (for non-row statements) to enable schema-checked queries at compile time.\n+\n+Per coding guidelines: \"Database queries must use parameterized queries with SQLx query_as! macro.\"\n+\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+src/security/login_throttle.rs\n+Comment on lines +24 to +26\n+pub fn key(email: &str, ip: Option<&str>) -> String {\n+format!(\"{email}|{}\", ip.unwrap_or(\"unknown\"))\n+}\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+Normalize throttle key inputs to prevent easy bypass.\n+\n+Using raw email allows case/whitespace variants to produce different keys and evade per-user throttling. Canonicalize email (trim + lowercase) before key construction.\n+\n+Suggested fix\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+src/security/rate_limit.rs\n+Comment on lines +35 to +40\n+let requests_per_millisecond = (60_000 / rate_limit_per_minute) as u64;\n+let governor_config = GovernorConfigBuilder::default()\n+.per_millisecond(requests_per_millisecond)\n+.burst_size(burst_size)\n+.finish()\n+.expect(\"Failed to build governor config\");\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟡 Minor\n+\n+🧩 Analysis chain\n+Rename variable and use non-deprecated method — per_millisecond() is deprecated and variable naming is inverted.\n+\n+The variable requests_per_millisecond is semantically backwards; the calculation 60_000 / rate_limit_per_minute produces the replenishment interval in milliseconds (e.g., 200 ms per request for 300 req/min), not a rate. Additionally, per_millisecond() has been deprecated since actix-governor 0.6.0 in favor of milliseconds_per_request(), which has identical semantics but clearer naming.\n+\n+Suggested fix:\n+\n+Rename variable to milliseconds_per_request\n+Replace .per_millisecond() with .milliseconds_per_request()\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+tests/auth_middleware/jwt_validation.rs\n+Comment on lines +59 to +86\n+async fn create_token_with_wrong_issuer() {\n+let exp = (Utc::now() + Duration::hours(1)).timestamp();\n+\n+    let claims = Auth0Claims {\n+        iss: \"https://wrong-issuer.com/\".to_string(),\n+        sub: \"auth0|wrong-iss\".to_string(),\n+        aud: Audience::Single(\"test-api\".to_string()),\n+        exp: exp as u64,\n+        iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,\n+        email: Some(\"wrongiss@example.com\".to_string()),\n+        email_verified: Some(true),\n+        name: Some(\"Wrong Issuer\".to_string()),\n+        picture: None,\n+        custom_claims: std::collections::HashMap::new(),\n+    };\n+\n+    let mut header = Header::new(Algorithm::HS256);\n+    header.kid = Some(\"test-key-id\".to_string());\n+\n+    let token = encode(\n+        &header,\n+        &claims,\n+        &EncodingKey::from_secret(\"test-secret\".as_bytes()),\n+    )\n+    .expect(\"Failed to encode test token\");\n+\n+    assert!(!token.is_empty());\n+\n+}\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+create_token_with_wrong_issuer doesn’t actually verify issuer rejection.\n+\n+Right now it only checks that encoding produced a token string. Without a validation/assertion step, this test will pass even if issuer checks regress.\n+\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+tests/auth_middleware/jwt_validation.rs\n+Comment on lines +89 to +123\n+async fn create_token_not_yet_valid() {\n+let exp = (Utc::now() + Duration::hours(2)).timestamp();\n+\n+    let claims = Auth0Claims {\n+        iss: \"https://test.auth0.com/\".to_string(),\n+        sub: \"auth0|future\".to_string(),\n+        aud: Audience::Single(\"test-api\".to_string()),\n+        exp: exp as u64,\n+        iat: (Utc::now() + Duration::hours(1)).timestamp() as u64,\n+        email: Some(\"future@example.com\".to_string()),\n+        email_verified: Some(true),\n+        name: Some(\"Future User\".to_string()),\n+        picture: None,\n+        custom_claims: std::collections::HashMap::new(),\n+    };\n+\n+    let mut header = Header::new(Algorithm::HS256);\n+    header.kid = Some(\"test-key-id\".to_string());\n+\n+    let token = encode(\n+        &header,\n+        &claims,\n+        &EncodingKey::from_secret(\"test-secret\".as_bytes()),\n+    )\n+    .expect(\"Failed to encode test token\");\n+\n+    // Token should fail nbf validation\n+    let decoded = jsonwebtoken::decode::<Auth0Claims>(\n+        &token,\n+        &jsonwebtoken::DecodingKey::from_secret(\"test-secret\".as_bytes()),\n+        &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),\n+    );\n+\n+    assert!(decoded.is_err());\n+\n+}\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟡 Minor\n+\n+Clarify and tighten the “not yet valid” test intent.\n+\n+The test comment mentions nbf behavior, but the setup changes only iat and then checks only generic is_err(). Make the claim under test explicit and assert the expected failure reason to avoid false positives.\n+\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+tests/auth0_endpoints.rs\n+Comment on lines +111 to +117\n+pub fn generate_mock_rs256_token(&self) -> String {\n+let header = \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5In0\";\n+// Payload: {\"iss\":\"https://test.auth0.com/\",\"sub\":\"test-user\",\"aud\":\"https://api.test.com\",\"exp\":1757680000,\"iat\":1757680000}\n+let payload = \"eyJpc3MiOiJodHRwczovL3Rlc3QuYXV0aDAuY29tLyIsInN1YiI6InRlc3QtdXNlciIsImF1ZCI6Imh0dHBzOi8vYXBpLnRlc3QuY29tIiwiZXhwIjoxNzU3NjgwMDAwLCJpYXQiOjE3NTc2ODAwMDB9\";\n+let signature = \"bX9ja2stcnMyNTYtc2lnbmF0dXJl\";\n+format!(\"{}.{}.{}\", header, payload, signature)\n+}\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟡 Minor\n+\n+Avoid hard-coded expired JWT claims in the mock token helper.\n+\n+Line 114 hardcodes exp=1757680000 (September 12, 2025 UTC), which is already past as of February 27, 2026. This makes tests time-fragile when claims are validated.\n+\n+🛠️ Proposed fix\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+tests/auth0*endpoints.rs\n+Comment on lines +251 to +253\n+let database_url = std::env::var(\"TEST_DATABASE_URL\")\n+.or_else(|*| std::env::var(\"DATABASE*URL\"))\n+.unwrap_or_else(|*| \"postgres://postgres:postgres@127.0.0.1:5432/test_db\".to_string());\n+@coderabbitai\n+coderabbitai bot\n+9 minutes ago\n+⚠️ Potential issue | 🟠 Major\n+\n+Do not fall back to DATABASE_URL for test pool initialization.\n+\n+Lines 251-253 can route tests to a non-test DB when TEST_DATABASE_URL is missing. That is a high-risk safety footgun.\n+\n+🛡️ Proposed fix\n+📝 Committable suggestion\n+🤖 Prompt for AI Agents\n+@anexport Reply...\n+tests/common/auth0*test_helpers.rs\n+Comment on lines +91 to +101\n+let * = auth_repo\n+.create_identity(&rust_backend::domain::AuthIdentity {\n+id: Uuid::new_v4(),\n+user_id: user.id,\n+provider: rust_backend::domain::AuthProvider::Auth0,\n+provider_id: Some(sub.clone()),\n+password_hash: None,\n+verified: claims.email_verified.unwrap_or(false),\n+created_at: Utc::now(),\n+})\n+.await;",
+    "path": "docs/review.md",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**Use fenced code blocks for these snippets to avoid broken Markdown parsing.**\n\nThe current `*` / `_` marker usage triggers markdownlint MD037 and makes examples harder to read correctly.\n\n\n\n\nAlso applies to: 357-359\n\n<details>\n<summary>🧰 Tools</summary>\n\n<details>\n<summary>🪛 markdownlint-cli2 (0.21.0)</summary>\n\n[warning] 295-295: Spaces inside emphasis markers\n\n(MD037, no-space-in-emphasis)\n\n</details>\n\n</details>\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n````\nVerify each finding against the current code and only fix it if needed.\n\nIn `@docs/review.md` around lines 295 - 305, The Markdown snippet containing the\ncall to auth_repo.create_identity and the rust_backend::domain::AuthIdentity\nstruct should be wrapped in a fenced code block (triple backticks) to prevent\nMD037 and broken parsing; update the example around the\nauth_repo.create_identity(...) invocation (and the similar snippet referencing\nAuthIdentity/Uuid::new_v4 and provider fields noted later) by enclosing the\nentire snippet in ```rust ... ``` so the markers like `*`/`_` are treated as\ncode rather than Markdown.\n````\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:39Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921441",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921441"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921441"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921441/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 295,
+    "original_start_line": 295,
+    "start_side": "RIGHT",
+    "line": 305,
+    "original_line": 305,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 663,
+    "position": 663,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921444",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921444,
+    "node_id": "PRRC_kwDORVK_kc6q4b_k",
+    "diff_hunk": "@@ -9,3 +9,19 @@ pub struct ErrorResponse {\n     /// Human-readable error message\n     pub message: String,\n }\n+\n+#[derive(Debug, serde::Deserialize, utoipa::IntoParams, validator::Validate)]\n+pub struct PaginationParams {\n+    #[serde(default = \"default_page\")]\n+    pub page: i64,\n+    #[serde(default = \"default_limit\")]\n+    pub limit: i64,\n+}",
+    "path": "src/api/dtos/common.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**`PaginationParams` is missing required DTO derives and field validations.**\n\nThis DTO currently omits `Serialize` and `ToSchema`, and `page`/`limit` have no validation constraints despite deriving `Validate`.\n\n\n\n<details>\n<summary>✅ Suggested fix</summary>\n\n```diff\n-#[derive(Debug, serde::Deserialize, utoipa::IntoParams, validator::Validate)]\n+#[derive(\n+    Debug,\n+    serde::Deserialize,\n+    serde::Serialize,\n+    utoipa::ToSchema,\n+    utoipa::IntoParams,\n+    validator::Validate\n+)]\n pub struct PaginationParams {\n     #[serde(default = \"default_page\")]\n+    #[validate(range(min = 1))]\n     pub page: i64,\n     #[serde(default = \"default_limit\")]\n+    #[validate(range(min = 1, max = 100))]\n     pub limit: i64,\n }\n```\n</details>\n\nAs per coding guidelines: `src/api/dtos/*.rs`: “DTOs should be created in `src/api/dtos/*.rs` with validation attributes and derive macros (Debug, Deserialize, Serialize, Validate, ToSchema)”.\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n#[derive(\n    Debug,\n    serde::Deserialize,\n    serde::Serialize,\n    utoipa::ToSchema,\n    utoipa::IntoParams,\n    validator::Validate\n)]\npub struct PaginationParams {\n    #[serde(default = \"default_page\")]\n    #[validate(range(min = 1))]\n    pub page: i64,\n    #[serde(default = \"default_limit\")]\n    #[validate(range(min = 1, max = 100))]\n    pub limit: i64,\n}\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/api/dtos/common.rs` around lines 13 - 19, Update the PaginationParams DTO\nto include the missing derives and field validations: add serde::Serialize and\nutoipa::ToSchema to the derive list on struct PaginationParams (alongside Debug,\nDeserialize, IntoParams, Validate) and annotate the page and limit fields with\nvalidator attributes (e.g., #[validate(range(min = 1))] for page and\n#[validate(range(min = 1, max = <sensible_max>))] for limit) while keeping their\nserde defaults via default_page and default_limit; ensure any required imports\nfor Serialize, ToSchema and validator attributes are added/adjusted in the file.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:39Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921444",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921444"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921444"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921444/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 13,
+    "original_start_line": 13,
+    "start_side": "RIGHT",
+    "line": 19,
+    "original_line": 19,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 11,
+    "position": 11,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921456",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921456,
+    "node_id": "PRRC_kwDORVK_kc6q4b_w",
+    "diff_hunk": "@@ -98,9 +99,29 @@ impl UserService {\n         Ok(map_profile(updated))\n     }\n \n-    pub async fn my_equipment(&self, user_id: Uuid) -> AppResult<Vec<EquipmentResponse>> {\n-        let equipment = self.equipment_repo.find_by_owner(user_id).await?;\n-        Ok(equipment\n+    pub async fn my_equipment(\n+        &self,\n+        user_id: Uuid,\n+        page: i64,\n+        limit: i64,\n+    ) -> AppResult<PaginatedResponse<EquipmentResponse>> {\n+        let page = page.max(1);\n+        let limit = limit.clamp(1, 100);\n+        let offset = (page - 1) * limit;\n+",
+    "path": "src/application/user_service.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\ncat -n src/application/user_service.rs | sed -n '100,120p'\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 754\n\n---\n\n🏁 Script executed:\n\n```shell\nrg -B 10 \"let page = page.max\" src/application/user_service.rs | head -30\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 362\n\n---\n\n🏁 Script executed:\n\n```shell\nrg -A 5 \"let offset = \" src/application/user_service.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 251\n\n---\n\n🏁 Script executed:\n\n```shell\nrg -B 2 \"my_equipment\" src/ --type rs | grep -E \"my_equipment|page|limit\" | head -20\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 91\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"query.*page|query.*limit\" src/ -t rs | head -10\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 91\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"my_equipment\" src/ | head -20\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 350\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"find_by_owner\" src/infrastructure/ -A 3\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 605\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"async fn find_by_owner\" src/infrastructure/repositories/equipment/mod.rs -A 15\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 635\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"async fn my_equipment\" src/api/routes/users.rs -B 5 -A 15\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 513\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"struct PaginationParams|page|limit\" src/api/ -B 2 -A 5 | head -40\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 2029\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"struct PaginationParams\" src/ -A 10\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 510\n\n---\n\n🏁 Script executed:\n\n```shell\nrg \"const fn default_limit|fn default_limit\" src/api/dtos/common.rs -A 2\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 107\n\n---\n\n🏁 Script executed:\n\n```shell\npython3 << 'EOF'\nimport sys\n\n# i64 range\ni64_max = 2**63 - 1\ni64_min = -(2**63)\n\n# After applying constraints in user_service:\n# page >= 1 (from page.max(1))\n# limit in [1, 100] (from limit.clamp(1, 100))\n\n# But page comes from query string, unconstrained initially\n# page could be i64::MAX\n\n# Overflow check:\npage_worst = i64_max\nlimit_worst = 100\n\n# (page - 1) is safe: i64::MAX - 1 = 9223372036854775806\nafter_sub = page_worst - 1\nprint(f\"After (page - 1): {after_sub}\")\nprint(f\"i64::MAX: {i64_max}\")\n\n# (page - 1) * limit overflows?\nproduct = after_sub * limit_worst\nprint(f\"(page - 1) * limit = {product}\")\nprint(f\"i64 can hold: {i64_max}\")\nprint(f\"Overflows: {product > i64_max}\")\n\n# Saturating multiplication result\nsaturating_result = min(product, i64_max)\nprint(f\"Saturating result: {saturating_result}\")\nEOF\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 264\n\n---\n\n\n\n</details>\n\n**Use overflow-safe arithmetic for pagination offset.**\n\nOn Line 110, `(page - 1) * limit` can overflow for large query parameter values. When `page` approaches `i64::MAX` and `limit` is clamped to its maximum of 100, the multiplication overflows. Use saturating arithmetic for request-derived pagination inputs.\n\n```diff\n-        let offset = (page - 1) * limit;\n+        let offset = page.saturating_sub(1).saturating_mul(limit);\n```\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n        let page = page.max(1);\n        let limit = limit.clamp(1, 100);\n        let offset = page.saturating_sub(1).saturating_mul(limit);\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/application/user_service.rs` around lines 108 - 111, Replace the direct\narithmetic for pagination offset with overflow-safe/saturating arithmetic:\ninstead of `(page - 1) * limit` use saturating operations on the request-derived\nvalues (e.g., call page.saturating_sub(1) then saturating_mul with limit) after\nyou clamp `limit`; update the `page`, `limit`, and `offset` computation in the\nsame block so `offset` cannot overflow when `page` is near i64::MAX.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:39Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921456",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921456"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921456"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921456/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 108,
+    "original_start_line": 108,
+    "start_side": "RIGHT",
+    "line": 111,
+    "original_line": 111,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 26,
+    "position": 26,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921463",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921463,
+    "node_id": "PRRC_kwDORVK_kc6q4b_3",
+    "diff_hunk": "@@ -0,0 +1,99 @@\n+use serde::Deserialize;\n+use thiserror::Error;\n+\n+#[derive(Debug, Error)]\n+pub enum ConfigError {\n+    #[error(\"Auth0 configuration is incomplete: {0}\")]\n+    Auth0Config(String),\n+}\n+\n+#[derive(Debug, Deserialize, Clone)]\n+pub struct AuthConfig {\n+    pub jwt_secret: String,\n+    #[serde(default = \"crate::config::defaults::default_jwt_kid\")]\n+    pub jwt_kid: String,\n+    #[serde(default)]\n+    pub previous_jwt_secrets: Vec<String>,\n+    #[serde(default)]\n+    pub previous_jwt_kids: Vec<String>,\n+    pub jwt_expiration_seconds: u64,\n+    pub refresh_token_expiration_days: u64,\n+    pub issuer: String,\n+    pub audience: String,\n+}\n+\n+#[derive(Debug, Deserialize, Clone)]\n+pub struct Auth0Config {\n+    pub auth0_domain: Option<String>,\n+    pub auth0_audience: Option<String>,\n+    pub auth0_issuer: Option<String>,\n+    #[serde(default = \"crate::config::defaults::default_jwks_cache_ttl_secs\")]\n+    pub jwks_cache_ttl_secs: u64,\n+    #[serde(default)]\n+    pub auth0_client_id: Option<String>,\n+    #[serde(default)]\n+    pub auth0_client_secret: Option<String>,\n+    #[serde(default = \"crate::config::defaults::default_auth0_connection\")]\n+    pub auth0_connection: String,\n+}",
+    "path": "src/config/auth0_config.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**Redact secrets instead of deriving `Debug` on auth config structs.**\n\n`AuthConfig` and `Auth0Config` include secret fields (`jwt_secret`, `auth0_client_secret`). Deriving `Debug` here can leak them through logs.\n\n\n\n<details>\n<summary>🔒 Suggested hardening</summary>\n\n```diff\n-#[derive(Debug, Deserialize, Clone)]\n+#[derive(Deserialize, Clone)]\n pub struct AuthConfig { ... }\n\n-#[derive(Debug, Deserialize, Clone)]\n+#[derive(Deserialize, Clone)]\n pub struct Auth0Config { ... }\n\n+impl std::fmt::Debug for AuthConfig {\n+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n+        f.debug_struct(\"AuthConfig\")\n+            .field(\"jwt_secret\", &\"[REDACTED]\")\n+            .field(\"jwt_kid\", &self.jwt_kid)\n+            .field(\"previous_jwt_secrets\", &\"[REDACTED]\")\n+            .field(\"previous_jwt_kids\", &self.previous_jwt_kids)\n+            .field(\"jwt_expiration_seconds\", &self.jwt_expiration_seconds)\n+            .field(\"refresh_token_expiration_days\", &self.refresh_token_expiration_days)\n+            .field(\"issuer\", &self.issuer)\n+            .field(\"audience\", &self.audience)\n+            .finish()\n+    }\n+}\n+\n+impl std::fmt::Debug for Auth0Config {\n+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n+        f.debug_struct(\"Auth0Config\")\n+            .field(\"auth0_domain\", &self.auth0_domain)\n+            .field(\"auth0_audience\", &self.auth0_audience)\n+            .field(\"auth0_issuer\", &self.auth0_issuer)\n+            .field(\"jwks_cache_ttl_secs\", &self.jwks_cache_ttl_secs)\n+            .field(\"auth0_client_id\", &self.auth0_client_id)\n+            .field(\"auth0_client_secret\", &self.auth0_client_secret.as_ref().map(|_| \"[REDACTED]\"))\n+            .field(\"auth0_connection\", &self.auth0_connection)\n+            .finish()\n+    }\n+}\n```\n</details>\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n#[derive(Deserialize, Clone)]\npub struct AuthConfig {\n    pub jwt_secret: String,\n    #[serde(default = \"crate::config::defaults::default_jwt_kid\")]\n    pub jwt_kid: String,\n    #[serde(default)]\n    pub previous_jwt_secrets: Vec<String>,\n    #[serde(default)]\n    pub previous_jwt_kids: Vec<String>,\n    pub jwt_expiration_seconds: u64,\n    pub refresh_token_expiration_days: u64,\n    pub issuer: String,\n    pub audience: String,\n}\n\n#[derive(Deserialize, Clone)]\npub struct Auth0Config {\n    pub auth0_domain: Option<String>,\n    pub auth0_audience: Option<String>,\n    pub auth0_issuer: Option<String>,\n    #[serde(default = \"crate::config::defaults::default_jwks_cache_ttl_secs\")]\n    pub jwks_cache_ttl_secs: u64,\n    #[serde(default)]\n    pub auth0_client_id: Option<String>,\n    #[serde(default)]\n    pub auth0_client_secret: Option<String>,\n    #[serde(default = \"crate::config::defaults::default_auth0_connection\")]\n    pub auth0_connection: String,\n}\n\nimpl std::fmt::Debug for AuthConfig {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        f.debug_struct(\"AuthConfig\")\n            .field(\"jwt_secret\", &\"[REDACTED]\")\n            .field(\"jwt_kid\", &self.jwt_kid)\n            .field(\"previous_jwt_secrets\", &\"[REDACTED]\")\n            .field(\"previous_jwt_kids\", &self.previous_jwt_kids)\n            .field(\"jwt_expiration_seconds\", &self.jwt_expiration_seconds)\n            .field(\"refresh_token_expiration_days\", &self.refresh_token_expiration_days)\n            .field(\"issuer\", &self.issuer)\n            .field(\"audience\", &self.audience)\n            .finish()\n    }\n}\n\nimpl std::fmt::Debug for Auth0Config {\n    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n        f.debug_struct(\"Auth0Config\")\n            .field(\"auth0_domain\", &self.auth0_domain)\n            .field(\"auth0_audience\", &self.auth0_audience)\n            .field(\"auth0_issuer\", &self.auth0_issuer)\n            .field(\"jwks_cache_ttl_secs\", &self.jwks_cache_ttl_secs)\n            .field(\"auth0_client_id\", &self.auth0_client_id)\n            .field(\"auth0_client_secret\", &self.auth0_client_secret.as_ref().map(|_| \"[REDACTED]\"))\n            .field(\"auth0_connection\", &self.auth0_connection)\n            .finish()\n    }\n}\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/config/auth0_config.rs` around lines 10 - 38, Remove the automatic Debug\nderive from AuthConfig and Auth0Config and replace it with manual Debug\nimplementations that redact sensitive fields: mask jwt_secret and any entries in\nprevious_jwt_secrets in AuthConfig, and mask auth0_client_secret (and\nauth0_client_id if treated as secret) in Auth0Config; keep non-sensitive fields\n(jwt_kid, jwt_expiration_seconds, issuer, audience, auth0_domain,\nauth0_audience, auth0_issuer, jwks_cache_ttl_secs, auth0_connection, etc.)\nprintable. Implement fmt::Debug for AuthConfig and Auth0Config to output the\nsame structure but replace secret values with a constant placeholder like\n\"<redacted>\" so logs won’t leak secrets while retaining useful non-secret\nfields.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:39Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921463",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921463"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921463"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921463/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 10,
+    "original_start_line": 10,
+    "start_side": "RIGHT",
+    "line": 38,
+    "original_line": 38,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 38,
+    "position": 38,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921470",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921470,
+    "node_id": "PRRC_kwDORVK_kc6q4b_-",
+    "diff_hunk": "@@ -1,3 +1,133 @@\n-mod app_config;\n+pub mod auth0_config;\n+pub mod database_config;\n+pub mod defaults;\n+pub mod security_config;\n \n-pub use app_config::*;\n+use figment::{\n+    providers::{Env, Format, Toml},\n+    Figment,\n+};\n+use serde::Deserialize;\n+\n+pub use auth0_config::{Auth0Config, AuthConfig, ConfigError};\n+pub use database_config::DatabaseConfig;\n+pub use security_config::SecurityConfig;\n+\n+#[derive(Debug, Deserialize, Clone)]\n+pub struct AppConfig {\n+    #[serde(default = \"defaults::default_host\")]\n+    pub host: String,\n+    #[serde(default = \"defaults::default_port\")]\n+    pub port: u16,\n+    #[serde(default = \"defaults::default_environment\")]\n+    pub environment: String,\n+    pub database: DatabaseConfig,\n+    pub auth: AuthConfig,\n+    pub auth0: Auth0Config,\n+    pub security: SecurityConfig,\n+    pub logging: LoggingConfig,\n+    pub sentry: SentryConfig,\n+}",
+    "path": "src/config/mod.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**Avoid `Debug` on top-level config containing secrets.**\n\n`AppConfig` debug output can transitively expose sensitive auth fields (e.g., JWT/Auth0 secrets) if config gets logged.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/config/mod.rs` around lines 16 - 30, Remove the Debug derive from the\ntop-level AppConfig to avoid accidental logging of secrets: update the struct\ndeclaration for AppConfig (currently #[derive(Debug, Deserialize, Clone)]) to\n#[derive(Deserialize, Clone)] and, if you still need debug output, implement a\ncustom Debug for AppConfig that redacts sensitive fields (or only delegates\nDebug to non-sensitive subconfigs); review/AuthConfig, Auth0Config,\nSecurityConfig, and SentryConfig and ensure any Debug derives there either\nredact secrets or are removed so secret fields are never printed by Debug.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921470",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921470"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921470"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921470/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 16,
+    "original_start_line": 16,
+    "start_side": "RIGHT",
+    "line": 30,
+    "original_line": 30,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 32,
+    "position": 32,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921474",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921474,
+    "node_id": "PRRC_kwDORVK_kc6q4cAC",
+    "diff_hunk": "@@ -1,3 +1,133 @@\n-mod app_config;\n+pub mod auth0_config;\n+pub mod database_config;\n+pub mod defaults;\n+pub mod security_config;\n \n-pub use app_config::*;\n+use figment::{\n+    providers::{Env, Format, Toml},\n+    Figment,\n+};\n+use serde::Deserialize;\n+\n+pub use auth0_config::{Auth0Config, AuthConfig, ConfigError};\n+pub use database_config::DatabaseConfig;\n+pub use security_config::SecurityConfig;\n+\n+#[derive(Debug, Deserialize, Clone)]\n+pub struct AppConfig {\n+    #[serde(default = \"defaults::default_host\")]\n+    pub host: String,\n+    #[serde(default = \"defaults::default_port\")]\n+    pub port: u16,\n+    #[serde(default = \"defaults::default_environment\")]\n+    pub environment: String,\n+    pub database: DatabaseConfig,\n+    pub auth: AuthConfig,\n+    pub auth0: Auth0Config,\n+    pub security: SecurityConfig,\n+    pub logging: LoggingConfig,\n+    pub sentry: SentryConfig,\n+}\n+\n+#[derive(Debug, Deserialize, Clone)]\n+pub struct LoggingConfig {\n+    #[serde(default = \"defaults::default_logging_level\")]\n+    pub level: String,\n+    #[serde(default = \"defaults::default_logging_json_format\")]\n+    pub json_format: bool,\n+}\n+\n+#[derive(Debug, Deserialize, Clone, Default)]\n+pub struct SentryConfig {\n+    #[serde(default)]\n+    pub dsn: Option<String>,\n+}\n+\n+impl SentryConfig {\n+    pub fn is_enabled(&self) -> bool {\n+        self.dsn\n+            .as_ref()\n+            .map(|d| !d.trim().is_empty())\n+            .unwrap_or(false)\n+    }\n+}\n+\n+impl AppConfig {\n+    pub fn from_env() -> Result<Self, Box<figment::Error>> {\n+        let mut config: Self = Figment::new()\n+            .merge(Toml::file(\"config/default.toml\"))\n+            .merge(Toml::file(\"config/development.toml\").nested())\n+            .merge(Env::prefixed(\"APP_\").split(\"__\"))",
+    "path": "src/config/mod.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🌐 Web query:\n\n`figment 0.10 Toml nested() method documentation`\n\n💡 Result:\n\nIn **figment 0.10**, `Toml::file(...)` / `Toml::string(...)` return a `providers::Data<Toml>`, and the **`.nested()`** method is documented on `Data`:\n\n- **Signature:** `pub fn nested(self) -> Self`  \n- **What it does:** enables *nesting*, meaning the parsed TOML’s **top-level keys are treated as profiles**, and each top-level value becomes that profile’s dictionary. So a TOML like `[staging] ...` / `[release] ...` can be selected via `Figment::select(\"staging\")`, etc. [1]\n- **How you use it with TOML:** `Toml::file(\"path-to-file\").nested()` (or `Toml::string(...).nested()`). [2]\n\n**Sources:**  \n[1] `figment::providers::Data::nested()` docs (figment 0.10.19 on docs.rs) ([docs.rs](https://docs.rs/figment/latest/figment/providers/struct.Data.html))  \n[2] `figment::providers::Toml` docs showing `.nested()` usage ([docs.rs](https://docs.rs/figment/latest/figment/providers/struct.Toml.html?utm_source=openai))\n\nCitations:\n\n- 1: https://docs.rs/figment/latest/figment/providers/struct.Data.html\n- 2: https://docs.rs/figment/latest/figment/providers/struct.Toml.html?utm_source=openai\n\n---\n\n🏁 Script executed:\n\n```shell\n# First, let's check the file structure and examine the config/mod.rs file\nfd \"mod.rs\" src/config/\n\n# Check if config files exist\nfd \"\\.toml$\" config/\n\n# Look at the relevant lines in src/config/mod.rs\nif [ -f \"src/config/mod.rs\" ]; then\n  wc -l src/config/mod.rs\nfi\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 148\n\n---\n\n🏁 Script executed:\n\n```shell\n# View the relevant section of src/config/mod.rs around lines 58-60\nsed -n '50,75p' src/config/mod.rs\n\n# View the full config files to understand their structure\necho \"=== default.toml ===\" && cat config/default.toml\necho -e \"\\n=== development.toml ===\" && cat config/development.toml\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 3607\n\n---\n\n\n\n</details>\n\n**Remove `.nested()` from `development.toml` merge or restructure the file.**\n\nThe `.nested()` method in Figment is designed for profile-based config files (e.g., `[staging]`, `[release]`, `[development]` sections), where top-level keys become selectable profiles via `.select()`. Since `development.toml` contains regular config sections `[database]` and `[logging]` without a wrapping profile key, and the code extracts directly into `AppConfig` without calling `.select()`, the `.nested()` call causes these overrides to be structured as profiles instead of merging into the root config. This prevents `development.toml` settings from properly overriding `default.toml` values.\n\nEither remove `.nested()` to perform a standard merge, or restructure `development.toml` to wrap all settings under a `[development]` profile and use `.select(\"development\")` after building the Figment.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/config/mod.rs` around lines 58 - 60, The merge call using\nToml::file(\"config/development.toml\").nested() is treating development.toml as a\nprofile and preventing its top-level [database]/[logging] keys from overriding\ndefaults when extracting into AppConfig; remove the .nested() so the line\nbecomes a normal merge of development.toml into the root, or alternatively keep\n.nested() but wrap development.toml under a [development] table and call\n.select(\"development\") on the Figment before extracting into AppConfig so the\ncorrect profile is merged.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921474",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921474"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921474"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921474/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 58,
+    "original_start_line": 58,
+    "start_side": "RIGHT",
+    "line": 60,
+    "original_line": 60,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 62,
+    "position": 62,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921477",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921477,
+    "node_id": "PRRC_kwDORVK_kc6q4cAF",
+    "diff_hunk": "@@ -178,22 +41,22 @@ impl HttpAuth0ApiClient {\n         })\n     }\n \n-    fn domain(&self) -> &str {\n+    pub(crate) fn domain(&self) -> &str {\n         self.config\n             .auth0_domain\n             .as_deref()\n             .expect(\"domain checked in constructor\")\n     }",
+    "path": "src/infrastructure/auth0/client.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**`domain()` relies on a stronger invariant than `new()` enforces.**\n\n`new()` only rejects `None`; `Some(\"\")` or whitespace still passes and yields invalid URLs. Tighten validation to trimmed non-empty domain to match this method’s assumption.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/auth0/client.rs` around lines 44 - 49, The domain() method\nassumes auth0_domain is a trimmed, non-empty string but new() currently only\nrejects None, allowing Some(\"\") or whitespace; update the constructor/new() that\nsets Auth0 client config to validate auth0_domain by trimming it and rejecting\nempty/whitespace (return an Err or fail construction) and store the trimmed\nvalue (or ensure invariant) so domain()’s expect(\"domain checked in\nconstructor\") is safe; reference the domain() method and the new()/constructor\nthat initializes self.config.auth0_domain when making the change.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921477",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921477"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921477"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921477/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 44,
+    "original_start_line": 44,
+    "start_side": "RIGHT",
+    "line": 49,
+    "original_line": 49,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 165,
+    "position": 165,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921482",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921482,
+    "node_id": "PRRC_kwDORVK_kc6q4cAK",
+    "diff_hunk": "@@ -0,0 +1,180 @@\n+use crate::error::AppError;\n+use serde::{Deserialize, Serialize};\n+use tracing::error;\n+\n+/// Response from Auth0 signup endpoint\n+#[derive(Debug, Clone, Serialize, Deserialize)]\n+pub struct Auth0SignupResponse {\n+    #[serde(rename = \"_id\")]\n+    pub id: String,\n+    pub email: String,\n+    pub email_verified: bool,\n+    pub username: Option<String>,\n+    pub picture: Option<String>,\n+    pub name: Option<String>,\n+    pub created_at: Option<String>,\n+    pub updated_at: Option<String>,\n+}\n+\n+/// Response from Auth0 token endpoint for password grant\n+#[derive(Debug, Clone, Serialize, Deserialize)]\n+pub struct Auth0TokenResponse {\n+    pub access_token: String,\n+    pub refresh_token: Option<String>,\n+    pub id_token: String,\n+    pub token_type: String,\n+    pub expires_in: u64,\n+    pub scope: Option<String>,\n+}\n+\n+/// Error response from Auth0 API\n+#[derive(Debug, Clone, Serialize, Deserialize)]\n+pub struct Auth0ErrorResponse {\n+    #[serde(default)]\n+    pub code: String,\n+    #[serde(default)]\n+    pub description: String,\n+    #[serde(default)]\n+    pub error: String,\n+    #[serde(default)]\n+    pub error_description: String,\n+    #[serde(default)]\n+    pub name: String,\n+}\n+\n+impl Auth0ErrorResponse {\n+    pub fn code_or_error(&self) -> &str {\n+        if self.code.is_empty() {\n+            self.error.as_str()\n+        } else {\n+            self.code.as_str()\n+        }\n+    }\n+\n+    pub fn description_or_error_description(&self) -> &str {\n+        if self.description.is_empty() {\n+            if self.error_description.is_empty() {\n+                \"Auth0 request failed\"\n+            } else {\n+                self.error_description.as_str()\n+            }\n+        } else {\n+            self.description.as_str()\n+        }\n+    }\n+\n+    /// Maps Auth0 error codes to AppError variants\n+    pub fn to_app_error(&self) -> AppError {\n+        let code = self.code_or_error();\n+        let _description = self.description_or_error_description();\n+\n+        // Log the full error details server-side for debugging\n+        error!(\n+            code = %code,\n+            \"Auth0 API error\"\n+        );\n+\n+        match code {\n+            \"auth_id_already_exists\" | \"user_exists\" | \"email_already_exists\" => {\n+                AppError::Conflict(\"Email already registered\".to_string())\n+            }\n+\n+            \"invalid_password\"\n+            | \"password_not_strong_enough\"\n+            | \"password_same_as_email\"\n+            | \"password_too_common\" => {\n+                AppError::BadRequest(\"Password does not meet security requirements\".to_string())\n+            }\n+\n+            \"invalid_grant\" | \"invalid_user_password\" | \"wrong_email_or_password\" => {\n+                AppError::Unauthorized\n+            }\n+\n+            \"invalid_signup\" | \"bad_request\" | \"invalid_request\" | \"invalid_body\" => {\n+                AppError::BadRequest(\"Invalid request\".to_string())\n+            }\n+\n+            \"access_denied\" | \"unauthorized\" => AppError::Unauthorized,\n+\n+            _ => AppError::InternalError(anyhow::anyhow!(\"Authentication service error\")),\n+        }",
+    "path": "src/infrastructure/auth0/dtos.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n**Keep HTTP-status fallback when Auth0 error code is unrecognized.**\n\nCurrently, any parseable-but-unknown error code becomes `InternalError`, which can misclassify 401/429/5xx responses. Preserve status-aware fallback behavior for unknown codes.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/auth0/dtos.rs` around lines 67 - 100, The to_app_error\nfunction currently maps unknown Auth0 error codes to AppError::InternalError;\nchange it to preserve HTTP-status-aware fallback by, when the code match falls\nthrough, inspecting the HTTP status on the Auth0 DTO (use the existing\nstatus/status_code accessor on self) and return an AppError based on status\n(e.g. 401/403 -> AppError::Unauthorized, 429 -> map appropriately or surface a\nthrottling error if AppError supports it, 5xx -> AppError::InternalError\notherwise). Keep the existing code_or_error and description_or_error_description\nusage and logging, but replace the final `_ => AppError::InternalError(...)` arm\nin to_app_error with a status-based branch that chooses the correct AppError\nbased on self.status/status_code.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921482",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921482"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921482"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921482/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 67,
+    "original_start_line": 67,
+    "start_side": "RIGHT",
+    "line": 100,
+    "original_line": 100,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 100,
+    "position": 100,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921484",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921484,
+    "node_id": "PRRC_kwDORVK_kc6q4cAM",
+    "diff_hunk": "@@ -0,0 +1,249 @@\n+use serde::Serialize;\n+\n+/// Request body for Auth0 signup\n+#[derive(Debug, Serialize)]\n+pub struct Auth0SignupRequest {\n+    pub client_id: String,\n+    pub email: String,\n+    pub password: String,\n+    pub connection: String,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub username: Option<String>,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub user_metadata: Option<serde_json::Value>,\n+}\n+\n+/// Request body for Auth0 password grant (login)\n+#[derive(Debug, Serialize)]\n+pub struct Auth0PasswordGrantRequest {\n+    pub grant_type: String,\n+    pub username: String,\n+    pub password: String,\n+    pub client_id: String,\n+    pub client_secret: String,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub audience: Option<String>,\n+}",
+    "path": "src/infrastructure/auth0/requests.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\n# First, let's verify the file exists and check its content\nfd \"requests.rs\" -p \"auth0\"\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 157\n\n---\n\n🏁 Script executed:\n\n```shell\n# Find the file without specifying a path\nfd \"requests.rs\"\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 101\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read the file to verify the code\ncat -n src/infrastructure/auth0/requests.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 10187\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for usage of these struct types in logging/debug contexts\nrg -i \"(dbg!|println!|log|debug|format!)\" src/infrastructure/auth0/ -A 2 -B 2\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 9672\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for actual usage of these request structs with logging/debug patterns\nrg \"Auth0SignupRequest|Auth0PasswordGrantRequest|SignupRequest|PasswordGrantRequest\" src/ -A 5 -B 1 | head -100\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 6878\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for dbg! macro usage or println with these structs\nrg \"dbg!.*SignupRequest|dbg!.*PasswordGrantRequest|dbg!.*Auth0.*Request\" src/\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 47\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for custom Debug implementations in the codebase\nrg \"impl.*Debug\" src/ -A 3\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1303\n\n---\n\n🏁 Script executed:\n\n```shell\n# Let's look at the pattern used in database_config.rs for custom Debug implementation\ncat -n src/config/database_config.rs | head -40\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1551\n\n---\n\n\n\n</details>\n\n**Remove `Debug` derive from request structs containing sensitive data.**\n\n`Auth0SignupRequest`, `Auth0PasswordGrantRequest`, `SignupRequest`, and `PasswordGrantRequest` contain password or client_secret fields that would be exposed if these structs are logged with `{:?}` via the derived `Debug` trait. Remove the `Debug` derive or implement a custom `Debug` that redacts sensitive fields.\n\n<details>\n<summary>Proposed fix</summary>\n\n```diff\n-#[derive(Debug, Serialize)]\n+#[derive(Serialize)]\n pub struct Auth0SignupRequest {\n\n-#[derive(Debug, Serialize)]\n+#[derive(Serialize)]\n pub struct Auth0PasswordGrantRequest {\n\n-#[derive(Debug, Serialize, Clone)]\n+#[derive(Serialize, Clone)]\n pub struct SignupRequest {\n\n-#[derive(Debug, Serialize, Clone)]\n+#[derive(Serialize, Clone)]\n pub struct PasswordGrantRequest {\n```\n</details>\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/auth0/requests.rs` around lines 4 - 26, Remove the\nauto-derived Debug implementation from request structs that hold secrets\n(Auth0SignupRequest, Auth0PasswordGrantRequest, SignupRequest,\nPasswordGrantRequest) to avoid accidental logging of passwords/client_secret;\nlocate the structs and either delete the #[derive(Debug, ...)] token or replace\nDebug with a manual impl that redacts sensitive fields (password, client_secret)\nin fmt to return safe output, ensuring Serialize remains unchanged and the\nredacted Debug is used where needed.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921484",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921484"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921484"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921484/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 4,
+    "original_start_line": 4,
+    "start_side": "RIGHT",
+    "line": 26,
+    "original_line": 26,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 26,
+    "position": 26,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921486",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921486,
+    "node_id": "PRRC_kwDORVK_kc6q4cAO",
+    "diff_hunk": "@@ -0,0 +1,249 @@\n+use serde::Serialize;\n+\n+/// Request body for Auth0 signup\n+#[derive(Debug, Serialize)]\n+pub struct Auth0SignupRequest {\n+    pub client_id: String,\n+    pub email: String,\n+    pub password: String,\n+    pub connection: String,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub username: Option<String>,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub user_metadata: Option<serde_json::Value>,\n+}\n+\n+/// Request body for Auth0 password grant (login)\n+#[derive(Debug, Serialize)]\n+pub struct Auth0PasswordGrantRequest {\n+    pub grant_type: String,\n+    pub username: String,\n+    pub password: String,\n+    pub client_id: String,\n+    pub client_secret: String,\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub audience: Option<String>,\n+}\n+\n+/// Request body for POST /dbconnections/signup\n+#[derive(Debug, Serialize, Clone)]\n+pub struct SignupRequest {\n+    /// User's email address\n+    pub email: String,\n+    /// User's password\n+    pub password: String,\n+    /// The name of the connection (typically \"Username-Password-Authentication\")\n+    pub connection: Option<String>,\n+    /// Optional username\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n+    pub username: Option<String>,",
+    "path": "src/infrastructure/auth0/requests.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\nfind . -name \"requests.rs\" -path \"*/auth0/*\" | head -20\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 103\n\n---\n\n🏁 Script executed:\n\n```shell\nhead -200 src/infrastructure/auth0/requests.rs | cat -n\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 7649\n\n---\n\n\n\n</details>\n\n**Add `skip_serializing_if` attribute to `SignupRequest.connection` field for consistent serialization.**\n\nThe `connection` field is optional but lacks the `#[serde(skip_serializing_if = \"Option::is_none\")]` attribute, while all other optional fields in the struct have it. This causes `connection: None` to serialize as `null` instead of being omitted, creating inconsistent behavior.\n\nUpdate the field definition at line 36 and add an assertion in the test at line 190 to verify the field is omitted when None.\n\n<details>\n<summary>Proposed fix</summary>\n\n```diff\n     /// The name of the connection (typically \"Username-Password-Authentication\")\n+    #[serde(skip_serializing_if = \"Option::is_none\")]\n     pub connection: Option<String>,\n```\n\n```diff\n         assert_eq!(json[\"email\"], \"test@example.com\");\n         assert_eq!(json[\"password\"], \"password123\");\n+        assert!(json.get(\"connection\").is_none());\n         assert!(json.get(\"username\").is_none());\n         assert!(json.get(\"name\").is_none());\n```\n</details>\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n    /// The name of the connection (typically \"Username-Password-Authentication\")\n    #[serde(skip_serializing_if = \"Option::is_none\")]\n    pub connection: Option<String>,\n    /// Optional username\n    #[serde(skip_serializing_if = \"Option::is_none\")]\n    pub username: Option<String>,\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/auth0/requests.rs` around lines 36 - 39, The SignupRequest\nstruct's optional connection field should have the same skip-serialization\nbehavior as the other optionals: add the attribute #[serde(skip_serializing_if =\n\"Option::is_none\")] above the pub connection: Option<String> field in\nSignupRequest so None is omitted instead of serialized as null; then update the\nexisting test (the test around the current assertion location) to serialize a\nSignupRequest with connection = None and assert the resulting JSON object does\nnot contain the \"connection\" key (e.g., serialize to a Map/Value and assert\n!map.contains_key(\"connection\")).\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921486",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921486"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921486"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921486/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 36,
+    "original_start_line": 36,
+    "start_side": "RIGHT",
+    "line": 39,
+    "original_line": 39,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 39,
+    "position": 39,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921487",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921487,
+    "node_id": "PRRC_kwDORVK_kc6q4cAP",
+    "diff_hunk": "@@ -56,129 +61,31 @@ impl EquipmentRepository for EquipmentRepositoryImpl {\n         limit: i64,\n         offset: i64,\n     ) -> AppResult<Vec<Equipment>> {\n-        let mut builder = QueryBuilder::<Postgres>::new(\n-            r#\"\n-            SELECT id, owner_id, category_id, title, description, daily_rate, condition,\n-                   location, coordinates::text as coordinates, is_available, created_at, updated_at\n-            FROM equipment\n-            WHERE 1=1\n-            \"#,\n-        );\n-\n-        if let Some(category_id) = params.category_id {\n-            builder.push(\" AND category_id = \");\n-            builder.push_bind(category_id);\n-        }\n-        if let Some(min_price) = params.min_price {\n-            builder.push(\" AND daily_rate >= \");\n-            builder.push_bind(min_price);\n-        }\n-        if let Some(max_price) = params.max_price {\n-            builder.push(\" AND daily_rate <= \");\n-            builder.push_bind(max_price);\n-        }\n-        if let Some(is_available) = params.is_available {\n-            builder.push(\" AND is_available = \");\n-            builder.push_bind(is_available);\n-        }\n-\n-        let geo_filter = params.latitude.zip(params.longitude).zip(params.radius_km);\n-        if let Some(((latitude, longitude), radius_km)) = geo_filter {\n-            builder.push(\n-                \" AND coordinates IS NOT NULL AND ST_DWithin(\n-                    coordinates,\n-                    ST_SetSRID(ST_MakePoint(\",\n-            );\n-            builder.push_bind(longitude);\n-            builder.push(\", \");\n-            builder.push_bind(latitude);\n-            builder.push(\"), 4326)::geography, \");\n-            builder.push_bind(radius_km * 1000.0);\n-            builder.push(\")\");\n-        }\n-\n-        if let Some(((latitude, longitude), _)) = geo_filter {\n-            builder.push(\n-                \" ORDER BY ST_Distance(\n-                    coordinates,\n-                    ST_SetSRID(ST_MakePoint(\",\n-            );\n-            builder.push_bind(longitude);\n-            builder.push(\", \");\n-            builder.push_bind(latitude);\n-            builder.push(\"), 4326)::geography\");\n-        } else {\n-            builder.push(\" ORDER BY created_at DESC\");\n-        }\n-\n-        builder.push(\" LIMIT \");\n-        builder.push_bind(limit);\n-        builder.push(\" OFFSET \");\n-        builder.push_bind(offset);\n-\n-        let equipment = builder\n-            .build_query_as::<Equipment>()\n-            .fetch_all(&self.pool)\n-            .await?;\n-        Ok(equipment)\n+        search::search(&self.pool, params, limit, offset).await\n     }\n \n     async fn count_search(&self, params: &EquipmentSearchParams) -> AppResult<i64> {\n-        let mut builder = QueryBuilder::<Postgres>::new(\n-            r#\"\n-            SELECT COUNT(*) AS count\n-            FROM equipment\n-            WHERE 1=1\n-            \"#,\n-        );\n-\n-        if let Some(category_id) = params.category_id {\n-            builder.push(\" AND category_id = \");\n-            builder.push_bind(category_id);\n-        }\n-        if let Some(min_price) = params.min_price {\n-            builder.push(\" AND daily_rate >= \");\n-            builder.push_bind(min_price);\n-        }\n-        if let Some(max_price) = params.max_price {\n-            builder.push(\" AND daily_rate <= \");\n-            builder.push_bind(max_price);\n-        }\n-        if let Some(is_available) = params.is_available {\n-            builder.push(\" AND is_available = \");\n-            builder.push_bind(is_available);\n-        }\n-\n-        if let Some(((latitude, longitude), radius_km)) =\n-            params.latitude.zip(params.longitude).zip(params.radius_km)\n-        {\n-            builder.push(\n-                \" AND coordinates IS NOT NULL AND ST_DWithin(\n-                    coordinates,\n-                    ST_SetSRID(ST_MakePoint(\",\n-            );\n-            builder.push_bind(longitude);\n-            builder.push(\", \");\n-            builder.push_bind(latitude);\n-            builder.push(\"), 4326)::geography, \");\n-            builder.push_bind(radius_km * 1000.0);\n-            builder.push(\")\");\n-        }\n-\n-        let (count,): (i64,) = builder.build_query_as().fetch_one(&self.pool).await?;\n-        Ok(count)\n+        search::count_search(&self.pool, params).await",
+    "path": "src/infrastructure/repositories/equipment/mod.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\n# First, check the structure of equipment repository\nfind src/infrastructure/repositories/equipment -type f -name \"*.rs\" | head -20\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 216\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read the mod.rs file to see the actual code at the mentioned line ranges\nwc -l src/infrastructure/repositories/equipment/mod.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 117\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read mod.rs content around the specified lines\nsed -n '60,100p' src/infrastructure/repositories/equipment/mod.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1336\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read the third range\nsed -n '255,285p' src/infrastructure/repositories/equipment/mod.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 871\n\n---\n\n🏁 Script executed:\n\n```shell\n# Check search.rs and photo.rs\nls -la src/infrastructure/repositories/equipment/\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 349\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for both runtime and compile-time API usage\necho \"=== Runtime APIs ===\" && \\\nrg -n 'sqlx::query_as::<|sqlx::query\\(' src/infrastructure/repositories/equipment/ && \\\necho \"=== Compile-time macros ===\" && \\\nrg -n 'query_as!\\(|query!\\(' src/infrastructure/repositories/equipment/\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1635\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read search.rs to verify it uses runtime APIs\ncat -n src/infrastructure/repositories/equipment/search.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 3734\n\n---\n\n🏁 Script executed:\n\n```shell\n# Read more context around the mentioned line ranges in mod.rs\nsed -n '60,95p' src/infrastructure/repositories/equipment/mod.rs | cat -n\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1461\n\n---\n\n🏁 Script executed:\n\n```shell\n# Verify around line 260-277\nsed -n '255,280p' src/infrastructure/repositories/equipment/mod.rs | cat -n\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1046\n\n---\n\n\n\n</details>\n\n**Replace runtime SQLx APIs with compile-time macros (`query_as!` / `query!`).**\n\nThe equipment repository uses runtime SQLx query APIs (`sqlx::query_as::<_, T>()`, `QueryBuilder`) instead of the required compile-time macros. Lines 71–89 (find_by_owner), 113+ (update_photo_availability), and similar methods throughout mod.rs and photo.rs must use `query_as!()` and `query!()` macros. The search.rs module delegates through QueryBuilder which requires dynamic query construction—that pattern is acceptable for this use case.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/repositories/equipment/mod.rs` around lines 64 - 68, The\nrepository is using runtime SQLx query builders; replace those with compile-time\nSQLx macros by updating functions like find_by_owner and\nupdate_photo_availability (and other methods in mod.rs and photo.rs that call\nsqlx::query_as::<_, T>() or sqlx::query!()) to use query_as!() or query!() with\nliteral SQL and explicit type mappings so queries are checked at compile time;\nkeep the dynamic QueryBuilder pattern only in search.rs which is allowed. Locate\nuses of sqlx::query_as::<_, ...>(), QueryBuilder, or .fetch_*/.execute() in the\nmentioned functions and convert them to the corresponding query_as!()/query!()\nmacro calls, adjusting parameter binding and return types to match the macro\nform. Ensure all SQL strings are static literals and import any required\ncolumn-to-struct mappings to satisfy the macros.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921487",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921487"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921487"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921487/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 64,
+    "original_start_line": 64,
+    "start_side": "RIGHT",
+    "line": 68,
+    "original_line": 68,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 137,
+    "position": 137,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921489",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921489,
+    "node_id": "PRRC_kwDORVK_kc6q4cAR",
+    "diff_hunk": "@@ -0,0 +1,69 @@\n+use crate::domain::EquipmentPhoto;\n+use crate::error::AppResult;\n+use sqlx::PgPool;\n+use uuid::Uuid;\n+\n+pub async fn add_photo(pool: &PgPool, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {\n+    let created = sqlx::query_as::<_, EquipmentPhoto>(\n+        r#\"\n+        INSERT INTO equipment_photos (id, equipment_id, photo_url, is_primary, order_index, created_at)\n+        VALUES ($1, $2, $3, $4, $5, $6)\n+        RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at\n+        \"#\n+    )\n+    .bind(photo.id)\n+    .bind(photo.equipment_id)\n+    .bind(&photo.photo_url)\n+    .bind(photo.is_primary)\n+    .bind(photo.order_index)\n+    .bind(photo.created_at)\n+    .fetch_one(pool)\n+    .await?;\n+    Ok(created)\n+}\n+\n+pub async fn find_photos(pool: &PgPool, equipment_id: Uuid) -> AppResult<Vec<EquipmentPhoto>> {\n+    let photos = sqlx::query_as::<_, EquipmentPhoto>(\n+        \"SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE equipment_id = $1 ORDER BY order_index\"\n+    )\n+    .bind(equipment_id)\n+    .fetch_all(pool)\n+    .await?;\n+    Ok(photos)\n+}\n+\n+pub async fn find_photo_by_id(pool: &PgPool, photo_id: Uuid) -> AppResult<Option<EquipmentPhoto>> {\n+    let photo = sqlx::query_as::<_, EquipmentPhoto>(\n+        \"SELECT id, equipment_id, photo_url, is_primary, order_index, created_at FROM equipment_photos WHERE id = $1\"\n+    )\n+    .bind(photo_id)\n+    .fetch_optional(pool)\n+    .await?;\n+    Ok(photo)\n+}\n+\n+pub async fn update_photo(pool: &PgPool, photo: &EquipmentPhoto) -> AppResult<EquipmentPhoto> {\n+    let updated = sqlx::query_as::<_, EquipmentPhoto>(\n+        r#\"\n+        UPDATE equipment_photos \n+        SET photo_url = $1, is_primary = $2, order_index = $3\n+        WHERE id = $4\n+        RETURNING id, equipment_id, photo_url, is_primary, order_index, created_at\n+        \"#,\n+    )\n+    .bind(&photo.photo_url)\n+    .bind(photo.is_primary)\n+    .bind(photo.order_index)\n+    .bind(photo.id)\n+    .fetch_one(pool)\n+    .await?;\n+    Ok(updated)\n+}\n+\n+pub async fn delete_photo(pool: &PgPool, photo_id: Uuid) -> AppResult<()> {\n+    sqlx::query(\"DELETE FROM equipment_photos WHERE id = $1\")\n+        .bind(photo_id)\n+        .execute(pool)\n+        .await?;",
+    "path": "src/infrastructure/repositories/equipment/photo.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\n# First, verify the exact content of the file\ncat -n src/infrastructure/repositories/equipment/photo.rs\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 2754\n\n---\n\n🏁 Script executed:\n\n```shell\n# Search for proper SQLx macro usage in other repository files\nrg -n 'sqlx::query_as!\\|sqlx::query!' src/infrastructure/repositories/ --type rust -A 2 | head -50\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 47\n\n---\n\n🏁 Script executed:\n\n```shell\n# Also check for the problematic pattern across the codebase\nrg -n 'sqlx::query_as::<|sqlx::query\\(' src/infrastructure/repositories/ --type rust | head -30\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 3344\n\n---\n\n\n\n</details>\n\n**Use SQLx compile-time checked query macros instead of generic query functions.**\n\nAll database queries in this file use `sqlx::query_as::<_, T>()` and `sqlx::query()` (runtime-checked), but the coding guideline requires `sqlx::query_as!()` and `sqlx::query!()` macros for compile-time SQL validation. Replace all instances:\n\n- Line 7, 26, 36, 46: `sqlx::query_as::<_, EquipmentPhoto>(...)` → `sqlx::query_as!(...)`\n- Line 64: `sqlx::query(...)` → `sqlx::query!(...)`\n\nParameterized binding (`.bind()`) is correct, but macros provide stronger compile-time guarantees about query shape and return types.\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/infrastructure/repositories/equipment/photo.rs` around lines 7 - 67,\nReplace all runtime-checked sqlx calls with the compile-time macros: in the\ncreate (inserting) function, find_photos, find_photo_by_id, update_photo, and\ndelete_photo replace sqlx::query_as::<_, EquipmentPhoto>(...) with\nsqlx::query_as!(EquipmentPhoto, \"...\", /* params */) and sqlx::query(...) with\nsqlx::query!(\"DELETE ...\", photo_id). Move parameter binding from .bind(...)\nchains into the macro argument list (e.g. sqlx::query_as!(EquipmentPhoto,\n\"SELECT ... WHERE id = $1\", photo_id)), keep the same SQL column list to match\nthe EquipmentPhoto struct, and then call\n.fetch_one/.fetch_all/.fetch_optional/.execute(pool) as before; ensure types of\npassed parameters (photo.id, photo.equipment_id, photo.photo_url,\nphoto.is_primary, photo.order_index, photo.created_at) match the macro-checked\nSQL argument types.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921489",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921489"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921489"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921489/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 7,
+    "original_start_line": 7,
+    "start_side": "RIGHT",
+    "line": 67,
+    "original_line": 67,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 67,
+    "position": 67,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921491",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921491,
+    "node_id": "PRRC_kwDORVK_kc6q4cAT",
+    "diff_hunk": "@@ -0,0 +1,25 @@\n+use crate::config::SecurityConfig;\n+use actix_governor::{governor::middleware::NoOpMiddleware, Governor, GovernorConfigBuilder};\n+\n+pub fn global_rate_limiting(\n+    security_config: &SecurityConfig,\n+) -> Governor<actix_governor::PeerIpKeyExtractor, NoOpMiddleware> {\n+    let rate_limit_per_minute = security_config.global_rate_limit_per_minute;\n+    let burst_size = security_config.global_rate_limit_burst_size;\n+\n+    if burst_size > 1000 {\n+        tracing::warn!(\n+            burst_size,\n+            \"global_rate_limit_burst_size is unusually high; consider reducing to avoid abuse\"\n+        );\n+    }\n+\n+    let milliseconds_per_request = (60_000 / rate_limit_per_minute) as u64;\n+    let governor_config = GovernorConfigBuilder::default()\n+        .per_millisecond(milliseconds_per_request)\n+        .burst_size(burst_size)\n+        .finish()\n+        .expect(\"Failed to build governor config\");",
+    "path": "src/security/rate_limit.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟠 Major_\n\n<details>\n<summary>🧩 Analysis chain</summary>\n\n🏁 Script executed:\n\n```shell\n#!/bin/bash\nset -euo pipefail\n\n# Verify whether SecurityConfig already enforces safe bounds.\necho \"=== Searching for rate-limit bounds validation in config files ===\"\nrg -n \"global_rate_limit_per_minute|global_rate_limit_burst_size|Validate|validate|range|min|max\" src/config/security_config.rs src/config/defaults.rs 2>/dev/null || echo \"Files not found or no matches\"\n\n# Reconfirm current rate-limit arithmetic and panic point in middleware builder.\necho \"\"\necho \"=== Searching for rate-limit arithmetic and panic point ===\"\nrg -n \"60_000 / rate_limit_per_minute|per_millisecond|Failed to build governor config\" src/security/rate_limit.rs 2>/dev/null || echo \"File not found or no matches\"\n\n# Find the actual files and their content around the relevant lines\necho \"\"\necho \"=== Locating relevant files ===\"\nfind src -name \"*.rs\" -type f | grep -E \"(config|security)\" | head -20\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 3458\n\n---\n\n🏁 Script executed:\n\n```shell\n#!/bin/bash\nset -euo pipefail\n\n# Get context around lines 17-22 in rate_limit.rs to see function signature\necho \"=== Function context in rate_limit.rs (lines 1-30) ===\"\nhead -30 src/security/rate_limit.rs | cat -n\n\n# Check if validate() is called during config initialization\necho \"\"\necho \"=== Search for validate() calls ===\"\nrg -n \"\\.validate\\(\\)\" src/ 2>/dev/null | head -20\n\n# Check config/mod.rs for initialization\necho \"\"\necho \"=== Config initialization (config/mod.rs) ===\"\ncat -n src/config/mod.rs 2>/dev/null || echo \"File not found\"\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 8032\n\n---\n\n🏁 Script executed:\n\n```shell\n#!/bin/bash\nset -euo pipefail\n\n# Find and examine main.rs or startup code\necho \"=== Looking for main.rs ===\"\nfind src -name \"main.rs\" -o -name \"lib.rs\" | head -5\n\n# Search for where AppConfig::from_env() is called and if validate() is chained\necho \"\"\necho \"=== Search for AppConfig initialization ===\"\nrg -n \"AppConfig::from_env\\(\\)|config\\.validate\\(\\)|Config.*validate\" src/main.rs src/lib.rs 2>/dev/null || echo \"Checking alternative patterns...\"\n\n# Try broader search for config usage at startup\necho \"\"\necho \"=== Broader config initialization search ===\"\nrg -B2 -A2 \"AppConfig::from_env\" src/ 2>/dev/null || echo \"No matches found\"\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 552\n\n---\n\n🏁 Script executed:\n\n```shell\n#!/bin/bash\nset -euo pipefail\n\n# View main.rs around the config initialization\necho \"=== main.rs lines 100-140 ===\"\nsed -n '100,140p' src/main.rs | cat -n\n\n# Also search if validate() is called anywhere in main\necho \"\"\necho \"=== Full validate() context in main.rs ===\"\nrg -n \"validate\" src/main.rs || echo \"No validate() calls in main.rs\"\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1657\n\n---\n\n🏁 Script executed:\n\n```shell\n#!/bin/bash\nset -euo pipefail\n\n# View the default rate-limit values\necho \"=== Default rate-limit values in defaults.rs ===\"\nsed -n '61,75p' src/config/defaults.rs | cat -n\n\n# Check what governor does with 0 ms/request in its documentation/code\necho \"\"\necho \"=== Search for governor builder usage patterns ===\"\nrg -B3 -A3 \"per_millisecond\" src/ 2>/dev/null | head -30\n```\n\nRepository: anexport/rust-backend\n\nLength of output: 1028\n\n---\n\n\n\n</details>\n\n**Add defensive bounds clamping to prevent panic from invalid rate-limit values.**\n\nLine 17's `60_000 / rate_limit_per_minute` can panic if the value is 0 or if invalid configuration values bypass validation. Although `SecurityConfig::validate()` enforces safe bounds (0 < value ≤ 60,000), the validation is never called at startup, leaving the code vulnerable to misconfiguration via environment variables. The `.expect()` on line 22 can also fail with extreme values.\n\nAdd a defensive clamp before computing the interval:\n\n<details>\n<summary>Suggested fix</summary>\n\n```diff\n-    let milliseconds_per_request = (60_000 / rate_limit_per_minute) as u64;\n+    let safe_rate_limit_per_minute = rate_limit_per_minute.clamp(1, 60_000);\n+    let milliseconds_per_request = (60_000 / safe_rate_limit_per_minute) as u64;\n```\n</details>\n\nAdditionally, ensure `AppConfig::validate()` is called during startup to enforce configuration constraints consistently.\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n    let safe_rate_limit_per_minute = rate_limit_per_minute.clamp(1, 60_000);\n    let milliseconds_per_request = (60_000 / safe_rate_limit_per_minute) as u64;\n    let governor_config = GovernorConfigBuilder::default()\n        .per_millisecond(milliseconds_per_request)\n        .burst_size(burst_size)\n        .finish()\n        .expect(\"Failed to build governor config\");\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@src/security/rate_limit.rs` around lines 17 - 22, Compute a safe, clamped\ninterval before performing the division to avoid panic: clamp\nrate_limit_per_minute to a valid nonzero range (e.g., 1..=60_000) and use that\nclamped value when calculating milliseconds_per_request instead of dividing\ndirectly by rate_limit_per_minute; also handle potential\nGovernorConfigBuilder::finish() errors without unwrapping by returning or\nlogging the error instead of calling .expect(); finally ensure\nAppConfig::validate() is invoked at startup so configuration constraints are\nenforced (referencing the symbols rate_limit_per_minute,\nmilliseconds_per_request, burst_size, GovernorConfigBuilder::finish, and\nAppConfig::validate).\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921491",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921491"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921491"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921491/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 17,
+    "original_start_line": 17,
+    "start_side": "RIGHT",
+    "line": 22,
+    "original_line": 22,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 22,
+    "position": 22,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921492",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921492,
+    "node_id": "PRRC_kwDORVK_kc6q4cAU",
+    "diff_hunk": "@@ -0,0 +1,461 @@\n+use super::*;\n+use crate::common;\n+use crate::common::mocks::*;\n+use actix_web::{http::StatusCode, test as actix_test, web, App};\n+use chrono::Utc;\n+use rust_backend::domain::*;\n+use rust_backend::error::{AppError, AppResult};",
+    "path": "tests/auth0_endpoints/login.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**Remove unused imports flagged by CI pipeline.**\n\nThe following imports are unused and causing CI warnings:\n- Line 2: `crate::common`\n- Line 3: `crate::common::mocks::*`\n- Line 5: `chrono::Utc`\n- Line 6: `rust_backend::domain::*`\n- Line 7: `AppError` and `AppResult`\n\n\n<details>\n<summary>🧹 Proposed fix to remove unused imports</summary>\n\n```diff\n use super::*;\n-use crate::common;\n-use crate::common::mocks::*;\n use actix_web::{http::StatusCode, test as actix_test, web, App};\n-use chrono::Utc;\n-use rust_backend::domain::*;\n-use rust_backend::error::{AppError, AppResult};\n use rust_backend::infrastructure::auth0_api::*;\n use rust_backend::security::{cors_middleware, security_headers};\n use std::sync::Arc;\n use uuid::Uuid;\n```\n</details>\n\n<details>\n<summary>🧰 Tools</summary>\n\n<details>\n<summary>🪛 GitHub Actions: CI</summary>\n\n[warning] 2-2: unused import: `crate::common`\n\n---\n\n[warning] 3-3: unused import: `crate::common::mocks::*`\n\n---\n\n[warning] 5-5: unused import: `chrono::Utc`\n\n---\n\n[warning] 6-6: unused import: `rust_backend::domain::*`\n\n---\n\n[warning] 7-7: unused imports: `AppError` and `AppResult`\n\n</details>\n\n</details>\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@tests/auth0_endpoints/login.rs` around lines 2 - 7, Remove the unused imports\nthat CI flagged in tests/auth0_endpoints/login.rs: delete the lines importing\ncrate::common, crate::common::mocks::*, chrono::Utc, the glob import\nrust_backend::domain::*, and the AppError and AppResult from rust_backend::error\nso only actually used symbols remain; keep imports used by tests such as\nactix_web::{http::StatusCode, test as actix_test, web, App} and any other\nreferenced types/functions to ensure the file still compiles.\n```\n\n</details>\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921492",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921492"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921492"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921492/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 2,
+    "original_start_line": 2,
+    "start_side": "RIGHT",
+    "line": 7,
+    "original_line": 7,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 7,
+    "position": 7,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921495",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921495,
+    "node_id": "PRRC_kwDORVK_kc6q4cAX",
+    "diff_hunk": "@@ -0,0 +1,445 @@\n+use super::*;\n+use crate::common;\n+use crate::common::mocks::*;\n+use actix_web::{http::StatusCode, test as actix_test, web, App};\n+use chrono::Utc;\n+use rust_backend::domain::*;\n+use rust_backend::error::{AppError, AppResult};\n+use rust_backend::infrastructure::auth0_api::*;\n+use rust_backend::security::{cors_middleware, security_headers};\n+use std::sync::Arc;\n+use uuid::Uuid;\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_valid_data_returns_201() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"newuser@example.com\",\n+            \"password\": \"SecurePassword123!\",\n+            \"username\": \"newuser\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+    let status = response.status();\n+\n+    assert_eq!(status, StatusCode::CREATED);\n+\n+    let body: Auth0SignupResponseDto = actix_test::read_body_json(response).await;\n+    assert_eq!(body.email, \"newuser@example.com\");\n+    assert!(!body.email_verified);\n+    assert!(body.id.starts_with(\"auth0|\"));\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_duplicate_email_returns_409() {\n+    // Pre-register a user\n+    let existing_user = MockAuth0User {\n+        user_id: \"auth0|existing-123\".to_string(),\n+        email: \"existing@example.com\".to_string(),\n+        password: \"password123\".to_string(),\n+        username: Some(\"existing\".to_string()),\n+        name: None,\n+        email_verified: true,\n+    };\n+\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_user(existing_user));\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"existing@example.com\",\n+            \"password\": \"SecurePassword123!\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::CONFLICT);\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_invalid_email_format_returns_400() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"invalid-email-format\",\n+            \"password\": \"SecurePassword123!\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);\n+\n+    let body: serde_json::Value = actix_test::read_body_json(response).await;\n+    assert!(body[\"message\"]\n+        .as_str()\n+        .unwrap()\n+        .contains(\"Invalid email format\"));\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_email_missing_at_sign_returns_400() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"userexample.com\",\n+            \"password\": \"SecurePassword123!\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_weak_password_returns_400() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"user@example.com\",\n+            \"password\": \"short\"  // Less than 12 chars\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);\n+\n+    let body: serde_json::Value = actix_test::read_body_json(response).await;\n+    assert!(body[\"message\"]\n+        .as_str()\n+        .unwrap()\n+        .contains(\"at least 12 characters\"));\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_exactly_12_char_password_succeeds() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"user@example.com\",\n+            \"password\": \"S3curePass!1\"  // Exactly 12 chars\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::CREATED);\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_empty_email_returns_400() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"\",\n+            \"password\": \"SecurePassword123!\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_empty_password_returns_400() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"user@example.com\",\n+            \"password\": \"\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_creates_local_user_and_identity() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client.clone()));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"newuser@example.com\",\n+            \"password\": \"SecurePassword123!\",\n+            \"username\": \"testuser\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    // Successful signup returns 201\n+    assert_eq!(response.status(), StatusCode::CREATED);\n+}\n+\n+// =============================================================================\n+// AUTH0 LOGIN ENDPOINT TESTS\n+// =============================================================================\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_auth0_unavailable_returns_500() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new().with_service_unavailable(true));\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"user@example.com\",\n+            \"password\": \"SecurePassword123!\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert!(matches!(\n+        response.status(),\n+        StatusCode::INTERNAL_SERVER_ERROR | StatusCode::SERVICE_UNAVAILABLE\n+    ));\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_respects_rate_limiting() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    // Send many requests rapidly - they should all succeed in test environment\n+    // (rate limiting behavior is difficult to test without real rate limit config)\n+    for i in 0..10 {\n+        let request = actix_test::TestRequest::post()\n+            .uri(\"/api/v1/auth/auth0/signup\")\n+            .set_json(serde_json::json!({\n+                \"email\": &format!(\"user{}@example.com\", i),\n+                \"password\": \"SecurePassword123!\"\n+            }))\n+            .to_request();\n+\n+        let response = actix_test::call_service(&app, request).await;\n+        // First 9 requests should succeed, last one may fail due to duplicate email\n+        assert!(matches!(\n+            response.status(),\n+            StatusCode::CREATED | StatusCode::CONFLICT\n+        ));\n+    }\n+}\n+\n+#[actix_web::test]\n+async fn auth0_signup_with_username_returns_username_in_response() {\n+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());\n+    let state = web::Data::new(app_state(auth0_api_client));\n+\n+    let app = actix_test::init_service(\n+        App::new()\n+            .wrap(cors_middleware(&security_config()))\n+            .wrap(security_headers())\n+            .app_data(state.clone())\n+            .configure(routes::configure),\n+    )\n+    .await;\n+\n+    let request = actix_test::TestRequest::post()\n+        .uri(\"/api/v1/auth/auth0/signup\")\n+        .set_json(serde_json::json!({\n+            \"email\": \"user@example.com\",\n+            \"password\": \"SecurePassword123!\",\n+            \"username\": \"cooluser123\"\n+        }))\n+        .to_request();\n+\n+    let response = actix_test::call_service(&app, request).await;\n+\n+    assert_eq!(response.status(), StatusCode::CREATED);\n+}",
+    "path": "tests/auth0_endpoints/signup.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**Validate the `username` field in the username-specific test.**\n\nThe test name says username is returned, but it currently only checks `201`.\n\n\n<details>\n<summary>Suggested change</summary>\n\n```diff\n     let response = actix_test::call_service(&app, request).await;\n\n     assert_eq!(response.status(), StatusCode::CREATED);\n+    let body: serde_json::Value = actix_test::read_body_json(response).await;\n+    assert_eq!(body[\"username\"], \"cooluser123\");\n```\n</details>\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@tests/auth0_endpoints/signup.rs` around lines 356 - 381, The test\nauth0_signup_with_username_returns_username_in_response currently only asserts\nthe HTTP status; update it to also parse the response body JSON from the\nactix_test::call_service result and assert that the returned JSON contains the\n\"username\" field with the value \"cooluser123\" (and optionally that \"email\"\nmatches \"user@example.com\") so the test name matches its behavior; locate this\nin the auth0_signup_with_username_returns_username_in_response function and add\nJSON deserialization and assertions against the \"username\" key.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921495",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921495"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921495"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921495/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 356,
+    "original_start_line": 356,
+    "start_side": "RIGHT",
+    "line": 381,
+    "original_line": 381,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 381,
+    "position": 381,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921496",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921496,
+    "node_id": "PRRC_kwDORVK_kc6q4cAY",
+    "diff_hunk": "@@ -0,0 +1,439 @@\n+#![allow(clippy::type_complexity)]\n+#![allow(clippy::too_many_arguments)]\n+#![allow(unused_imports)]\n+use std::sync::{Arc, Mutex};\n+\n+mod common;\n+\n+#[path = \"core_api/admin/mod.rs\"]\n+pub mod admin;\n+#[path = \"core_api/conversation.rs\"]\n+pub mod conversation;\n+#[path = \"core_api/equipment.rs\"]\n+pub mod equipment;\n+#[path = \"core_api/equipment_extended/mod.rs\"]\n+pub mod equipment_extended;\n+#[path = \"core_api/equipment_photos/mod.rs\"]\n+pub mod equipment_photos;\n+#[path = \"core_api/messages/mod.rs\"]\n+pub mod messages;\n+#[path = \"core_api/system.rs\"]\n+pub mod system;\n+#[path = \"core_api/user/mod.rs\"]\n+pub mod user_routes;\n+#[path = \"core_api/users.rs\"]\n+pub mod users;\n+\n+use actix_web::web;\n+use async_trait::async_trait;\n+use chrono::{Duration, Utc};\n+use common::mocks::{\n+    MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,\n+};\n+use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};\n+use rust_backend::api::routes::AppState;\n+use rust_backend::application::{\n+    AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,\n+};\n+use rust_backend::config::{Auth0Config, SecurityConfig};\n+use rust_backend::domain::{\n+    AuthIdentity, AuthProvider, Condition, Equipment, EquipmentPhoto, Role, User,\n+};\n+use rust_backend::infrastructure::auth0_api::{Auth0SignupResponse, Auth0TokenResponse};\n+use rust_backend::infrastructure::repositories::{\n+    AuthRepository, CategoryRepository, EquipmentRepository, MessageRepository, UserRepository,\n+};\n+use rust_backend::middleware::auth::UserProvisioningService;\n+use rust_backend::observability::AppMetrics;\n+use rust_backend::utils::auth0_claims::Auth0UserContext;\n+use rust_backend::utils::auth0_claims::{Audience, Auth0Claims};\n+use rust_backend::utils::auth0_jwks::JwksProvider;\n+use rust_decimal::Decimal;\n+use sqlx::postgres::PgPoolOptions;\n+use uuid::Uuid;\n+\n+// =============================================================================\n+// Mock Auth0ApiClient\n+// =============================================================================\n+\n+#[derive(Clone)]\n+pub struct MockAuth0ApiClient;\n+\n+#[async_trait]\n+impl rust_backend::infrastructure::auth0_api::Auth0ApiClient for MockAuth0ApiClient {\n+    async fn signup(\n+        &self,\n+        _email: &str,\n+        _password: &str,\n+        _username: Option<&str>,\n+    ) -> rust_backend::error::AppResult<Auth0SignupResponse> {\n+        Ok(Auth0SignupResponse {\n+            id: \"auth0|test_user_id\".to_string(),\n+            email: _email.to_string(),\n+            email_verified: true,\n+            username: _username.map(|s| s.to_string()),\n+            picture: None,\n+            name: None,\n+            created_at: Some(Utc::now().to_rfc3339()),\n+            updated_at: Some(Utc::now().to_rfc3339()),\n+        })\n+    }",
+    "path": "tests/core_api.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**Remove underscore prefix from used parameters.**\n\nParameters `_email`, `_password`, and `_username` are actually used in the function body but have underscore prefixes, which conventionally indicates unused parameters. This is misleading.\n\n\n<details>\n<summary>🔧 Suggested fix</summary>\n\n```diff\n     async fn signup(\n         &self,\n-        _email: &str,\n-        _password: &str,\n-        _username: Option<&str>,\n+        email: &str,\n+        _password: &str,\n+        username: Option<&str>,\n     ) -> rust_backend::error::AppResult<Auth0SignupResponse> {\n         Ok(Auth0SignupResponse {\n             id: \"auth0|test_user_id\".to_string(),\n-            email: _email.to_string(),\n+            email: email.to_string(),\n             email_verified: true,\n-            username: _username.map(|s| s.to_string()),\n+            username: username.map(|s| s.to_string()),\n             picture: None,\n             name: None,\n             created_at: Some(Utc::now().to_rfc3339()),\n             updated_at: Some(Utc::now().to_rfc3339()),\n         })\n     }\n```\n</details>\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n    async fn signup(\n        &self,\n        email: &str,\n        _password: &str,\n        username: Option<&str>,\n    ) -> rust_backend::error::AppResult<Auth0SignupResponse> {\n        Ok(Auth0SignupResponse {\n            id: \"auth0|test_user_id\".to_string(),\n            email: email.to_string(),\n            email_verified: true,\n            username: username.map(|s| s.to_string()),\n            picture: None,\n            name: None,\n            created_at: Some(Utc::now().to_rfc3339()),\n            updated_at: Some(Utc::now().to_rfc3339()),\n        })\n    }\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@tests/core_api.rs` around lines 64 - 80, The signup function currently\ndeclares parameters as _email, _password, and _username but uses them in the\nbody; rename these parameters to email, password, and username in the fn\nsignature of async fn signup(...) and update all references inside the function\n(e.g., the return Auth0SignupResponse fields that use _email and _username) to\nuse the new names so the underscore no longer incorrectly indicates unused\nparameters (function name: signup).\n```\n\n</details>\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921496",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921496"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921496"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921496/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": 64,
+    "original_start_line": 64,
+    "start_side": "RIGHT",
+    "line": 80,
+    "original_line": 80,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 80,
+    "position": 80,
+    "subject_type": "line"
+  },
+  {
+    "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921500",
+    "pull_request_review_id": 3869935669,
+    "id": 2866921500,
+    "node_id": "PRRC_kwDORVK_kc6q4cAc",
+    "diff_hunk": "@@ -0,0 +1,174 @@\n+use super::*;\n+use crate::common;\n+use actix_web::test as actix_test;\n+use chrono::{Duration, Utc};\n+use common::auth0_test_helpers::create_auth0_token;\n+use common::fixtures;\n+use common::TestDb;\n+use rust_backend::infrastructure::repositories::{\n+    MessageRepository, MessageRepositoryImpl, UserRepository, UserRepositoryImpl,\n+};\n+use uuid::Uuid;\n+\n+#[actix_rt::test]\n+async fn test_message_pagination() {\n+    let test_db = common::setup_test_db().await;\n+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;\n+    let user_repo = UserRepositoryImpl::new(test_db.pool().clone());\n+    let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());\n+\n+    let user1 = fixtures::test_user();\n+    let user2 = fixtures::test_user();\n+    user_repo.create(&user1).await.unwrap();\n+    user_repo.create(&user2).await.unwrap();\n+\n+    let conv = message_repo\n+        .create_conversation(vec![user1.id, user2.id])\n+        .await\n+        .unwrap();\n+\n+    // Create 5 messages\n+    for i in 0..5 {\n+        message_repo\n+            .create_message(&rust_backend::domain::Message {\n+                id: Uuid::new_v4(),\n+                conversation_id: conv.id,\n+                sender_id: user1.id,\n+                content: format!(\"Message {}\", i),\n+                created_at: Utc::now() + Duration::seconds(i),\n+            })\n+            .await\n+            .unwrap();\n+    }\n+\n+    let token1 = create_auth0_token(user1.id, \"renter\");\n+\n+    // Get first 2 messages\n+    let req = actix_test::TestRequest::get()\n+        .uri(&format!(\n+            \"/api/v1/conversations/{}/messages?limit=2&offset=0\",\n+            conv.id\n+        ))\n+        .insert_header((\"Authorization\", format!(\"Bearer {}\", token1)))\n+        .to_request();\n+    let resp: actix_web::dev::ServiceResponse = actix_test::call_service(&app, req).await;\n+    let messages: Vec<serde_json::Value> = actix_test::read_body_json(resp).await;\n+    assert_eq!(messages.len(), 2);\n+    // Messages should be newest first\n+    assert_eq!(messages[0][\"content\"], \"Message 4\");\n+    assert_eq!(messages[1][\"content\"], \"Message 3\");\n+}\n+\n+#[actix_rt::test]\n+async fn test_message_list_ordering() {\n+    let test_db = common::setup_test_db().await;\n+    let (_, app): (AppState, _) = setup_app_with_state(test_db.pool().clone()).await;\n+    let user_repo = UserRepositoryImpl::new(test_db.pool().clone());\n+    let message_repo = MessageRepositoryImpl::new(test_db.pool().clone());\n+\n+    let user1 = fixtures::test_user();\n+    let user2 = fixtures::test_user();\n+    user_repo.create(&user1).await.unwrap();\n+    user_repo.create(&user2).await.unwrap();\n+\n+    let conv = message_repo\n+        .create_conversation(vec![user1.id, user2.id])\n+        .await\n+        .unwrap();\n+\n+    // Create 5 messages with different timestamps (oldest first)",
+    "path": "tests/core_api/messages/message.rs",
+    "commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "original_commit_id": "310d87fdcf2d6311e3dcb7f6b9623cabe211ebd3",
+    "user": {
+      "login": "coderabbitai[bot]",
+      "id": 136622811,
+      "node_id": "BOT_kgDOCCSy2w",
+      "avatar_url": "https://avatars.githubusercontent.com/in/347564?v=4",
+      "gravatar_id": "",
+      "url": "https://api.github.com/users/coderabbitai%5Bbot%5D",
+      "html_url": "https://github.com/apps/coderabbitai",
+      "followers_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/followers",
+      "following_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/following{/other_user}",
+      "gists_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/gists{/gist_id}",
+      "starred_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/starred{/owner}{/repo}",
+      "subscriptions_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/subscriptions",
+      "organizations_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/orgs",
+      "repos_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/repos",
+      "events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/events{/privacy}",
+      "received_events_url": "https://api.github.com/users/coderabbitai%5Bbot%5D/received_events",
+      "type": "Bot",
+      "user_view_type": "public",
+      "site_admin": false
+    },
+    "body": "_⚠️ Potential issue_ | _🟡 Minor_\n\n**Fix the ordering comment to match the assertion behavior.**\n\nLine 79 says “oldest first,” but the test asserts newest-first ordering.\n\n\n\n<details>\n<summary>Proposed comment fix</summary>\n\n```diff\n-    // Create 5 messages with different timestamps (oldest first)\n+    // Create 5 messages with different timestamps; endpoint should return newest first\n```\n</details>\n\n<!-- suggestion_start -->\n\n<details>\n<summary>📝 Committable suggestion</summary>\n\n> ‼️ **IMPORTANT**\n> Carefully review the code before committing. Ensure that it accurately replaces the highlighted code, contains no missing lines, and has no issues with indentation. Thoroughly test & benchmark the code to ensure it meets the requirements.\n\n```suggestion\n    // Create 5 messages with different timestamps; endpoint should return newest first\n```\n\n</details>\n\n<!-- suggestion_end -->\n\n<details>\n<summary>🤖 Prompt for AI Agents</summary>\n\n```\nVerify each finding against the current code and only fix it if needed.\n\nIn `@tests/core_api/messages/message.rs` at line 79, The comment \"// Create 5\nmessages with different timestamps (oldest first)\" is incorrect relative to the\ntest assertions which expect newest-first ordering; update that comment to\naccurately reflect the behavior (e.g., \"// Create 5 messages with different\ntimestamps (newest first)\" or \"// Create 5 messages with different timestamps\n(newest to oldest)\") so it matches the assertions in the test in\ntests/core_api/messages/message.rs.\n```\n\n</details>\n\n<!-- fingerprinting:phantom:medusa:hawk -->\n\n<!-- This is an auto-generated comment by CodeRabbit -->",
+    "created_at": "2026-02-28T02:18:40Z",
+    "updated_at": "2026-02-28T02:18:44Z",
+    "html_url": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921500",
+    "pull_request_url": "https://api.github.com/repos/anexport/rust-backend/pulls/12",
+    "_links": {
+      "self": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921500"
+      },
+      "html": {
+        "href": "https://github.com/anexport/rust-backend/pull/12#discussion_r2866921500"
+      },
+      "pull_request": {
+        "href": "https://api.github.com/repos/anexport/rust-backend/pulls/12"
+      }
+    },
+    "reactions": {
+      "url": "https://api.github.com/repos/anexport/rust-backend/pulls/comments/2866921500/reactions",
+      "total_count": 0,
+      "+1": 0,
+      "-1": 0,
+      "laugh": 0,
+      "hooray": 0,
+      "confused": 0,
+      "heart": 0,
+      "rocket": 0,
+      "eyes": 0
+    },
+    "start_line": null,
+    "original_start_line": null,
+    "start_side": null,
+    "line": 79,
+    "original_line": 79,
+    "side": "RIGHT",
+    "author_association": "NONE",
+    "original_position": 79,
+    "position": 79,
+    "subject_type": "line"
+  }
+]

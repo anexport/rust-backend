@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 /// Request body for Auth0 signup
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct Auth0SignupRequest {
     pub client_id: String,
     pub email: String,
@@ -13,8 +13,21 @@ pub struct Auth0SignupRequest {
     pub user_metadata: Option<serde_json::Value>,
 }
 
+impl std::fmt::Debug for Auth0SignupRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Auth0SignupRequest")
+            .field("client_id", &self.client_id)
+            .field("email", &self.email)
+            .field("password", &"[REDACTED]")
+            .field("connection", &self.connection)
+            .field("username", &self.username)
+            .field("user_metadata", &self.user_metadata)
+            .finish()
+    }
+}
+
 /// Request body for Auth0 password grant (login)
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct Auth0PasswordGrantRequest {
     pub grant_type: String,
     pub username: String,
@@ -25,14 +38,28 @@ pub struct Auth0PasswordGrantRequest {
     pub audience: Option<String>,
 }
 
+impl std::fmt::Debug for Auth0PasswordGrantRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Auth0PasswordGrantRequest")
+            .field("grant_type", &self.grant_type)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"[REDACTED]")
+            .field("audience", &self.audience)
+            .finish()
+    }
+}
+
 /// Request body for POST /dbconnections/signup
-#[derive(Debug, Serialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct SignupRequest {
     /// User's email address
     pub email: String,
     /// User's password
     pub password: String,
     /// The name of the connection (typically "Username-Password-Authentication")
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
     /// Optional username
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,7 +131,7 @@ impl SignupRequest {
 }
 
 /// Request body for POST /oauth/token (Password Grant)
-#[derive(Debug, Serialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct PasswordGrantRequest {
     /// Username or email
     pub username: String,
@@ -118,6 +145,18 @@ pub struct PasswordGrantRequest {
     /// Optional connection name
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection: Option<String>,
+}
+
+impl std::fmt::Debug for PasswordGrantRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PasswordGrantRequest")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("grant_type", &self.grant_type)
+            .field("audience", &self.audience)
+            .field("connection", &self.connection)
+            .finish()
+    }
 }
 
 impl PasswordGrantRequest {

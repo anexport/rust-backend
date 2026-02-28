@@ -1,0 +1,1455 @@
+--- Review Body Found ---
+**Actionable comments posted: 17**
+
+> [!CAUTION]
+> Some comments are outside the diff and can’t be posted inline due to platform limitations.
+> 
+> 
+> 
+> <details>
+> <summary>⚠️ Outside diff range comments (2)</summary><blockquote>
+> 
+> <details>
+> <summary>src/api/routes/users.rs (1)</summary><blockquote>
+> 
+> `29-42`: _⚠️ Potential issue_ | _🟠 Major_
+> 
+> **Missing DTO validation on `UpdateUserRequest`.**
+> 
+> The `update_user_profile` handler receives `payload: web::Json<UpdateUserRequest>` but doesn't call `payload.validate()?` before using the data. This violates the coding guideline requiring DTO validation in route handlers.
+> 
+> 
+> 
+> <details>
+> <summary>🔧 Proposed fix to add validation</summary>
+> 
+> ```diff
+>  async fn update_user_profile(
+>      state: web::Data<AppState>,
+>      auth: Auth0AuthenticatedUser,
+>      path: web::Path<Uuid>,
+>      payload: web::Json<UpdateUserRequest>,
+>  ) -> AppResult<HttpResponse> {
+> +    payload.validate()?;
+>      let actor = auth.0.user_id;
+>      let target = path.into_inner();
+> ```
+> </details>
+> 
+> As per coding guidelines: "DTO validation is mandatory - always validate input using `payload.validate()?` in route handlers".
+> 
+> <details>
+> <summary>🤖 Prompt for AI Agents</summary>
+> 
+> ```
+> Verify each finding against the current code and only fix it if needed.
+> 
+> In `@src/api/routes/users.rs` around lines 29 - 42, The handler
+> update_user_profile accepts payload: web::Json<UpdateUserRequest> but never
+> validates it; call payload.validate()? before using the data to enforce DTO
+> validation. Modify update_user_profile to invoke payload.validate()? (on the
+> web::Json<UpdateUserRequest> value) and return any validation error via the
+> existing AppResult flow, then proceed to call state.user_service.update_profile
+> with payload.into_inner(); ensure the symbol UpdateUserRequest and the
+> validate() call are used so the route adheres to DTO validation guidelines.
+> ```
+> 
+> </details>
+> 
+> </blockquote></details>
+> <details>
+> <summary>src/application/admin/mod.rs (1)</summary><blockquote>
+> 
+> `112-151`: _⚠️ Potential issue_ | _🟠 Major_
+> 
+> **Apply `require_admin` consistently to all admin mutation methods.**
+> 
+> Right now only equipment mutation paths are DB-role-gated in-service. Other admin mutations still run without a local DB-backed admin check, which leaves authorization consistency dependent on callers.
+> 
+> 
+> 
+> As per coding guidelines, "User roles must be checked in the database, not in Auth0 token claims - always query the database for authorization decisions".
+> 
+> 
+> Also applies to: 185-223, 230-296
+> 
+> <details>
+> <summary>🤖 Prompt for AI Agents</summary>
+> 
+> ```
+> Verify each finding against the current code and only fix it if needed.
+> 
+> In `@src/application/admin/mod.rs` around lines 112 - 151, The update_user_role
+> and delete_user admin mutation handlers currently perform updates without
+> checking the DB-backed role; call the existing require_admin method at the start
+> of each handler to enforce DB role checks (e.g., invoke
+> self.require_admin(actor_id).await? and handle its error) before any logging or
+> performing repo operations in update_user_role and delete_user, and apply the
+> same pattern to the other admin mutation methods (those referenced around the
+> other ranges) so every admin mutation validates via require_admin rather than
+> relying on external claims.
+> ```
+> 
+> </details>
+> 
+> </blockquote></details>
+> 
+> </blockquote></details>
+
+<details>
+<summary>🧹 Nitpick comments (24)</summary><blockquote>
+
+<details>
+<summary>split_repo_tests.py (4)</summary><blockquote>
+
+`1-2`: **Remove unused import.**
+
+The `os` module is imported but never used in the script.
+
+<details>
+<summary>🧹 Proposed fix</summary>
+
+```diff
+ import re
+-import os
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@split_repo_tests.py` around lines 1 - 2, Remove the unused import `os` from
+the top-level import block in split_repo_tests.py; keep only the required
+`import re` so the module no longer contains an unused symbol and linter
+warnings are resolved.
+```
+
+</details>
+
+---
+
+`4-5`: **Consider adding error handling for missing source file.**
+
+If `tests/repository_integration_tests.rs` doesn't exist or the script is run from the wrong directory, this will fail with an unhelpful error. For a migration utility, adding a quick existence check would improve usability.
+
+<details>
+<summary>🛡️ Proposed improvement</summary>
+
+```diff
+ import re
+-import os
++
++SOURCE_FILE = "tests/repository_integration_tests.rs"
++
++import os
++if not os.path.exists(SOURCE_FILE):
++    print(f"Error: Source file '{SOURCE_FILE}' not found.")
++    print("Please run this script from the repository root directory.")
++    exit(1)
+
+-with open("tests/repository_integration_tests.rs", "r") as f:
++with open(SOURCE_FILE, "r") as f:
+     content = f.read()
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@split_repo_tests.py` around lines 4 - 5, Add robust error handling around
+opening "tests/repository_integration_tests.rs": check existence
+(os.path.exists) before attempting to open or wrap the open/read in a try/except
+catching FileNotFoundError/IOError, and emit a clear error message (including
+the expected path) and exit/raise a user-friendly exception instead of letting
+the raw traceback surface; update the block that uses variables f and content to
+follow this pattern so the script fails gracefully when the source file is
+missing or the current working directory is wrong.
+```
+
+</details>
+
+---
+
+`45-52`: **Fix multiple statements on one line (E701).**
+
+Line 46 has multiple statements on one line which violates PEP 8 style guidelines flagged by static analysis.
+
+<details>
+<summary>🧹 Proposed fix</summary>
+
+```diff
+ for cat, test_list in categorized_tests.items():
+-    if not test_list: continue
++    if not test_list:
++        continue
+     
+     filename = f"tests/repository_integration_{cat}_tests.rs"
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@split_repo_tests.py` around lines 45 - 52, The single-line compound statement
+in the loop (if not test_list: continue) violates E701; in the for-loop
+iterating over categorized_tests (for cat, test_list in
+categorized_tests.items()) change the inline if to a proper two-line block by
+replacing "if not test_list: continue" with an if statement followed by a
+separate indented continue line so the check and the continue are on their own
+lines; leave the rest of the block (filename, with open(...), f.write(header),
+and the inner for t in test_list write calls) unchanged.
+```
+
+</details>
+
+---
+
+`34-43`: **Fix multiple statements on one line (E701).**
+
+Line 36 has multiple statements on one line which violates PEP 8 style guidelines flagged by static analysis.
+
+<details>
+<summary>🧹 Proposed fix</summary>
+
+```diff
+     placed = False
+     for cat, keywords in categories.items():
+-        if cat == "edge_cases": continue
++        if cat == "edge_cases":
++            continue
+         if any(kw in name for kw in keywords):
+             categorized_tests[cat].append(test)
+             placed = True
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@split_repo_tests.py` around lines 34 - 43, The line combining the if check
+and the continue (if cat == "edge_cases": continue) violates PEP8 E701; change
+it to a normal block by placing the continue on its own indented line (e.g., if
+cat == "edge_cases": followed by a newline with an indented continue) so the
+loop over categories (variables cat, keywords) and the early-skip behavior is
+preserved; ensure this update is applied in the same loop that appends tests to
+categorized_tests and uses placed, test, and name.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>src/api/routes/users.rs (1)</summary><blockquote>
+
+`44-53`: **Consider validating `PaginationParams`.**
+
+The `PaginationParams` struct derives `validator::Validate` (per the AI summary), but `query.validate()?` is not called. If there are validation rules on the pagination params (e.g., max limit), they won't be enforced.
+
+
+
+<details>
+<summary>♻️ Proposed fix to add validation</summary>
+
+```diff
+ async fn my_equipment(
+     state: web::Data<AppState>,
+     auth: Auth0AuthenticatedUser,
+     query: web::Query<PaginationParams>,
+ ) -> AppResult<HttpResponse> {
++    query.validate()?;
+     let result = state
+         .user_service
+         .my_equipment(auth.0.user_id, query.page, query.limit)
+```
+</details>
+
+As per coding guidelines: "DTO validation is mandatory - always validate input using `payload.validate()?` in route handlers".
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@src/api/routes/users.rs` around lines 44 - 53, In my_equipment, validate the
+incoming PaginationParams before using them: call query.validate()? (or
+query.into_inner().validate() if you need ownership) right after receiving the
+web::Query<PaginationParams> and before calling state.user_service.my_equipment;
+ensure the validator::Validate trait is in scope so the validation error can be
+propagated via the existing ? into the AppResult.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/auth_middleware.rs (1)</summary><blockquote>
+
+`1-27`: **Remove unused imports from tests/auth_middleware.rs.**
+
+The imports on line 1 and 15 include several unused symbols. `Arc` is unused; `Payload`, `AUTHORIZATION`, `actix_test`, `web`, and `FromRequest` are also unused in the parent file. While these are used in the submodules (which declare their own imports), they do not need to be re-imported in the parent file. Remove: `Arc` from line 1, and `Payload`, `AUTHORIZATION`, `actix_test`, `web`, `FromRequest` from line 15.
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth_middleware.rs` around lines 1 - 27, Remove the unused imports from
+the top-level test module: delete Arc from the std::sync import and remove
+Payload, AUTHORIZATION, actix_test, web, and FromRequest from the actix_web use
+statement; these symbols are unused in this parent file (submodules import what
+they need) so update the use lines to only keep the actually referenced items
+like Mutex and http symbols that are used.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/user/equipment.rs (1)</summary><blockquote>
+
+`28-33`: **Optional: extract repeated test bootstrap into a shared helper.**
+
+The DB/app/repository setup is duplicated across tests; moving it into `tests/common` (or a local helper called by each test) would reduce drift.
+
+Based on learnings: Applies to tests/common/*.rs : Common test utilities and fixtures should be defined in `tests/common/` module for reuse across test files.
+
+
+Also applies to: 71-76, 111-116
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/user/equipment.rs` around lines 28 - 33, Extract the repeated
+test bootstrap into a shared helper in tests/common (or a local module) by
+creating a function that runs setup_test_db().await, calls
+setup_app(pool.clone()).await, and constructs the repositories
+(UserRepositoryImpl::new(pool.clone()),
+EquipmentRepositoryImpl::new(pool.clone()),
+CategoryRepositoryImpl::new(pool.clone())), then return the app, test_db/pool,
+and repo instances; update the tests that duplicate lines (including the
+occurrences around lines 71-76 and 111-116) to call this helper to remove the
+repeated setup code and centralize fixture creation.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/auth0_endpoints/tokens.rs (1)</summary><blockquote>
+
+`50-62`: **Optional: strengthen JWT assertions beyond dot-count.**
+
+Consider also asserting each segment is non-empty to avoid passing malformed values like `..`.
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth0_endpoints/tokens.rs` around lines 50 - 62, The current JWT checks
+only verify dot-count for body.access_token and body.id_token (variables parts
+and id_parts); enhance them by also asserting each split segment is non-empty to
+catch values like "..": after splitting into parts/id_parts, iterate over each
+segment and assert it is not empty (include a clear message referencing which
+token and which segment failed) for both body.access_token and body.id_token.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/users.rs (1)</summary><blockquote>
+
+`118-127`: **Strengthen the admin update test with response assertions.**
+
+`admin_can_update_other_users_profile` currently checks only `200 OK`. Please also assert returned payload fields (e.g., updated `full_name`) to catch no-op update regressions.
+
+
+
+<details>
+<summary>🔎 Example assertion addition</summary>
+
+```diff
+     let update_response = actix_test::call_service(&app, update_request).await;
+     assert_eq!(update_response.status(), StatusCode::OK);
++    let body: serde_json::Value = actix_test::read_body_json(update_response).await;
++    assert_eq!(body["full_name"], "Updated By Admin");
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/users.rs` around lines 118 - 127, In the
+admin_can_update_other_users_profile test, after calling
+actix_test::call_service and asserting StatusCode::OK, read and deserialize the
+response body JSON (from update_response) and assert the returned payload
+contains the updated fields (e.g., that "full_name" == "Updated By Admin" and
+optionally the "id" matches target_id). Locate the test by the function name
+admin_can_update_other_users_profile and the variables update_response and
+target_id; add assertions against the deserialized JSON to ensure the update
+actually changed the stored values. Ensure assertions fail the test when the
+payload does not reflect the update.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/conversation.rs (1)</summary><blockquote>
+
+`676-839`: **Add a claim-vs-database role mismatch test for admin authorization.**
+
+These admin tests use matching DB role and token role, so they won’t catch regressions where authorization incorrectly trusts JWT role claims instead of DB role.
+
+
+
+<details>
+<summary>Suggested test pattern</summary>
+
+```diff
++#[actix_rt::test]
++async fn admin_claim_without_admin_db_role_is_forbidden() {
++    // seed user in DB/repo as Role::Renter
++    // issue token with role claim "admin"
++    // call an admin-allowed foreign conversation endpoint
++    // assert StatusCode::FORBIDDEN
++}
+```
+</details>
+
+As per coding guidelines: "User roles must be checked in the database, not in Auth0 token claims - always query the database for authorization decisions".
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/conversation.rs` around lines 676 - 839, Add tests that assert
+the DB role wins over JWT claims by duplicating each admin_* test
+(admin_can_access_foreign_conversation,
+admin_can_send_message_to_foreign_conversation,
+admin_can_list_foreign_conversation_messages) but push a User with a non-Admin
+Role into user_repo while creating a token with create_auth0_token(...,
+"admin"); wire the repo into app_with_auth0_data_and_message_repo and call the
+same endpoints, then assert the request is rejected (e.g. StatusCode::FORBIDDEN)
+to ensure authorization reads role from the DB (user_repo / User.role) rather
+than the token claim.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/admin/user.rs (1)</summary><blockquote>
+
+`160-190`: **Pagination test should also assert page disjointness.**
+
+Size checks alone can still pass with duplicate records across pages. Add ID-overlap assertions between page 1/2/3.
+
+
+<details>
+<summary>Suggested assertion pattern</summary>
+
+```rust
+// Collect IDs from each page and assert no overlap.
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/admin/user.rs` around lines 160 - 190, The pagination test
+currently only checks page sizes; update the test code that builds and reads
+page1, page2, page3 (variables named page1, page2, page3) to extract each user's
+unique ID (from pageN["users"][i]["id"]) into three Vec/HashSet collections and
+assert that the intersection between page1 & page2, page1 & page3, and page2 &
+page3 is empty (i.e., no shared IDs) to ensure pages are disjoint; keep the
+existing size assertions and add these ID-overlap assertions after reading
+page1/page2/page3.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/system.rs (1)</summary><blockquote>
+
+`17-29`: **Extract a shared app-bootstrap helper for these system tests.**
+
+The repeated `App::new()...configure(routes::configure)` setup is substantial and increases maintenance overhead; move this into a reusable helper in `tests/common`.
+
+
+
+Based on learnings: Common test utilities and fixtures should be defined in `tests/common/` module for reuse across test files.
+
+
+Also applies to: 43-50, 63-70, 86-93, 127-135, 152-159, 175-183, 202-210, 232-239
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/system.rs` around lines 17 - 29, Extract the repeated Actix
+app bootstrap into a reusable helper (e.g., tests::common::init_test_app) that
+accepts the prebuilt state (from app_state/MockUserRepo/MockEquipmentRepo) and
+returns the initialized test service; move the shared setup that calls
+App::new().wrap(cors_middleware(&security_config())).wrap(security_headers()).app_data(web::Data::new(common::test_auth_config())).app_data(web::Data::new(state)).configure(routes::configure)
+into that helper, export it from tests/common, and update each system test (the
+occurrences around the provided snippet and the other ranges) to call
+init_test_app(state). Ensure the helper is async and returns the same type used
+by actix_test::init_service so tests compile without further changes.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/user/profile.rs (1)</summary><blockquote>
+
+`137-155`: **Assert non-mutation after rejected username updates.**
+
+These checks validate status codes, but they don’t verify persistence invariants. Add a repo read after each `BAD_REQUEST` and assert the username is unchanged.
+
+
+<details>
+<summary>Suggested hardening</summary>
+
+```diff
+@@
+-    let resp = actix_test::call_service(&app, req).await;
+-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
++    let resp = actix_test::call_service(&app, req).await;
++    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
++    let after_short = user_repo.find_by_id(user.id).await.unwrap().unwrap();
++    // assert expected unchanged value here
+@@
+-    let resp = actix_test::call_service(&app, req).await;
+-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
++    let resp = actix_test::call_service(&app, req).await;
++    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
++    let after_long = user_repo.find_by_id(user.id).await.unwrap().unwrap();
++    // assert expected unchanged value here
+```
+</details>
+
+
+Also applies to: 197-204
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/user/profile.rs` around lines 137 - 155, After each request
+that asserts StatusCode::BAD_REQUEST (the two calls using
+actix_test::call_service that set_json with "username": "ab" and the
+long_username), add a repository read of the user (using the same user.id used
+in the request) and assert that user.username remains unchanged; locate the test
+variables user, token, app and the response resp and, after each
+assert_eq!(resp.status(), StatusCode::BAD_REQUEST), call your user repo read
+method (e.g., repo.get_by_id or equivalent in this test harness) and assert
+equality with the original user.username. Apply the same extra verification to
+the other similar block referenced (the tests at the later block around the
+second location).
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/auth_middleware/provisioning.rs (1)</summary><blockquote>
+
+`14-69`: **Extract shared provisioning fixtures into `tests/common` helpers.**
+
+Repo/service setup and baseline claims construction are repeated across many tests. Centralizing those builders will reduce drift and make future auth middleware changes cheaper to maintain.
+
+
+Based on learnings: Common test utilities and fixtures should be defined in `tests/common/` module for reuse across test files.
+
+
+Also applies to: 93-116, 138-161, 196-217, 233-263, 272-299, 308-332, 345-368, 384-407, 427-450, 463-486, 506-529, 550-579, 594-624, 633-659
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth_middleware/provisioning.rs` around lines 14 - 69, Extract the
+repeated test setup (creation of MockUserRepo, MockAuthRepo, seeding User and
+AuthIdentity, construction of Auth0Claims, and instantiation of
+JitUserProvisioningService) into reusable helpers under tests/common (e.g.,
+functions like make_mock_repos(), seed_existing_user(user_repo, auth_repo,
+existing_user_id, provider_id), and make_auth0_claims(...)), then update this
+test to call those helpers and use the returned repos/service; specifically move
+the setup that constructs MockUserRepo, MockAuthRepo, the User and AuthIdentity
+push, the Auth0Claims block, and the provisioning_service creation
+(JitUserProvisioningService) into common helpers and replace the in-test code
+with calls that return Arc<MockUserRepo>, Arc<MockAuthRepo>, Auth0Claims, and
+Arc<dyn UserProvisioningService> so provision_user can be invoked as before.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/common/mocks/mod.rs (1)</summary><blockquote>
+
+`1-25`: **Consider consolidating allow attributes.**
+
+The `#[allow(dead_code, unused_imports)]` attributes are repeated on every declaration. While acceptable during restructuring, consider consolidating at the module level once the mock usage stabilizes.
+
+
+<details>
+<summary>♻️ Optional: Consolidate allow attributes at module level</summary>
+
+```diff
++#![allow(dead_code, unused_imports)]
++
+-#[allow(dead_code, unused_imports)]
+ pub mod auth_repo;
+-#[allow(dead_code, unused_imports)]
+ pub mod category_repo;
+-#[allow(dead_code, unused_imports)]
+ pub mod equipment_repo;
+-#[allow(dead_code, unused_imports)]
+ pub mod message_repo;
+-#[allow(dead_code, unused_imports)]
+ pub mod user_repo;
+-#[allow(dead_code, unused_imports)]
+ pub mod utils;
+
+-#[allow(dead_code, unused_imports)]
+ pub use auth_repo::MockAuthRepo;
+-#[allow(dead_code, unused_imports)]
+ pub use category_repo::MockCategoryRepo;
+-#[allow(dead_code, unused_imports)]
+ pub use equipment_repo::MockEquipmentRepo;
+-#[allow(dead_code, unused_imports)]
+ pub use message_repo::MockMessageRepo;
+-#[allow(dead_code, unused_imports)]
+ pub use user_repo::MockUserRepo;
+-#[allow(dead_code, unused_imports)]
+ pub use utils::haversine_km;
+```
+</details>
+
+Based on learnings: Common test utilities are correctly defined in `tests/common/` module for reuse across test files.
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/common/mocks/mod.rs` around lines 1 - 25, The file repeats
+#[allow(dead_code, unused_imports)] on every pub mod and pub use; consolidate by
+applying #[allow(dead_code, unused_imports)] once at the top of the module so
+you can remove the per-item attributes on auth_repo, category_repo,
+equipment_repo, message_repo, user_repo, utils and the corresponding pub use
+lines (MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo,
+MockUserRepo, haversine_km); ensure the single module-level attribute covers the
+entire file to keep warnings suppressed while the mocks stabilize.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/auth0_endpoints/signup.rs (1)</summary><blockquote>
+
+`337-351`: **Tighten the rate-limit assertion to match the test data.**
+
+This loop uses unique emails, so allowing `StatusCode::CONFLICT` weakens the test and can hide unrelated regressions. Assert the expected success path directly.
+
+
+<details>
+<summary>Suggested change</summary>
+
+```diff
+-        assert!(matches!(
+-            response.status(),
+-            StatusCode::CREATED | StatusCode::CONFLICT
+-        ));
++        assert_eq!(response.status(), StatusCode::CREATED);
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth0_endpoints/signup.rs` around lines 337 - 351, The loop in the test
+currently allows StatusCode::CONFLICT even though each iteration posts a unique
+email; update the assertion after actix_test::call_service(&app, request).await
+to assert that response.status() is StatusCode::CREATED (remove the CONFLICT
+branch) so the test strictly verifies the success path for the unique-email
+signups performed by the TestRequest::post loop.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/equipment_extended/mod.rs (1)</summary><blockquote>
+
+`81-82`: **Prefer `expect(...)` over bare `unwrap()` in test bootstrap code.**
+
+If client creation fails, this currently panics without actionable context.
+
+
+<details>
+<summary>Suggested change</summary>
+
+```diff
+-        auth0_api_client: Arc::new(HttpAuth0ApiClient::new(auth0_config.clone()).unwrap())
++        auth0_api_client: Arc::new(
++            HttpAuth0ApiClient::new(auth0_config.clone())
++                .expect("failed to construct HttpAuth0ApiClient for test app state"),
++        )
+             as Arc<dyn Auth0ApiClient>,
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/equipment_extended/mod.rs` around lines 81 - 82, Replace the
+bare unwrap() on HttpAuth0ApiClient::new so test bootstrap fails with a clear
+message: change the
+Arc::new(HttpAuth0ApiClient::new(auth0_config.clone()).unwrap()) used to
+initialize auth0_api_client (as Arc<dyn Auth0ApiClient>) to call expect(...)
+with a descriptive message (e.g., "failed to create HttpAuth0ApiClient for
+tests") so any construction error surfaces actionable context.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/core_api/equipment_photos/management.rs (1)</summary><blockquote>
+
+`15-27`: **Consider extracting repeated fixture/setup into a shared helper.**
+
+These tests repeat the same DB/repository/bootstrap sequence; moving that into `tests/common` would reduce duplication and future drift.
+
+
+
+Based on learnings, common test utilities and fixtures should be defined in `tests/common/` module for reuse across test files.
+
+
+Also applies to: 50-65, 94-106, 129-144, 166-178
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/core_api/equipment_photos/management.rs` around lines 15 - 27, Extract
+the repeated test setup into a shared helper in tests/common: create a function
+(e.g., common::init_test_env or common::setup_with_fixtures) that calls
+setup_test_db().await and setup_app(...).await and constructs the repositories
+via UserRepositoryImpl::new, EquipmentRepositoryImpl::new,
+CategoryRepositoryImpl::new; also move creation of fixtures::test_owner,
+fixtures::test_category, fixtures::test_equipment and their repository create
+calls into that helper and return the app, repos, and created entities so tests
+simply call the helper instead of duplicating the DB/repo/bootstrap sequence
+used around setup_test_db, setup_app, UserRepositoryImpl,
+EquipmentRepositoryImpl, CategoryRepositoryImpl and
+fixtures::test_owner/test_category/test_equipment.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/common/auth0_test_helpers.rs (1)</summary><blockquote>
+
+`71-79`: **Avoid claim-derived role assignment in provisioning helpers.**
+
+Using token claims as the role source can let tests pass even if DB-backed authorization paths regress. Prefer DB-derived role (or fixed safe default) in this helper path.
+
+
+
+As per coding guidelines, "User roles must be checked in the database, not in Auth0 token claims - always query the database for authorization decisions".
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/common/auth0_test_helpers.rs` around lines 71 - 79, Replace the logic
+that derives role_str from token claims (the block that reads
+claims.custom_claims.get("https://test-tenant.auth0.com/role") and sets
+role_str) so the test helper no longer trusts Auth0 claims for role; instead
+query the database for the user role (or set a fixed safe default such as
+"renter") and assign that to role_str. Update the helper that constructs test
+identities in tests/common/auth0_test_helpers.rs to remove use of the
+claims-derived role and use the DB lookup or fixed default path when populating
+role_str.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>src/infrastructure/auth0/dtos.rs (1)</summary><blockquote>
+
+`104-153`: **Consolidate duplicate DTOs for the same Auth0 endpoints.**
+
+`SignupResponse`/`PasswordGrantResponse` overlap with `Auth0SignupResponse`/`Auth0TokenResponse`. Keeping both sets invites schema drift and inconsistent parsing behavior.
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@src/infrastructure/auth0/dtos.rs` around lines 104 - 153, There are duplicate
+DTOs for the same Auth0 endpoints: consolidate SignupResponse into
+Auth0SignupResponse and PasswordGrantResponse into Auth0TokenResponse by
+replacing all usages of SignupResponse and PasswordGrantResponse with the
+existing Auth0SignupResponse and Auth0TokenResponse types, remove the redundant
+struct definitions (SignupResponse, PasswordGrantResponse) from
+src/infrastructure/auth0/dtos.rs, and ensure the surviving structs include the
+same serde attributes (e.g., #[serde(rename = "_id")] and skip_serializing_if
+for optional fields) and field names so serialization/deserialization behavior
+remains identical; update imports/usages across the codebase to reference
+Auth0SignupResponse and Auth0TokenResponse.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>src/security/mod.rs (1)</summary><blockquote>
+
+`103-123`: **Prefer validation-based failure assertions over panic expectations.**
+
+This test locks in panic behavior for invalid config. It’s safer to assert `SecurityConfig::validate()` returns an error and keep limiter construction on non-panicking paths.
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@src/security/mod.rs` around lines 103 - 123, Replace the panic-based
+assertion with a validation-based one: call SecurityConfig::validate() (or the
+existing validate method on SecurityConfig) on the constructed config and assert
+it returns an Err for global_rate_limit_per_minute > 60_000, and remove the
+std::panic::catch_unwind and the global_rate_limiting invocation so the test no
+longer depends on limiter construction panicking; reference SecurityConfig and
+its validate() method and ensure the test message asserts validation failure for
+the out-of-range global_rate_limit_per_minute.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>src/security/login_throttle.rs (1)</summary><blockquote>
+
+`29-36`: **Consider making `write_entries` visibility more restrictive.**
+
+Exposing `write_entries()` as public allows external code to directly manipulate the internal throttle state, which could bypass the intended throttling logic. If this is intended for testing only, consider using `pub(crate)` or a `#[cfg(test)]` helper instead.
+
+
+<details>
+<summary>♻️ Suggested change</summary>
+
+```diff
+-    pub fn write_entries(
++    pub(crate) fn write_entries(
+         &self,
+     ) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@src/security/login_throttle.rs` around lines 29 - 36, The public method
+write_entries currently exposes the internal entries RwLock allowing external
+mutation of HashMap<String, LoginAttemptState>; restrict its visibility by
+changing the signature from pub fn write_entries(...) to a more limited scope
+(e.g., pub(crate) fn write_entries(...) if it's needed only inside the crate) or
+remove pub entirely and provide a #[cfg(test)] pub(crate) helper for tests only,
+ensuring callers must go through the intended throttling API rather than
+mutating entries directly; update any internal callsites to use the new
+visibility and add a cfg(test) helper if tests require direct access.
+```
+
+</details>
+
+</blockquote></details>
+<details>
+<summary>tests/auth0_endpoints.rs (2)</summary><blockquote>
+
+`259-265`: **Test pool setup differs from `tests/core_api.rs` fallback behavior.**
+
+In `tests/core_api.rs`, `test_db_pool()` falls back to `DATABASE_URL` and then a hardcoded default if `TEST_DATABASE_URL` is unset. Here, the function panics if `TEST_DATABASE_URL` is missing. Consider aligning the fallback behavior for consistency across test modules.
+
+
+<details>
+<summary>♻️ Suggested fix for consistency</summary>
+
+```diff
+ pub fn test_db_pool() -> sqlx::PgPool {
+-    let database_url =
+-        std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set for tests");
++    let database_url = std::env::var("TEST_DATABASE_URL")
++        .or_else(|_| std::env::var("DATABASE_URL"))
++        .unwrap_or_else(|_| "postgres://postgres:postgres@127.0.0.1:5432/test_db".to_string());
+     PgPoolOptions::new()
+         .connect_lazy(&database_url)
+         .expect("test db pool should build lazily")
+ }
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth0_endpoints.rs` around lines 259 - 265, test_db_pool currently
+panics if TEST_DATABASE_URL is not set; change it to mirror the fallback in
+tests/core_api.rs by attempting env::var("TEST_DATABASE_URL") then falling back
+to env::var("DATABASE_URL") and finally to the same hardcoded default connection
+string used in core_api, then pass that resolved database_url into
+PgPoolOptions::new().connect_lazy(...). Update references to
+TEST_DATABASE_URL/DATABASE_URL and ensure the expect message reflects that a
+resolved DB URL was required.
+```
+
+</details>
+
+---
+
+`120-125`: **JWT payload uses standard Base64 instead of URL-safe encoding.**
+
+JWT tokens should use URL-safe Base64 without padding (`base64::engine::general_purpose::URL_SAFE_NO_PAD`) rather than standard Base64 with padding. While this mock token isn't cryptographically validated in tests, using correct encoding prevents potential parsing issues if the token is ever decoded.
+
+
+<details>
+<summary>♻️ Suggested fix</summary>
+
+```diff
+-        let payload_encoded = base64::Engine::encode(
+-            &base64::engine::general_purpose::STANDARD,
+-            payload.as_bytes(),
+-        );
++        let payload_encoded = base64::Engine::encode(
++            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
++            payload.as_bytes(),
++        );
+```
+</details>
+
+<details>
+<summary>🤖 Prompt for AI Agents</summary>
+
+```
+Verify each finding against the current code and only fix it if needed.
+
+In `@tests/auth0_endpoints.rs` around lines 120 - 125, The JWT construction uses
+standard Base64 with padding; change the encoder used when building
+payload_encoded (and any header encoding) from
+base64::engine::general_purpose::STANDARD to
+base64::engine::general_purpose::URL_SAFE_NO_PAD so the token uses URL-safe,
+no-padding Base64 as required by JWTs; update the places referencing
+payload_encoded and header encoding in tests/auth0_endpoints.rs (look for the
+variables header, payload_encoded, signature and the format!("{}.{}.{}", ... )
+assembly) to use the URL_SAFE_NO_PAD engine.
+```
+
+</details>
+
+</blockquote></details>
+
+</blockquote></details>
+
+<details>
+<summary>🤖 Prompt for all review comments with AI agents</summary>
+
+````
+Verify each finding against the current code and only fix it if needed.
+
+Inline comments:
+In `@docs/review.md`:
+- Around line 295-305: The Markdown snippet containing the call to
+auth_repo.create_identity and the rust_backend::domain::AuthIdentity struct
+should be wrapped in a fenced code block (triple backticks) to prevent MD037 and
+broken parsing; update the example around the auth_repo.create_identity(...)
+invocation (and the similar snippet referencing AuthIdentity/Uuid::new_v4 and
+provider fields noted later) by enclosing the entire snippet in ```rust ... ```
+so the markers like `*`/`_` are treated as code rather than Markdown.
+
+In `@src/api/dtos/common.rs`:
+- Around line 13-19: Update the PaginationParams DTO to include the missing
+derives and field validations: add serde::Serialize and utoipa::ToSchema to the
+derive list on struct PaginationParams (alongside Debug, Deserialize,
+IntoParams, Validate) and annotate the page and limit fields with validator
+attributes (e.g., #[validate(range(min = 1))] for page and #[validate(range(min
+= 1, max = <sensible_max>))] for limit) while keeping their serde defaults via
+default_page and default_limit; ensure any required imports for Serialize,
+ToSchema and validator attributes are added/adjusted in the file.
+
+In `@src/application/user_service.rs`:
+- Around line 108-111: Replace the direct arithmetic for pagination offset with
+overflow-safe/saturating arithmetic: instead of `(page - 1) * limit` use
+saturating operations on the request-derived values (e.g., call
+page.saturating_sub(1) then saturating_mul with limit) after you clamp `limit`;
+update the `page`, `limit`, and `offset` computation in the same block so
+`offset` cannot overflow when `page` is near i64::MAX.
+
+In `@src/config/auth0_config.rs`:
+- Around line 10-38: Remove the automatic Debug derive from AuthConfig and
+Auth0Config and replace it with manual Debug implementations that redact
+sensitive fields: mask jwt_secret and any entries in previous_jwt_secrets in
+AuthConfig, and mask auth0_client_secret (and auth0_client_id if treated as
+secret) in Auth0Config; keep non-sensitive fields (jwt_kid,
+jwt_expiration_seconds, issuer, audience, auth0_domain, auth0_audience,
+auth0_issuer, jwks_cache_ttl_secs, auth0_connection, etc.) printable. Implement
+fmt::Debug for AuthConfig and Auth0Config to output the same structure but
+replace secret values with a constant placeholder like "<redacted>" so logs
+won’t leak secrets while retaining useful non-secret fields.
+
+In `@src/config/mod.rs`:
+- Around line 16-30: Remove the Debug derive from the top-level AppConfig to
+avoid accidental logging of secrets: update the struct declaration for AppConfig
+(currently #[derive(Debug, Deserialize, Clone)]) to #[derive(Deserialize,
+Clone)] and, if you still need debug output, implement a custom Debug for
+AppConfig that redacts sensitive fields (or only delegates Debug to
+non-sensitive subconfigs); review/AuthConfig, Auth0Config, SecurityConfig, and
+SentryConfig and ensure any Debug derives there either redact secrets or are
+removed so secret fields are never printed by Debug.
+- Around line 58-60: The merge call using
+Toml::file("config/development.toml").nested() is treating development.toml as a
+profile and preventing its top-level [database]/[logging] keys from overriding
+defaults when extracting into AppConfig; remove the .nested() so the line
+becomes a normal merge of development.toml into the root, or alternatively keep
+.nested() but wrap development.toml under a [development] table and call
+.select("development") on the Figment before extracting into AppConfig so the
+correct profile is merged.
+
+In `@src/infrastructure/auth0/client.rs`:
+- Around line 44-49: The domain() method assumes auth0_domain is a trimmed,
+non-empty string but new() currently only rejects None, allowing Some("") or
+whitespace; update the constructor/new() that sets Auth0 client config to
+validate auth0_domain by trimming it and rejecting empty/whitespace (return an
+Err or fail construction) and store the trimmed value (or ensure invariant) so
+domain()’s expect("domain checked in constructor") is safe; reference the
+domain() method and the new()/constructor that initializes
+self.config.auth0_domain when making the change.
+
+In `@src/infrastructure/auth0/dtos.rs`:
+- Around line 67-100: The to_app_error function currently maps unknown Auth0
+error codes to AppError::InternalError; change it to preserve HTTP-status-aware
+fallback by, when the code match falls through, inspecting the HTTP status on
+the Auth0 DTO (use the existing status/status_code accessor on self) and return
+an AppError based on status (e.g. 401/403 -> AppError::Unauthorized, 429 -> map
+appropriately or surface a throttling error if AppError supports it, 5xx ->
+AppError::InternalError otherwise). Keep the existing code_or_error and
+description_or_error_description usage and logging, but replace the final `_ =>
+AppError::InternalError(...)` arm in to_app_error with a status-based branch
+that chooses the correct AppError based on self.status/status_code.
+
+In `@src/infrastructure/auth0/requests.rs`:
+- Around line 36-39: The SignupRequest struct's optional connection field should
+have the same skip-serialization behavior as the other optionals: add the
+attribute #[serde(skip_serializing_if = "Option::is_none")] above the pub
+connection: Option<String> field in SignupRequest so None is omitted instead of
+serialized as null; then update the existing test (the test around the current
+assertion location) to serialize a SignupRequest with connection = None and
+assert the resulting JSON object does not contain the "connection" key (e.g.,
+serialize to a Map/Value and assert !map.contains_key("connection")).
+- Around line 4-26: Remove the auto-derived Debug implementation from request
+structs that hold secrets (Auth0SignupRequest, Auth0PasswordGrantRequest,
+SignupRequest, PasswordGrantRequest) to avoid accidental logging of
+passwords/client_secret; locate the structs and either delete the
+#[derive(Debug, ...)] token or replace Debug with a manual impl that redacts
+sensitive fields (password, client_secret) in fmt to return safe output,
+ensuring Serialize remains unchanged and the redacted Debug is used where
+needed.
+
+In `@src/infrastructure/repositories/equipment/mod.rs`:
+- Around line 64-68: The repository is using runtime SQLx query builders;
+replace those with compile-time SQLx macros by updating functions like
+find_by_owner and update_photo_availability (and other methods in mod.rs and
+photo.rs that call sqlx::query_as::<_, T>() or sqlx::query!()) to use
+query_as!() or query!() with literal SQL and explicit type mappings so queries
+are checked at compile time; keep the dynamic QueryBuilder pattern only in
+search.rs which is allowed. Locate uses of sqlx::query_as::<_, ...>(),
+QueryBuilder, or .fetch_*/.execute() in the mentioned functions and convert them
+to the corresponding query_as!()/query!() macro calls, adjusting parameter
+binding and return types to match the macro form. Ensure all SQL strings are
+static literals and import any required column-to-struct mappings to satisfy the
+macros.
+
+In `@src/infrastructure/repositories/equipment/photo.rs`:
+- Around line 7-67: Replace all runtime-checked sqlx calls with the compile-time
+macros: in the create (inserting) function, find_photos, find_photo_by_id,
+update_photo, and delete_photo replace sqlx::query_as::<_, EquipmentPhoto>(...)
+with sqlx::query_as!(EquipmentPhoto, "...", /* params */) and sqlx::query(...)
+with sqlx::query!("DELETE ...", photo_id). Move parameter binding from
+.bind(...) chains into the macro argument list (e.g.
+sqlx::query_as!(EquipmentPhoto, "SELECT ... WHERE id = $1", photo_id)), keep the
+same SQL column list to match the EquipmentPhoto struct, and then call
+.fetch_one/.fetch_all/.fetch_optional/.execute(pool) as before; ensure types of
+passed parameters (photo.id, photo.equipment_id, photo.photo_url,
+photo.is_primary, photo.order_index, photo.created_at) match the macro-checked
+SQL argument types.
+
+In `@src/security/rate_limit.rs`:
+- Around line 17-22: Compute a safe, clamped interval before performing the
+division to avoid panic: clamp rate_limit_per_minute to a valid nonzero range
+(e.g., 1..=60_000) and use that clamped value when calculating
+milliseconds_per_request instead of dividing directly by rate_limit_per_minute;
+also handle potential GovernorConfigBuilder::finish() errors without unwrapping
+by returning or logging the error instead of calling .expect(); finally ensure
+AppConfig::validate() is invoked at startup so configuration constraints are
+enforced (referencing the symbols rate_limit_per_minute,
+milliseconds_per_request, burst_size, GovernorConfigBuilder::finish, and
+AppConfig::validate).
+
+In `@tests/auth0_endpoints/login.rs`:
+- Around line 2-7: Remove the unused imports that CI flagged in
+tests/auth0_endpoints/login.rs: delete the lines importing crate::common,
+crate::common::mocks::*, chrono::Utc, the glob import rust_backend::domain::*,
+and the AppError and AppResult from rust_backend::error so only actually used
+symbols remain; keep imports used by tests such as actix_web::{http::StatusCode,
+test as actix_test, web, App} and any other referenced types/functions to ensure
+the file still compiles.
+
+In `@tests/auth0_endpoints/signup.rs`:
+- Around line 356-381: The test
+auth0_signup_with_username_returns_username_in_response currently only asserts
+the HTTP status; update it to also parse the response body JSON from the
+actix_test::call_service result and assert that the returned JSON contains the
+"username" field with the value "cooluser123" (and optionally that "email"
+matches "user@example.com") so the test name matches its behavior; locate this
+in the auth0_signup_with_username_returns_username_in_response function and add
+JSON deserialization and assertions against the "username" key.
+
+In `@tests/core_api.rs`:
+- Around line 64-80: The signup function currently declares parameters as
+_email, _password, and _username but uses them in the body; rename these
+parameters to email, password, and username in the fn signature of async fn
+signup(...) and update all references inside the function (e.g., the return
+Auth0SignupResponse fields that use _email and _username) to use the new names
+so the underscore no longer incorrectly indicates unused parameters (function
+name: signup).
+
+In `@tests/core_api/messages/message.rs`:
+- Line 79: The comment "// Create 5 messages with different timestamps (oldest
+first)" is incorrect relative to the test assertions which expect newest-first
+ordering; update that comment to accurately reflect the behavior (e.g., "//
+Create 5 messages with different timestamps (newest first)" or "// Create 5
+messages with different timestamps (newest to oldest)") so it matches the
+assertions in the test in tests/core_api/messages/message.rs.
+
+---
+
+Outside diff comments:
+In `@src/api/routes/users.rs`:
+- Around line 29-42: The handler update_user_profile accepts payload:
+web::Json<UpdateUserRequest> but never validates it; call payload.validate()?
+before using the data to enforce DTO validation. Modify update_user_profile to
+invoke payload.validate()? (on the web::Json<UpdateUserRequest> value) and
+return any validation error via the existing AppResult flow, then proceed to
+call state.user_service.update_profile with payload.into_inner(); ensure the
+symbol UpdateUserRequest and the validate() call are used so the route adheres
+to DTO validation guidelines.
+
+In `@src/application/admin/mod.rs`:
+- Around line 112-151: The update_user_role and delete_user admin mutation
+handlers currently perform updates without checking the DB-backed role; call the
+existing require_admin method at the start of each handler to enforce DB role
+checks (e.g., invoke self.require_admin(actor_id).await? and handle its error)
+before any logging or performing repo operations in update_user_role and
+delete_user, and apply the same pattern to the other admin mutation methods
+(those referenced around the other ranges) so every admin mutation validates via
+require_admin rather than relying on external claims.
+
+---
+
+Nitpick comments:
+In `@split_repo_tests.py`:
+- Around line 1-2: Remove the unused import `os` from the top-level import block
+in split_repo_tests.py; keep only the required `import re` so the module no
+longer contains an unused symbol and linter warnings are resolved.
+- Around line 4-5: Add robust error handling around opening
+"tests/repository_integration_tests.rs": check existence (os.path.exists) before
+attempting to open or wrap the open/read in a try/except catching
+FileNotFoundError/IOError, and emit a clear error message (including the
+expected path) and exit/raise a user-friendly exception instead of letting the
+raw traceback surface; update the block that uses variables f and content to
+follow this pattern so the script fails gracefully when the source file is
+missing or the current working directory is wrong.
+- Around line 45-52: The single-line compound statement in the loop (if not
+test_list: continue) violates E701; in the for-loop iterating over
+categorized_tests (for cat, test_list in categorized_tests.items()) change the
+inline if to a proper two-line block by replacing "if not test_list: continue"
+with an if statement followed by a separate indented continue line so the check
+and the continue are on their own lines; leave the rest of the block (filename,
+with open(...), f.write(header), and the inner for t in test_list write calls)
+unchanged.
+- Around line 34-43: The line combining the if check and the continue (if cat ==
+"edge_cases": continue) violates PEP8 E701; change it to a normal block by
+placing the continue on its own indented line (e.g., if cat == "edge_cases":
+followed by a newline with an indented continue) so the loop over categories
+(variables cat, keywords) and the early-skip behavior is preserved; ensure this
+update is applied in the same loop that appends tests to categorized_tests and
+uses placed, test, and name.
+
+In `@src/api/routes/users.rs`:
+- Around line 44-53: In my_equipment, validate the incoming PaginationParams
+before using them: call query.validate()? (or query.into_inner().validate() if
+you need ownership) right after receiving the web::Query<PaginationParams> and
+before calling state.user_service.my_equipment; ensure the validator::Validate
+trait is in scope so the validation error can be propagated via the existing ?
+into the AppResult.
+
+In `@src/infrastructure/auth0/dtos.rs`:
+- Around line 104-153: There are duplicate DTOs for the same Auth0 endpoints:
+consolidate SignupResponse into Auth0SignupResponse and PasswordGrantResponse
+into Auth0TokenResponse by replacing all usages of SignupResponse and
+PasswordGrantResponse with the existing Auth0SignupResponse and
+Auth0TokenResponse types, remove the redundant struct definitions
+(SignupResponse, PasswordGrantResponse) from src/infrastructure/auth0/dtos.rs,
+and ensure the surviving structs include the same serde attributes (e.g.,
+#[serde(rename = "_id")] and skip_serializing_if for optional fields) and field
+names so serialization/deserialization behavior remains identical; update
+imports/usages across the codebase to reference Auth0SignupResponse and
+Auth0TokenResponse.
+
+In `@src/security/login_throttle.rs`:
+- Around line 29-36: The public method write_entries currently exposes the
+internal entries RwLock allowing external mutation of HashMap<String,
+LoginAttemptState>; restrict its visibility by changing the signature from pub
+fn write_entries(...) to a more limited scope (e.g., pub(crate) fn
+write_entries(...) if it's needed only inside the crate) or remove pub entirely
+and provide a #[cfg(test)] pub(crate) helper for tests only, ensuring callers
+must go through the intended throttling API rather than mutating entries
+directly; update any internal callsites to use the new visibility and add a
+cfg(test) helper if tests require direct access.
+
+In `@src/security/mod.rs`:
+- Around line 103-123: Replace the panic-based assertion with a validation-based
+one: call SecurityConfig::validate() (or the existing validate method on
+SecurityConfig) on the constructed config and assert it returns an Err for
+global_rate_limit_per_minute > 60_000, and remove the std::panic::catch_unwind
+and the global_rate_limiting invocation so the test no longer depends on limiter
+construction panicking; reference SecurityConfig and its validate() method and
+ensure the test message asserts validation failure for the out-of-range
+global_rate_limit_per_minute.
+
+In `@tests/auth_middleware.rs`:
+- Around line 1-27: Remove the unused imports from the top-level test module:
+delete Arc from the std::sync import and remove Payload, AUTHORIZATION,
+actix_test, web, and FromRequest from the actix_web use statement; these symbols
+are unused in this parent file (submodules import what they need) so update the
+use lines to only keep the actually referenced items like Mutex and http symbols
+that are used.
+
+In `@tests/auth_middleware/provisioning.rs`:
+- Around line 14-69: Extract the repeated test setup (creation of MockUserRepo,
+MockAuthRepo, seeding User and AuthIdentity, construction of Auth0Claims, and
+instantiation of JitUserProvisioningService) into reusable helpers under
+tests/common (e.g., functions like make_mock_repos(),
+seed_existing_user(user_repo, auth_repo, existing_user_id, provider_id), and
+make_auth0_claims(...)), then update this test to call those helpers and use the
+returned repos/service; specifically move the setup that constructs
+MockUserRepo, MockAuthRepo, the User and AuthIdentity push, the Auth0Claims
+block, and the provisioning_service creation (JitUserProvisioningService) into
+common helpers and replace the in-test code with calls that return
+Arc<MockUserRepo>, Arc<MockAuthRepo>, Auth0Claims, and Arc<dyn
+UserProvisioningService> so provision_user can be invoked as before.
+
+In `@tests/auth0_endpoints.rs`:
+- Around line 259-265: test_db_pool currently panics if TEST_DATABASE_URL is not
+set; change it to mirror the fallback in tests/core_api.rs by attempting
+env::var("TEST_DATABASE_URL") then falling back to env::var("DATABASE_URL") and
+finally to the same hardcoded default connection string used in core_api, then
+pass that resolved database_url into PgPoolOptions::new().connect_lazy(...).
+Update references to TEST_DATABASE_URL/DATABASE_URL and ensure the expect
+message reflects that a resolved DB URL was required.
+- Around line 120-125: The JWT construction uses standard Base64 with padding;
+change the encoder used when building payload_encoded (and any header encoding)
+from base64::engine::general_purpose::STANDARD to
+base64::engine::general_purpose::URL_SAFE_NO_PAD so the token uses URL-safe,
+no-padding Base64 as required by JWTs; update the places referencing
+payload_encoded and header encoding in tests/auth0_endpoints.rs (look for the
+variables header, payload_encoded, signature and the format!("{}.{}.{}", ... )
+assembly) to use the URL_SAFE_NO_PAD engine.
+
+In `@tests/auth0_endpoints/signup.rs`:
+- Around line 337-351: The loop in the test currently allows
+StatusCode::CONFLICT even though each iteration posts a unique email; update the
+assertion after actix_test::call_service(&app, request).await to assert that
+response.status() is StatusCode::CREATED (remove the CONFLICT branch) so the
+test strictly verifies the success path for the unique-email signups performed
+by the TestRequest::post loop.
+
+In `@tests/auth0_endpoints/tokens.rs`:
+- Around line 50-62: The current JWT checks only verify dot-count for
+body.access_token and body.id_token (variables parts and id_parts); enhance them
+by also asserting each split segment is non-empty to catch values like "..":
+after splitting into parts/id_parts, iterate over each segment and assert it is
+not empty (include a clear message referencing which token and which segment
+failed) for both body.access_token and body.id_token.
+
+In `@tests/common/auth0_test_helpers.rs`:
+- Around line 71-79: Replace the logic that derives role_str from token claims
+(the block that reads
+claims.custom_claims.get("https://test-tenant.auth0.com/role") and sets
+role_str) so the test helper no longer trusts Auth0 claims for role; instead
+query the database for the user role (or set a fixed safe default such as
+"renter") and assign that to role_str. Update the helper that constructs test
+identities in tests/common/auth0_test_helpers.rs to remove use of the
+claims-derived role and use the DB lookup or fixed default path when populating
+role_str.
+
+In `@tests/common/mocks/mod.rs`:
+- Around line 1-25: The file repeats #[allow(dead_code, unused_imports)] on
+every pub mod and pub use; consolidate by applying #[allow(dead_code,
+unused_imports)] once at the top of the module so you can remove the per-item
+attributes on auth_repo, category_repo, equipment_repo, message_repo, user_repo,
+utils and the corresponding pub use lines (MockAuthRepo, MockCategoryRepo,
+MockEquipmentRepo, MockMessageRepo, MockUserRepo, haversine_km); ensure the
+single module-level attribute covers the entire file to keep warnings suppressed
+while the mocks stabilize.
+
+In `@tests/core_api/admin/user.rs`:
+- Around line 160-190: The pagination test currently only checks page sizes;
+update the test code that builds and reads page1, page2, page3 (variables named
+page1, page2, page3) to extract each user's unique ID (from
+pageN["users"][i]["id"]) into three Vec/HashSet collections and assert that the
+intersection between page1 & page2, page1 & page3, and page2 & page3 is empty
+(i.e., no shared IDs) to ensure pages are disjoint; keep the existing size
+assertions and add these ID-overlap assertions after reading page1/page2/page3.
+
+In `@tests/core_api/conversation.rs`:
+- Around line 676-839: Add tests that assert the DB role wins over JWT claims by
+duplicating each admin_* test (admin_can_access_foreign_conversation,
+admin_can_send_message_to_foreign_conversation,
+admin_can_list_foreign_conversation_messages) but push a User with a non-Admin
+Role into user_repo while creating a token with create_auth0_token(...,
+"admin"); wire the repo into app_with_auth0_data_and_message_repo and call the
+same endpoints, then assert the request is rejected (e.g. StatusCode::FORBIDDEN)
+to ensure authorization reads role from the DB (user_repo / User.role) rather
+than the token claim.
+
+In `@tests/core_api/equipment_extended/mod.rs`:
+- Around line 81-82: Replace the bare unwrap() on HttpAuth0ApiClient::new so
+test bootstrap fails with a clear message: change the
+Arc::new(HttpAuth0ApiClient::new(auth0_config.clone()).unwrap()) used to
+initialize auth0_api_client (as Arc<dyn Auth0ApiClient>) to call expect(...)
+with a descriptive message (e.g., "failed to create HttpAuth0ApiClient for
+tests") so any construction error surfaces actionable context.
+
+In `@tests/core_api/equipment_photos/management.rs`:
+- Around line 15-27: Extract the repeated test setup into a shared helper in
+tests/common: create a function (e.g., common::init_test_env or
+common::setup_with_fixtures) that calls setup_test_db().await and
+setup_app(...).await and constructs the repositories via
+UserRepositoryImpl::new, EquipmentRepositoryImpl::new,
+CategoryRepositoryImpl::new; also move creation of fixtures::test_owner,
+fixtures::test_category, fixtures::test_equipment and their repository create
+calls into that helper and return the app, repos, and created entities so tests
+simply call the helper instead of duplicating the DB/repo/bootstrap sequence
+used around setup_test_db, setup_app, UserRepositoryImpl,
+EquipmentRepositoryImpl, CategoryRepositoryImpl and
+fixtures::test_owner/test_category/test_equipment.
+
+In `@tests/core_api/system.rs`:
+- Around line 17-29: Extract the repeated Actix app bootstrap into a reusable
+helper (e.g., tests::common::init_test_app) that accepts the prebuilt state
+(from app_state/MockUserRepo/MockEquipmentRepo) and returns the initialized test
+service; move the shared setup that calls
+App::new().wrap(cors_middleware(&security_config())).wrap(security_headers()).app_data(web::Data::new(common::test_auth_config())).app_data(web::Data::new(state)).configure(routes::configure)
+into that helper, export it from tests/common, and update each system test (the
+occurrences around the provided snippet and the other ranges) to call
+init_test_app(state). Ensure the helper is async and returns the same type used
+by actix_test::init_service so tests compile without further changes.
+
+In `@tests/core_api/user/equipment.rs`:
+- Around line 28-33: Extract the repeated test bootstrap into a shared helper in
+tests/common (or a local module) by creating a function that runs
+setup_test_db().await, calls setup_app(pool.clone()).await, and constructs the
+repositories (UserRepositoryImpl::new(pool.clone()),
+EquipmentRepositoryImpl::new(pool.clone()),
+CategoryRepositoryImpl::new(pool.clone())), then return the app, test_db/pool,
+and repo instances; update the tests that duplicate lines (including the
+occurrences around lines 71-76 and 111-116) to call this helper to remove the
+repeated setup code and centralize fixture creation.
+
+In `@tests/core_api/user/profile.rs`:
+- Around line 137-155: After each request that asserts StatusCode::BAD_REQUEST
+(the two calls using actix_test::call_service that set_json with "username":
+"ab" and the long_username), add a repository read of the user (using the same
+user.id used in the request) and assert that user.username remains unchanged;
+locate the test variables user, token, app and the response resp and, after each
+assert_eq!(resp.status(), StatusCode::BAD_REQUEST), call your user repo read
+method (e.g., repo.get_by_id or equivalent in this test harness) and assert
+equality with the original user.username. Apply the same extra verification to
+the other similar block referenced (the tests at the later block around the
+second location).
+
+In `@tests/core_api/users.rs`:
+- Around line 118-127: In the admin_can_update_other_users_profile test, after
+calling actix_test::call_service and asserting StatusCode::OK, read and
+deserialize the response body JSON (from update_response) and assert the
+returned payload contains the updated fields (e.g., that "full_name" == "Updated
+By Admin" and optionally the "id" matches target_id). Locate the test by the
+function name admin_can_update_other_users_profile and the variables
+update_response and target_id; add assertions against the deserialized JSON to
+ensure the update actually changed the stored values. Ensure assertions fail the
+test when the payload does not reflect the update.
+````
+
+</details>
+
+<!-- This is an auto-generated comment by CodeRabbit for review status -->

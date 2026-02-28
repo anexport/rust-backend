@@ -26,7 +26,7 @@ impl LoginThrottle {
         format!("{}|{}", normalized_email, ip.unwrap_or("unknown"))
     }
 
-    pub fn write_entries(
+    pub(crate) fn write_entries(
         &self,
     ) -> std::sync::RwLockWriteGuard<'_, HashMap<String, LoginAttemptState>> {
         self.entries.write().unwrap_or_else(|e| {

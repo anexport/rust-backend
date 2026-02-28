@@ -13,7 +13,7 @@ pub use auth0_config::{Auth0Config, AuthConfig, ConfigError};
 pub use database_config::DatabaseConfig;
 pub use security_config::SecurityConfig;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct AppConfig {
     #[serde(default = "defaults::default_host")]
     pub host: String,
@@ -29,7 +29,7 @@ pub struct AppConfig {
     pub sentry: SentryConfig,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct LoggingConfig {
     #[serde(default = "defaults::default_logging_level")]
     pub level: String,
@@ -37,7 +37,7 @@ pub struct LoggingConfig {
     pub json_format: bool,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Deserialize, Clone, Default)]
 pub struct SentryConfig {
     #[serde(default)]
     pub dsn: Option<String>,
@@ -56,7 +56,7 @@ impl AppConfig {
     pub fn from_env() -> Result<Self, Box<figment::Error>> {
         let mut config: Self = Figment::new()
             .merge(Toml::file("config/default.toml"))
-            .merge(Toml::file("config/development.toml").nested())
+            .merge(Toml::file("config/development.toml"))
             .merge(Env::prefixed("APP_").split("__"))
             .merge(Env::prefixed("DATABASE_").split("__"))
             .merge(Env::prefixed("AUTH_").split("__"))
