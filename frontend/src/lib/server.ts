@@ -38,7 +38,12 @@ export async function fetchServer(path: string, options: RequestInit = {}): Prom
     reqHeadersForFetch.set('Content-Type', 'application/json');
   }
 
-  const upstreamUrl = new URL(path, API_BASE_URL);
+  // Prepend /v1 if path starts with /api/ and doesn't already have it
+  const adjustedPath = path.startsWith('/api/') && !path.startsWith('/api/v1/')
+    ? path.replace('/api/', '/api/v1/')
+    : path;
+
+  const upstreamUrl = new URL(adjustedPath, API_BASE_URL);
 
   const fetchOptions: RequestInit = {
     ...options,

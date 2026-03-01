@@ -3,6 +3,7 @@
 #![allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 
+use crate::common::mocks::auth0_api::MockAuth0ApiClient;
 use crate::common::mocks::{
     MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
@@ -31,52 +32,39 @@ use rust_decimal::Decimal;
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
-// =============================================================================
-// Mock Auth0ApiClient
-// =============================================================================
+// Re-export the canonical MockAuth0ApiClient from common/mocks
+// The full implementation is in tests/common/mocks/auth0_api.rs
 
-#[derive(Clone)]
-pub struct MockAuth0ApiClient;
+// Equipment-search specific create_auth0_token with the right issuer/audience
+// Note: This differs from common::auth0_test_helpers::create_auth0_token
+// which uses "https://test-tenant.auth0.com/" issuer.
+// Equipment_search tests use "https://test.auth0.com/" issuer.
+pub fn create_auth0_token(user_id: Uuid, role: &str) -> String {
+    let mut custom_claims = std::collections::HashMap::new();
+    custom_claims.insert("https://test.com/role".to_string(), serde_json::json!(role));
+    custom_claims.insert("role".to_string(), serde_json::json!(role));
 
-#[async_trait]
-impl rust_backend::infrastructure::auth0_api::Auth0ApiClient for MockAuth0ApiClient {
-    async fn signup(
-        &self,
-        _email: &str,
-        _password: &str,
-        _username: Option<&str>,
-    ) -> rust_backend::error::AppResult<Auth0SignupResponse> {
-        Ok(Auth0SignupResponse {
-            id: "auth0|test_user_id".to_string(),
-            email: _email.to_string(),
-            email_verified: true,
-            username: _username.map(|s| s.to_string()),
-            picture: None,
-            name: None,
-            connection: String::new(),
-            given_name: None,
-            family_name: None,
-            nickname: None,
-            user_metadata: None,
-            created_at: Some(Utc::now().to_rfc3339()),
-            updated_at: Some(Utc::now().to_rfc3339()),
-        })
-    }
+    let claims = Auth0Claims {
+        iss: "https://test.auth0.com/".to_string(),
+        sub: format!("auth0|{}", user_id),
+        aud: Audience::Single("test-api".to_string()),
+        exp: (Utc::now() + Duration::hours(1)).timestamp() as u64,
+        iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
+        email: None,
+        email_verified: Some(true),
+        name: Some("Test User".to_string()),
+        picture: None,
+        custom_claims,
+    };
 
-    async fn password_grant(
-        &self,
-        _email: &str,
-        _password: &str,
-    ) -> rust_backend::error::AppResult<Auth0TokenResponse> {
-        Ok(Auth0TokenResponse {
-            access_token: "mock_access_token".to_string(),
-            refresh_token: Some("mock_refresh_token".to_string()),
-            id_token: "mock_id_token".to_string(),
-            token_type: "Bearer".to_string(),
-            expires_in: 900,
-            scope: None,
-        })
-    }
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some("test-key-id".to_string());
+
+    let private_key_pem = include_str!("../test_private_key.pem");
+    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
+        .expect("Failed to load test private key");
+
+    encode(&header, &claims, &encoding_key).expect("Failed to encode test token")
 }
 
 // =============================================================================
@@ -246,51 +234,8 @@ pub fn security_config() -> SecurityConfig {
     }
 }
 
-// Helper to create a valid Auth0 token with role
-pub fn create_auth0_token_with_role(
-    sub: &str,
-    email: Option<String>,
-    role: &str,
-    exp: i64,
-    key_id: &str,
-) -> String {
-    let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert("https://test.com/role".to_string(), serde_json::json!(role));
-    custom_claims.insert("role".to_string(), serde_json::json!(role));
-
-    let claims = Auth0Claims {
-        iss: "https://test.auth0.com/".to_string(),
-        sub: sub.to_string(),
-        aud: Audience::Single("test-api".to_string()),
-        exp: exp as u64,
-        iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
-        email,
-        email_verified: Some(true),
-        name: Some("Test User".to_string()),
-        picture: None,
-        custom_claims,
-    };
-
-    let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some(key_id.to_string());
-
-    let private_key_pem = include_str!("../test_private_key.pem");
-    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
-        .expect("Failed to load test private key");
-
-    encode(&header, &claims, &encoding_key).expect("Failed to encode test token")
-}
-
-pub fn create_auth0_token(user_id: Uuid, role: &str) -> String {
-    let exp = (Utc::now() + Duration::hours(1)).timestamp();
-    create_auth0_token_with_role(
-        &format!("auth0|{}", user_id),
-        None,
-        role,
-        exp,
-        "test-key-id",
-    )
-}
+// create_auth0_token is re-exported from common/auth0_test_helpers
+// Use: use crate::common::auth0_test_helpers::create_auth0_token;
 
 pub fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo>) -> AppState {
     app_state_with_provisioning(
@@ -307,7 +252,7 @@ pub fn app_state_with_provisioning(
 ) -> AppState {
     let auth_repo = Arc::new(MockAuthRepo::default());
     let category_repo = Arc::new(MockCategoryRepo::default());
-    let auth0_api_client = Arc::new(MockAuth0ApiClient);
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());
 
     AppState {
         auth_service: Arc::new(AuthService::new(user_repo.clone(), auth_repo)),
@@ -344,7 +289,7 @@ pub fn app_with_auth0_data(
     let auth_repo = Arc::new(MockAuthRepo::default());
     let category_repo = Arc::new(MockCategoryRepo::default());
     let message_repo = Arc::new(MockMessageRepo::default());
-    let auth0_api_client = Arc::new(MockAuth0ApiClient);
+    let auth0_api_client = Arc::new(MockAuth0ApiClient::new());
     let provisioning_service = Arc::new(MockJitUserProvisioningService::new(
         user_repo.clone(),
         auth_repo.clone(),

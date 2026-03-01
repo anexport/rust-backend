@@ -1,5 +1,5 @@
 pub mod actions;
 pub mod auth;
 pub mod error;
-pub mod heartbeat;
+pub mod handlers_tests;
 pub mod helpers;

@@ -3,7 +3,7 @@ mod equipment;
 mod message_repository;
 mod traits;
 mod user_repository;
-mod utils;
+pub mod utils;
 
 pub use category_repository::CategoryRepositoryImpl;
 pub use equipment::EquipmentRepositoryImpl;

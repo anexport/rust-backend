@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub fn haversine_km(lat1: f64, lng1: f64, lat2: f64, lng2: f64) -> f64 {
     let r = 6371.0;
     let d_lat = (lat2 - lat1).to_radians();

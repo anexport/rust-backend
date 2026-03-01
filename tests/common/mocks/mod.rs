@@ -1,25 +1,24 @@
-#[allow(dead_code, unused_imports)]
+pub mod auth0_api;
 pub mod auth_repo;
-#[allow(dead_code, unused_imports)]
 pub mod category_repo;
-#[allow(dead_code, unused_imports)]
 pub mod equipment_repo;
-#[allow(dead_code, unused_imports)]
 pub mod message_repo;
-#[allow(dead_code, unused_imports)]
 pub mod user_repo;
-#[allow(dead_code, unused_imports)]
 pub mod utils;
 
-#[allow(dead_code, unused_imports)]
+// Re-export all mock structs for use in tests
+#[allow(unused_imports)]
 pub use auth_repo::MockAuthRepo;
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub use category_repo::MockCategoryRepo;
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub use equipment_repo::MockEquipmentRepo;
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub use message_repo::MockMessageRepo;
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub use user_repo::MockUserRepo;
-#[allow(dead_code, unused_imports)]
+#[allow(unused_imports)]
 pub use utils::haversine_km;
+// Note: MockAuth0ApiClient and MockAuth0User are available from auth0_api
+// but are not re-exported here to avoid unused warnings
+// Tests can import them with: use crate::common::mocks::auth0_api::MockAuth0ApiClient;

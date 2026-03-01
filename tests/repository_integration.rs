@@ -4,7 +4,7 @@ mod common;
 pub mod auth;
 #[path = "repository_integration/category.rs"]
 pub mod category;
-#[path = "repository_integration/equipment.rs"]
+#[path = "repository_integration/equipment/mod.rs"]
 pub mod equipment;
 #[path = "repository_integration/message.rs"]
 pub mod message;
@@ -14,5 +14,7 @@ pub mod phase1;
 pub mod traits_defaults;
 #[path = "repository_integration/user.rs"]
 pub mod user;
+#[path = "repository_integration/utils_tests.rs"]
+pub mod utils_tests;
 
 use rust_backend::domain::AuthProvider as DomainAuthProvider;

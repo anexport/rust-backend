@@ -1,4 +1,5 @@
 use super::*;
+use crate::common::mocks::auth0_api::MockAuth0ApiClient;
 use actix_web::{http::StatusCode, test as actix_test, web, App};
 use rust_backend::security::{cors_middleware, security_headers};
 use std::sync::Arc;

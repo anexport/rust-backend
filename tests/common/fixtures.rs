@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use chrono::Utc;
 use rust_backend::domain::equipment::{Condition, Equipment};
 use rust_backend::domain::user::{AuthIdentity, AuthProvider, Role, User};
@@ -121,5 +123,44 @@ pub fn test_category() -> Category {
         name: format!("Test Category {}", id),
         parent_id: None,
         created_at: Utc::now(),
+    }
+}
+
+pub fn test_user_with_id(id: Uuid) -> User {
+    User {
+        id,
+        email: format!("user-{}@example.com", id),
+        role: Role::Renter,
+        username: Some(format!("user-{}", id)),
+        full_name: Some(format!("User {}", id)),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+pub fn test_owner_with_id(id: Uuid) -> User {
+    User {
+        id,
+        email: format!("owner-{}@example.com", id),
+        role: Role::Owner,
+        username: Some(format!("owner-{}", id)),
+        full_name: Some(format!("Owner {}", id)),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+pub fn test_admin_with_id(id: Uuid) -> User {
+    User {
+        id,
+        email: format!("admin-{}@example.com", id),
+        role: Role::Admin,
+        username: Some(format!("admin-{}", id)),
+        full_name: Some(format!("Admin {}", id)),
+        avatar_url: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
     }
 }

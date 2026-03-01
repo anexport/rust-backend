@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use rust_backend::domain::Category;
 use rust_backend::error::AppResult;

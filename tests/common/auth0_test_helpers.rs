@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, Algorithm, DecodingKey, Header};
@@ -10,13 +12,11 @@ use rust_backend::utils::auth0_claims::{Audience, Auth0Claims, Auth0UserContext}
 use rust_backend::utils::auth0_jwks::JwksProvider;
 use uuid::Uuid;
 
-#[allow(dead_code)]
 pub struct MockJwksProvider {
     pub decoding_key: DecodingKey,
 }
 
 impl MockJwksProvider {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         let public_key_pem = include_str!("../test_public_key.pem");
         let decoding_key = DecodingKey::from_rsa_pem(public_key_pem.as_bytes())

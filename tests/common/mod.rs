@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::env;
 
 use chrono::Utc;
@@ -9,20 +11,14 @@ use sqlx::Connection;
 use tokio::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
-#[allow(dead_code, unused_imports)]
 pub mod app_helpers;
-#[allow(dead_code, unused_imports)]
 pub mod auth0_test_helpers;
-#[allow(dead_code, unused_imports)]
 pub mod fixtures;
-#[allow(dead_code, unused_imports)]
 pub mod mocks;
-#[allow(dead_code, unused_imports)]
 pub mod repository_helpers;
 
 static TEST_DB_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
-#[allow(dead_code)]
 pub struct TestDb {
     pool: PgPool,
     url: String,
@@ -83,18 +79,15 @@ impl TestDb {
         })
     }
 
-    #[allow(dead_code)]
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
 
-    #[allow(dead_code)]
     pub(crate) fn url(&self) -> &str {
         &self.url
     }
 }
 
-#[allow(dead_code)]
 pub fn test_auth_config() -> AuthConfig {
     AuthConfig {
         jwt_secret: "integration-secret".to_string(),
@@ -131,7 +124,6 @@ pub async fn insert_owner_user(pool: &PgPool, email: &str) -> Result<Uuid, sqlx:
     Ok(user_id)
 }
 
-#[allow(dead_code)]
 pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Error> {
     let category_id = Uuid::new_v4();
     sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")
@@ -142,12 +134,10 @@ pub async fn insert_category(pool: &PgPool, name: &str) -> Result<Uuid, sqlx::Er
     Ok(category_id)
 }
 
-#[allow(dead_code)]
 pub async fn setup_test_db() -> TestDb {
     TestDb::new().await.expect("Test DB required")
 }
 
-#[allow(dead_code)]
 pub fn create_app_state(pool: PgPool) -> rust_backend::api::routes::AppState {
     use rust_backend::application::{
         AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,

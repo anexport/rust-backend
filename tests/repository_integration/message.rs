@@ -264,3 +264,185 @@ async fn message_repository_non_participant_access_blocked() {
     let result = message_repo.create_message(&msg).await;
     assert!(result.is_err());
 }
+
+#[tokio::test]
+async fn message_repository_find_conversation_nonexistent() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let non_existent_id = Uuid::new_v4();
+    let found = message_repo
+        .find_conversation(non_existent_id)
+        .await
+        .unwrap();
+    assert!(found.is_none());
+}
+
+#[tokio::test]
+async fn message_repository_create_conversation_with_single_participant() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let user = fixtures::test_user();
+    let created_user = user_repo.create(&user).await.unwrap();
+
+    let conversation = message_repo
+        .create_conversation(vec![created_user.id])
+        .await
+        .unwrap();
+
+    assert_eq!(conversation.id, conversation.id);
+
+    let participants = message_repo
+        .find_participant_ids(conversation.id)
+        .await
+        .unwrap();
+    assert_eq!(participants.len(), 1);
+    assert_eq!(participants[0], created_user.id);
+}
+
+#[tokio::test]
+async fn message_repository_create_conversation_empty_participants_fails() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let result = message_repo.create_conversation(vec![]).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn message_repository_find_conversation_returns_existing() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let user = fixtures::test_user();
+    let created_user = user_repo.create(&user).await.unwrap();
+
+    let conversation = message_repo
+        .create_conversation(vec![created_user.id])
+        .await
+        .unwrap();
+
+    let found = message_repo
+        .find_conversation(conversation.id)
+        .await
+        .unwrap();
+    assert!(found.is_some());
+    let found_conversation = found.unwrap();
+    assert_eq!(found_conversation.id, conversation.id);
+}
+
+#[tokio::test]
+async fn message_repository_find_messages_pagination() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let user1 = fixtures::test_user();
+    let created_user1 = user_repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let created_user2 = user_repo.create(&user2).await.unwrap();
+
+    let conversation = message_repo
+        .create_conversation(vec![created_user1.id, created_user2.id])
+        .await
+        .unwrap();
+
+    // Create 15 messages
+    for i in 0..15 {
+        let msg = Message {
+            id: Uuid::new_v4(),
+            conversation_id: conversation.id,
+            sender_id: created_user1.id,
+            content: format!("Message {}", i),
+            created_at: Utc::now(),
+        };
+        message_repo.create_message(&msg).await.unwrap();
+    }
+
+    let page1 = message_repo
+        .find_messages(conversation.id, 10, 0)
+        .await
+        .unwrap();
+    assert_eq!(page1.len(), 10);
+
+    let page2 = message_repo
+        .find_messages(conversation.id, 10, 10)
+        .await
+        .unwrap();
+    assert_eq!(page2.len(), 5);
+
+    let page3 = message_repo
+        .find_messages(conversation.id, 10, 20)
+        .await
+        .unwrap();
+    assert_eq!(page3.len(), 0);
+}
+
+#[tokio::test]
+async fn message_repository_duplicate_conversation_returns_existing() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let user1 = fixtures::test_user();
+    let created_user1 = user_repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let created_user2 = user_repo.create(&user2).await.unwrap();
+
+    let participant_ids = vec![created_user1.id, created_user2.id];
+
+    // Create first conversation
+    let conv1 = message_repo
+        .create_conversation(participant_ids.clone())
+        .await
+        .unwrap();
+
+    // Try to create duplicate conversation with same participants
+    let conv2 = message_repo
+        .create_conversation(participant_ids.clone())
+        .await
+        .unwrap();
+
+    // Should return the same conversation
+    assert_eq!(conv1.id, conv2.id);
+    assert_eq!(conv1.created_at, conv2.created_at);
+}
+
+#[tokio::test]
+async fn message_repository_duplicate_conversation_different_order() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let user_repo = UserRepositoryImpl::new(db.pool().clone());
+    let message_repo = MessageRepositoryImpl::new(db.pool().clone());
+
+    let user1 = fixtures::test_user();
+    let created_user1 = user_repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let created_user2 = user_repo.create(&user2).await.unwrap();
+
+    let user3 = fixtures::test_user();
+    let created_user3 = user_repo.create(&user3).await.unwrap();
+
+    let participant_ids1 = vec![created_user1.id, created_user2.id, created_user3.id];
+    let participant_ids2 = vec![created_user3.id, created_user2.id, created_user1.id];
+
+    // Create first conversation
+    let conv1 = message_repo
+        .create_conversation(participant_ids1)
+        .await
+        .unwrap();
+
+    // Try to create with same participants but different order
+    let conv2 = message_repo
+        .create_conversation(participant_ids2)
+        .await
+        .unwrap();
+
+    // Should return the same conversation (sorted by ID)
+    assert_eq!(conv1.id, conv2.id);
+}

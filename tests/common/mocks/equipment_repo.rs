@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::utils::haversine_km;
 use async_trait::async_trait;
 use rust_backend::domain::{Equipment, EquipmentPhoto};

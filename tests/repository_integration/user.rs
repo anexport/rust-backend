@@ -4,6 +4,7 @@ use crate::common::fixtures::next_id;
 use crate::common::TestDb;
 use chrono::Utc;
 use rust_backend::domain::*;
+use rust_backend::error::AppError;
 use rust_backend::infrastructure::repositories::*;
 use uuid::Uuid;
 
@@ -170,5 +171,314 @@ async fn user_repository_delete_non_existent_id_is_noop() {
     repo.delete(non_existent_id).await.unwrap();
 
     let found = repo.find_by_id(non_existent_id).await.unwrap();
+    assert!(found.is_none());
+}
+
+#[tokio::test]
+async fn user_repository_list_all() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    // Create users with different roles
+    let user1 = fixtures::test_user();
+    let user1_mut = user1.clone();
+    let mut user1 = user1_mut;
+    user1.email = "user1@example.com".to_string();
+    user1.role = Role::Renter;
+    repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let user2_mut = user2.clone();
+    let mut user2 = user2_mut;
+    user2.email = "user2@example.com".to_string();
+    user2.role = Role::Owner;
+    repo.create(&user2).await.unwrap();
+
+    let user3 = fixtures::test_user();
+    let user3_mut = user3.clone();
+    let mut user3 = user3_mut;
+    user3.email = "user3@example.com".to_string();
+    user3.role = Role::Admin;
+    repo.create(&user3).await.unwrap();
+
+    let all_users = repo.list_all(10, 0, None, None).await.unwrap();
+    assert_eq!(all_users.len(), 3);
+}
+
+#[tokio::test]
+async fn user_repository_list_all_with_pagination() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    // Create 15 users
+    for i in 0..15 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("user{}@example.com", i);
+        repo.create(&user).await.unwrap();
+    }
+
+    let page1 = repo.list_all(10, 0, None, None).await.unwrap();
+    assert_eq!(page1.len(), 10);
+
+    let page2 = repo.list_all(10, 10, None, None).await.unwrap();
+    assert_eq!(page2.len(), 5);
+}
+
+#[tokio::test]
+async fn user_repository_list_all_with_search() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let user1 = fixtures::test_user();
+    let user1_mut = user1.clone();
+    let mut user1 = user1_mut;
+    user1.email = "alice@example.com".to_string();
+    user1.username = Some("alicename".to_string());
+    repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let user2_mut = user2.clone();
+    let mut user2 = user2_mut;
+    user2.email = "bob@example.com".to_string();
+    user2.username = Some("bobby".to_string());
+    repo.create(&user2).await.unwrap();
+
+    let user3 = fixtures::test_user();
+    let user3_mut = user3.clone();
+    let mut user3 = user3_mut;
+    user3.email = "alice.smith@example.com".to_string();
+    user3.username = Some("alices".to_string());
+    repo.create(&user3).await.unwrap();
+
+    // Search for "alice"
+    let alice_results = repo.list_all(10, 0, Some("alice"), None).await.unwrap();
+    assert_eq!(alice_results.len(), 2);
+    assert!(alice_results
+        .iter()
+        .all(|u| u.email.contains("alice")
+            || u.username.as_ref().is_some_and(|u| u.contains("alice"))));
+
+    // Search for "bob"
+    let bob_results = repo.list_all(10, 0, Some("bob"), None).await.unwrap();
+    assert_eq!(bob_results.len(), 1);
+    assert_eq!(bob_results[0].email, "bob@example.com");
+}
+
+#[tokio::test]
+async fn user_repository_list_all_with_role_filter() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    // Create users with different roles
+    for i in 0..3 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("renter{}@example.com", i);
+        user.role = Role::Renter;
+        repo.create(&user).await.unwrap();
+    }
+
+    for i in 0..5 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("owner{}@example.com", i);
+        user.role = Role::Owner;
+        repo.create(&user).await.unwrap();
+    }
+
+    for i in 0..2 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("admin{}@example.com", i);
+        user.role = Role::Admin;
+        repo.create(&user).await.unwrap();
+    }
+
+    let owners = repo.list_all(10, 0, None, Some(Role::Owner)).await.unwrap();
+    assert_eq!(owners.len(), 5);
+    assert!(owners.iter().all(|u| u.role == Role::Owner));
+
+    let admins = repo.list_all(10, 0, None, Some(Role::Admin)).await.unwrap();
+    assert_eq!(admins.len(), 2);
+    assert!(admins.iter().all(|u| u.role == Role::Admin));
+
+    let renters = repo
+        .list_all(10, 0, None, Some(Role::Renter))
+        .await
+        .unwrap();
+    assert_eq!(renters.len(), 3);
+    assert!(renters.iter().all(|u| u.role == Role::Renter));
+}
+
+#[tokio::test]
+async fn user_repository_count_all() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let count_empty = repo.count_all(None, None).await.unwrap();
+    assert_eq!(count_empty, 0);
+
+    // Create users
+    for i in 0..7 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("user{}@example.com", i);
+        repo.create(&user).await.unwrap();
+    }
+
+    let count = repo.count_all(None, None).await.unwrap();
+    assert_eq!(count, 7);
+}
+
+#[tokio::test]
+async fn user_repository_count_all_with_search() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let user1 = fixtures::test_user();
+    let user1_mut = user1.clone();
+    let mut user1 = user1_mut;
+    user1.email = "john.doe@example.com".to_string();
+    user1.username = Some("johndoe".to_string());
+    repo.create(&user1).await.unwrap();
+
+    let user2 = fixtures::test_user();
+    let user2_mut = user2.clone();
+    let mut user2 = user2_mut;
+    user2.email = "jane.smith@example.com".to_string();
+    user2.username = Some("janesmith".to_string());
+    repo.create(&user2).await.unwrap();
+
+    let user3 = fixtures::test_user();
+    let user3_mut = user3.clone();
+    let mut user3 = user3_mut;
+    user3.email = "bob@example.com".to_string();
+    user3.username = Some("bobusername".to_string());
+    repo.create(&user3).await.unwrap();
+
+    let john_count = repo.count_all(Some("john"), None).await.unwrap();
+    assert_eq!(john_count, 1);
+
+    let total_count = repo.count_all(None, None).await.unwrap();
+    assert_eq!(total_count, 3);
+}
+
+#[tokio::test]
+async fn user_repository_count_all_with_role_filter() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    // Create users with different roles
+    for i in 0..4 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("renter{}@example.com", i);
+        user.role = Role::Renter;
+        repo.create(&user).await.unwrap();
+    }
+
+    for i in 0..6 {
+        let user = fixtures::test_user();
+        let user_mut = user.clone();
+        let mut user = user_mut;
+        user.email = format!("owner{}@example.com", i);
+        user.role = Role::Owner;
+        repo.create(&user).await.unwrap();
+    }
+
+    let renter_count = repo.count_all(None, Some(Role::Renter)).await.unwrap();
+    assert_eq!(renter_count, 4);
+
+    let owner_count = repo.count_all(None, Some(Role::Owner)).await.unwrap();
+    assert_eq!(owner_count, 6);
+}
+
+#[tokio::test]
+async fn user_repository_update_role() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let user = fixtures::test_user();
+    let user_mut = user.clone();
+    let mut user = user_mut;
+    user.role = Role::Renter;
+    let created = repo.create(&user).await.unwrap();
+    assert_eq!(created.role, Role::Renter);
+
+    let updated = repo.update_role(created.id, Role::Owner).await.unwrap();
+    assert_eq!(updated.id, created.id);
+    assert_eq!(updated.role, Role::Owner);
+
+    // Verify persisted
+    let found = repo.find_by_id(created.id).await.unwrap().unwrap();
+    assert_eq!(found.role, Role::Owner);
+}
+
+#[tokio::test]
+async fn user_repository_update_role_nonexistent_returns_not_found() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let non_existent_id = Uuid::new_v4();
+    let result = repo.update_role(non_existent_id, Role::Admin).await;
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn user_repository_update_role_multiple_transitions() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let user = fixtures::test_user();
+    let user_mut = user.clone();
+    let mut user = user_mut;
+    user.role = Role::Renter;
+    let created = repo.create(&user).await.unwrap();
+
+    // Renter -> Owner
+    let owner = repo.update_role(created.id, Role::Owner).await.unwrap();
+    assert_eq!(owner.role, Role::Owner);
+
+    // Owner -> Admin
+    let admin = repo.update_role(created.id, Role::Admin).await.unwrap();
+    assert_eq!(admin.role, Role::Admin);
+
+    // Admin -> Renter
+    let renter = repo.update_role(created.id, Role::Renter).await.unwrap();
+    assert_eq!(renter.role, Role::Renter);
+}
+
+#[tokio::test]
+async fn user_repository_find_by_id_nonexistent() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let non_existent_id = Uuid::new_v4();
+    let found = repo.find_by_id(non_existent_id).await.unwrap();
+    assert!(found.is_none());
+}
+
+#[tokio::test]
+async fn user_repository_find_by_email_nonexistent() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let found = repo.find_by_email("nonexistent@example.com").await.unwrap();
+    assert!(found.is_none());
+}
+
+#[tokio::test]
+async fn user_repository_find_by_username_nonexistent() {
+    let db = TestDb::new().await.expect("Test DB required");
+    let repo = UserRepositoryImpl::new(db.pool().clone());
+
+    let found = repo.find_by_username("nonexistent").await.unwrap();
     assert!(found.is_none());
 }

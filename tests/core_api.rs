@@ -7,8 +7,12 @@ mod common;
 
 #[path = "core_api/admin/mod.rs"]
 pub mod admin;
-#[path = "core_api/conversation.rs"]
+#[path = "core_api/admin_tests.rs"]
+pub mod admin_tests;
+#[path = "core_api/conversation/mod.rs"]
 pub mod conversation;
+#[path = "core_api/domain_property_tests.rs"]
+pub mod domain_property_tests;
 #[path = "core_api/equipment.rs"]
 pub mod equipment;
 #[path = "core_api/equipment_extended/mod.rs"]
@@ -17,20 +21,24 @@ pub mod equipment_extended;
 pub mod equipment_photos;
 #[path = "core_api/messages/mod.rs"]
 pub mod messages;
+#[path = "core_api/messages_routes_tests.rs"]
+pub mod messages_routes_tests;
 #[path = "core_api/system.rs"]
 pub mod system;
 #[path = "core_api/user/mod.rs"]
 pub mod user_routes;
 #[path = "core_api/users.rs"]
 pub mod users;
+#[path = "core_api/users_routes_tests.rs"]
+pub mod users_routes_tests;
 
 use actix_web::web;
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use common::mocks::{
     MockAuthRepo, MockCategoryRepo, MockEquipmentRepo, MockMessageRepo, MockUserRepo,
 };
-use jsonwebtoken::{encode, Algorithm, DecodingKey, EncodingKey, Header};
+use jsonwebtoken::DecodingKey;
 use rust_backend::api::routes::AppState;
 use rust_backend::application::{
     AdminService, AuthService, CategoryService, EquipmentService, MessageService, UserService,
@@ -271,51 +279,9 @@ pub fn security_config() -> SecurityConfig {
     }
 }
 
-// Helper to create a valid Auth0 token with role
-pub fn create_auth0_token_with_role(
-    sub: &str,
-    email: Option<String>,
-    role: &str,
-    exp: i64,
-    key_id: &str,
-) -> String {
-    let mut custom_claims = std::collections::HashMap::new();
-    custom_claims.insert("https://test.com/role".to_string(), serde_json::json!(role));
-    custom_claims.insert("role".to_string(), serde_json::json!(role));
-
-    let claims = Auth0Claims {
-        iss: "https://test.auth0.com/".to_string(),
-        sub: sub.to_string(),
-        aud: Audience::Single("test-api".to_string()),
-        exp: exp as u64,
-        iat: (Utc::now() - Duration::hours(1)).timestamp() as u64,
-        email,
-        email_verified: Some(true),
-        name: Some("Test User".to_string()),
-        picture: None,
-        custom_claims,
-    };
-
-    let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some(key_id.to_string());
-
-    let private_key_pem = include_str!("test_private_key.pem");
-    let encoding_key = EncodingKey::from_rsa_pem(private_key_pem.as_bytes())
-        .expect("Failed to load test private key");
-
-    encode(&header, &claims, &encoding_key).expect("Failed to encode test token")
-}
-
-pub fn create_auth0_token(user_id: Uuid, role: &str) -> String {
-    let exp = (Utc::now() + Duration::hours(1)).timestamp();
-    create_auth0_token_with_role(
-        &format!("auth0|{}", user_id),
-        None,
-        role,
-        exp,
-        "test-key-id",
-    )
-}
+// Re-export create_auth0_token from common/auth0_test_helpers
+// for use by core_api submodules
+pub use crate::common::auth0_test_helpers::create_auth0_token;
 
 pub fn app_state(user_repo: Arc<MockUserRepo>, equipment_repo: Arc<MockEquipmentRepo>) -> AppState {
     app_state_with_provisioning(

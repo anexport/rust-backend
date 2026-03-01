@@ -34,6 +34,9 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   }
 
   const pathString = `/${path.join('/')}`;
+  const adjustedPathString = pathString.startsWith('/api/') && !pathString.startsWith('/api/v1/')
+    ? pathString.replace('/api/', '/api/v1/')
+    : (pathString.startsWith('/v1/') ? `/api${pathString}` : (pathString.startsWith('/api/v1/') ? pathString : `/api/v1${pathString}`));
 
   let token;
   const proxyRes = new NextResponse();
@@ -59,7 +62,7 @@ async function handler(req: NextRequest, { params }: { params: Promise<{ path: s
   }
 
   const searchParams = req.nextUrl.searchParams.toString();
-  const url = `${API_BASE_URL}${pathString}${searchParams ? `?${searchParams}` : ''}`;
+  const url = `${API_BASE_URL}${adjustedPathString}${searchParams ? `?${searchParams}` : ''}`;
 
   const fetchOptions: RequestInit & { duplex?: string } = {
     method: req.method,
